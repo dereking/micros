@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Micro Web Player</title>
+  </head>
+  <body>
+    <main class="player-shell">
+      <header class="player-header">
+        <p class="eyebrow">Micro Web Player</p>
+        <h1>One App. Every Runtime.</h1>
+        <p class="subtitle">The Counter MBC is executing in the shared Rust Runtime through WebAssembly.</p>
+      </header>
+      <section class="device-frame" aria-label="Micro device simulator">
+        <div class="device-camera" aria-hidden="true"></div>
+        <div id="micro-device" class="device-screen"></div>
+      </section>
+      <p class="runtime-status"><span></span> WebAssembly runtime connected</p>
+      <pre data-runtime-error hidden></pre>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,10 +1,21 @@
 {
   "name": "micro-app-platform-mvp",
   "private": true,
+  "type": "module",
   "version": "0.1.0",
   "scripts": {
     "build:app": "cargo run -p micro-compiler --bin microc -- apps/counter/app.ts apps/counter/dist/app.mbc",
+    "build:web:app": "cargo run -p micro-compiler --bin microc -- apps/counter/app.ts products/micro-web-player/public/apps/counter.mbc",
+    "build:web:wasm": "wasm-pack build crates/micro-host-web --target web --out-dir ../../products/micro-web-player/src/generated --out-name micro_web",
+    "build:web": "npm run build:web:app && npm run build:web:wasm && vite build products/micro-web-player",
+    "dev:web": "npm run build:web:app && npm run build:web:wasm && vite products/micro-web-player --host 127.0.0.1",
+    "preview:web": "vite preview products/micro-web-player --host 127.0.0.1 --port 4173",
     "demo": "npm run build:app && cargo run -p micro-host-sdl --features native -- apps/counter/dist/app.mbc",
-    "test": "cargo test --workspace"
+    "test": "cargo test --workspace",
+    "test:web": "npm run build:web && playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "vite": "^8.2.1"
   }
 }

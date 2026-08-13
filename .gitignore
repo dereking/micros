@@ -47,3 +47,10 @@ tmp/
 temp/
 *.tmp
 *.bak
+
+# Web Player and browser test output
+products/micro-web-player/src/generated/
+products/micro-web-player/public/apps/*.mbc
+products/micro-web-player/dist/
+test-results/
+playwright-report/
