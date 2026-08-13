@@ -15,11 +15,11 @@ generated `sdkconfig`, or build output.
 
 ## Install and verify
 
-**Status:** The project-local ESP-IDF 5.5.4 toolchain was installed and used to
-build the Micro OS scaffold on 2026-08-14. The Espressif Rust toolchain remains
-deferred until the Rust Runtime integration task. This records only a local
-toolchain/build check; no firmware was flashed and no hardware verification was
-performed.
+**Status:** The project-local ESP-IDF 5.5.4 and Espressif Rust toolchains were
+installed and used to build the Micro OS scaffold plus shared Rust Runtime on
+2026-08-14. The target is `xtensa-esp32s3-espidf`; the generated firmware map
+contains `libmicro_host_esp32.a`. This records only a local toolchain/build
+check; no firmware was flashed and no hardware verification was performed.
 
 Run from the repository root. All cloned or generated toolchain state stays
 under the ignored `work/toolchains/` tree. These commands install a project-local

@@ -307,6 +307,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "micro-host-esp32"
+version = "0.1.0"
+dependencies = [
+ "micro-compiler",
+ "micro-core",
+ "micro-ir",
+ "micro-lvgl",
+ "micro-os-core",
+]
+
+[[package]]
 name = "micro-host-sdl"
 version = "0.1.0"
 dependencies = [

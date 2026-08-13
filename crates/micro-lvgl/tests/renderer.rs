@@ -42,6 +42,10 @@ impl NativeUi for FakeBridge {
         self.0.push(Call::SetText(node, text.into()));
         Ok(())
     }
+
+    fn destroy_app_root(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 fn tree() -> MicroUiTree {

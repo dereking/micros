@@ -148,6 +148,15 @@ void micro_native_destroy(micro_native_t *native) {
     free(native);
 }
 
+int micro_native_destroy_app_root(micro_native_t *native) {
+    if (native == NULL || native->display == NULL) {
+        return 0;
+    }
+    lv_obj_clean(lv_display_get_screen_active(native->display));
+    memset(native->objects, 0, sizeof(native->objects));
+    return 1;
+}
+
 int micro_native_poll(micro_native_t *native) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {

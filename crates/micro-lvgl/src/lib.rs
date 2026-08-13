@@ -19,6 +19,7 @@ pub trait NativeUi {
         handler: FunctionId,
     ) -> Result<(), String>;
     fn set_label_text(&mut self, node: NodeId, text: &str) -> Result<(), String>;
+    fn destroy_app_root(&mut self) -> Result<(), String>;
 }
 
 pub struct LvglRenderer<B> {

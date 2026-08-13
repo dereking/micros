@@ -34,6 +34,7 @@ unsafe extern "C" {
     ) -> c_int;
     fn micro_native_set_label_text(native: *mut c_void, node: c_uint, text: *const c_char)
     -> c_int;
+    fn micro_native_destroy_app_root(native: *mut c_void) -> c_int;
 }
 
 pub struct NativeBridge {
@@ -156,6 +157,13 @@ impl NativeUi for NativeBridge {
         native_result(
             unsafe { micro_native_set_label_text(self.raw.as_ptr(), node.0, text.as_ptr()) },
             "set label text",
+        )
+    }
+
+    fn destroy_app_root(&mut self) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_destroy_app_root(self.raw.as_ptr()) },
+            "destroy app root",
         )
     }
 }
