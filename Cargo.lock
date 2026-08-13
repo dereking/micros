@@ -342,6 +342,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "micro-os-core"
+version = "0.1.0"
+
+[[package]]
 name = "micro-renderer-web"
 version = "0.1.0"
 dependencies = [

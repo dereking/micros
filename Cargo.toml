@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/micro-os-core",
   "crates/micro-board-profile",
   "crates/micro-ir",
   "crates/micro-vm",
@@ -18,6 +19,7 @@ license = "MIT"
 version = "0.1.0"
 
 [workspace.dependencies]
+micro-os-core = { path = "crates/micro-os-core" }
 micro-ir = { path = "crates/micro-ir" }
 micro-vm = { path = "crates/micro-vm" }
 micro-core = { path = "crates/micro-core" }
