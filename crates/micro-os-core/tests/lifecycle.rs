@@ -407,6 +407,20 @@ fn persistence_cannot_be_overwritten_by_new_provisioning() {
 }
 
 #[test]
+fn destructive_requests_are_rejected_while_wifi_persistence_is_in_flight() {
+    let mut os = MicroOs::new();
+    boot_first_run(&mut os);
+    let Action::ConnectWifi { operation } = os.dispatch(Event::WifiConnectRequested) else {
+        panic!()
+    };
+    os.dispatch(Event::WifiConnected { operation });
+    let before = os.clone();
+    assert_eq!(os.dispatch(Event::ClearNetworkRequested), Action::Rejected);
+    assert_eq!(os.dispatch(Event::FactoryResetRequested), Action::Rejected);
+    assert_eq!(os, before);
+}
+
+#[test]
 fn concurrent_scan_is_rejected_and_active_scan_completion_remains_valid() {
     let mut os = MicroOs::new();
     boot_first_run(&mut os);
@@ -430,6 +444,45 @@ fn concurrent_scan_is_rejected_and_active_scan_completion_remains_valid() {
         os.dispatch(Event::WifiScanCompleted { operation: first }),
         Action::Rejected
     );
+}
+
+#[test]
+fn scan_failure_is_tokened_and_releases_the_radio() {
+    let mut os = MicroOs::new();
+    boot_first_run(&mut os);
+    let Action::StartWifiScan { operation } = os.dispatch(Event::WifiScanRequested) else {
+        panic!()
+    };
+    let stale = WifiOperationId(operation.0 + 1);
+    assert_eq!(
+        os.dispatch(Event::WifiScanFailed {
+            operation: stale,
+            reason: WifiFailure::Internal
+        }),
+        Action::Rejected
+    );
+    assert_eq!(
+        os.provisioning_state(),
+        &ProvisioningState::Scanning(operation)
+    );
+    assert_eq!(
+        os.dispatch(Event::WifiScanFailed {
+            operation,
+            reason: WifiFailure::Internal
+        }),
+        Action::None
+    );
+    assert!(matches!(
+        os.provisioning_state(),
+        ProvisioningState::Failed {
+            operation: failed,
+            reason: WifiFailure::Internal
+        } if *failed == operation
+    ));
+    assert!(matches!(
+        os.dispatch(Event::WifiScanRequested),
+        Action::StartWifiScan { .. }
+    ));
 }
 
 #[test]
@@ -610,6 +663,121 @@ fn destructive_operations_freeze_trusted_context_until_completion() {
         Action::None
     );
     assert_eq!(reset.dispatch(Event::HomePressed), Action::ShowLauncher);
+}
+
+#[test]
+fn destructive_execution_blocks_wifi_and_cancels_pending_reconnect() {
+    let mut clear = MicroOs::new();
+    let failed_operation = boot_configured(&mut clear);
+    let Action::ScheduleWifiReconnect { reconnect, .. } = clear.dispatch(Event::WifiFailed {
+        operation: failed_operation,
+        reason: WifiFailure::Timeout,
+    }) else {
+        panic!()
+    };
+    clear.dispatch(Event::OpenSettings);
+    let Action::ConfirmClearNetwork { confirmation } = clear.dispatch(Event::ClearNetworkRequested)
+    else {
+        panic!()
+    };
+    assert_eq!(
+        clear.dispatch(Event::ReconnectDue { reconnect }),
+        Action::Rejected
+    );
+    clear.dispatch(Event::ClearNetworkConfirmed { confirmation });
+    assert_eq!(clear.dispatch(Event::WifiScanRequested), Action::Rejected);
+    assert_eq!(
+        clear.dispatch(Event::WifiConnectRequested),
+        Action::Rejected
+    );
+    assert_eq!(
+        clear.dispatch(Event::ReconnectDue { reconnect }),
+        Action::Rejected
+    );
+    assert_eq!(
+        clear.dispatch(Event::ReconnectNowRequested),
+        Action::Rejected
+    );
+    assert_eq!(
+        clear.dispatch(Event::WifiConnected {
+            operation: failed_operation
+        }),
+        Action::Rejected
+    );
+    clear.dispatch(Event::ClearNetworkCompleted {
+        confirmation,
+        result: Err(FailureReason::Internal),
+    });
+
+    let mut reset = MicroOs::new();
+    connect_saved(&mut reset);
+    reset.dispatch(Event::OpenSettings);
+    let Action::ConfirmFactoryReset { confirmation } = reset.dispatch(Event::FactoryResetRequested)
+    else {
+        panic!()
+    };
+    reset.dispatch(Event::FactoryResetConfirmed { confirmation });
+    assert_eq!(reset.dispatch(Event::WifiScanRequested), Action::Rejected);
+    assert_eq!(
+        reset.dispatch(Event::WifiConnectRequested),
+        Action::Rejected
+    );
+    assert_eq!(
+        reset.dispatch(Event::ReconnectNowRequested),
+        Action::Rejected
+    );
+    reset.dispatch(Event::FactoryResetCompleted {
+        confirmation,
+        result: Err(FailureReason::Internal),
+    });
+}
+
+#[test]
+fn pending_destructive_confirmation_prevents_wifi_from_racing_confirm() {
+    let mut os = MicroOs::new();
+    connect_saved(&mut os);
+    os.dispatch(Event::OpenSettings);
+    let Action::ConfirmClearNetwork { confirmation } = os.dispatch(Event::ClearNetworkRequested)
+    else {
+        panic!()
+    };
+    assert_eq!(os.dispatch(Event::WifiScanRequested), Action::Rejected);
+    assert_eq!(os.dispatch(Event::WifiConnectRequested), Action::Rejected);
+    assert_eq!(os.dispatch(Event::ReconnectNowRequested), Action::Rejected);
+    assert_eq!(
+        os.dispatch(Event::ClearNetworkConfirmed { confirmation }),
+        Action::ClearNetwork { confirmation }
+    );
+}
+
+#[test]
+fn completed_wifi_token_remains_stale_across_destructive_confirmation() {
+    let mut os = MicroOs::new();
+    connect_saved(&mut os);
+    os.dispatch(Event::OpenSettings);
+    let Action::StartWifiScan { operation } = os.dispatch(Event::WifiScanRequested) else {
+        panic!()
+    };
+    assert_eq!(
+        os.dispatch(Event::WifiScanCompleted { operation }),
+        Action::None
+    );
+    let Action::ConfirmClearNetwork { confirmation } = os.dispatch(Event::ClearNetworkRequested)
+    else {
+        panic!()
+    };
+    assert_eq!(
+        os.dispatch(Event::WifiScanCompleted { operation }),
+        Action::Rejected
+    );
+    os.dispatch(Event::ClearNetworkConfirmed { confirmation });
+    assert_eq!(
+        os.dispatch(Event::WifiScanFailed {
+            operation,
+            reason: WifiFailure::Internal
+        }),
+        Action::Rejected
+    );
 }
 
 #[test]
