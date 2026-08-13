@@ -4,6 +4,7 @@ Thumbs.db
 
 # Local agent and editor state
 .superpowers/
+.worktrees/
 .idea/
 .vscode/
 *.swp
