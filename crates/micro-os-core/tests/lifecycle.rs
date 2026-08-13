@@ -356,41 +356,34 @@ fn configured_boot_connects_saved_wifi_without_blocking_launcher() {
 }
 
 #[test]
-fn stale_wifi_attempt_and_persist_callbacks_cannot_promote_credentials() {
+fn concurrent_wifi_attempt_is_rejected_without_invalidating_active_operation() {
     let mut os = MicroOs::new();
     boot_first_run(&mut os);
     let Action::ConnectWifi { operation: first } = os.dispatch(Event::WifiConnectRequested) else {
         panic!()
     };
-    let Action::ConnectWifi { operation: second } = os.dispatch(Event::WifiConnectRequested) else {
-        panic!()
-    };
-    assert_ne!(first, second);
+    assert_eq!(os.dispatch(Event::WifiConnectRequested), Action::Rejected);
+    assert_eq!(os.dispatch(Event::WifiScanRequested), Action::Rejected);
+    let stale = WifiOperationId(first.0 + 1);
+    assert_eq!(
+        os.dispatch(Event::WifiConnected { operation: stale }),
+        Action::Rejected
+    );
     assert_eq!(
         os.dispatch(Event::WifiFailed {
-            operation: first,
+            operation: stale,
             reason: WifiFailure::Timeout
         }),
         Action::Rejected
     );
     assert_eq!(
+        os.provisioning_state(),
+        &ProvisioningState::ConnectingReplacement(first)
+    );
+    assert_eq!(
         os.dispatch(Event::WifiConnected { operation: first }),
-        Action::Rejected
+        Action::PersistWifi { operation: first }
     );
-    assert_eq!(
-        os.dispatch(Event::WifiConnected { operation: second }),
-        Action::PersistWifi { operation: second }
-    );
-    assert_eq!(
-        os.dispatch(Event::WifiPersisted { operation: first }),
-        Action::Rejected
-    );
-    assert!(!os.network_configured());
-    assert_eq!(
-        os.dispatch(Event::WifiPersisted { operation: second }),
-        Action::ShowLauncher
-    );
-    assert!(os.network_configured());
 }
 
 #[test]
@@ -414,25 +407,42 @@ fn persistence_cannot_be_overwritten_by_new_provisioning() {
 }
 
 #[test]
-fn stale_scan_completion_is_rejected() {
+fn concurrent_scan_is_rejected_and_active_scan_completion_remains_valid() {
     let mut os = MicroOs::new();
     boot_first_run(&mut os);
     let Action::StartWifiScan { operation: first } = os.dispatch(Event::WifiScanRequested) else {
         panic!()
     };
-    let Action::StartWifiScan { operation: second } = os.dispatch(Event::WifiScanRequested) else {
-        panic!()
-    };
+    assert_eq!(os.dispatch(Event::WifiScanRequested), Action::Rejected);
+    assert_eq!(os.dispatch(Event::WifiConnectRequested), Action::Rejected);
+    assert_eq!(os.provisioning_state(), &ProvisioningState::Scanning(first));
+    assert_eq!(
+        os.dispatch(Event::WifiScanCompleted {
+            operation: WifiOperationId(first.0 + 1)
+        }),
+        Action::Rejected
+    );
+    assert_eq!(
+        os.dispatch(Event::WifiScanCompleted { operation: first }),
+        Action::None
+    );
     assert_eq!(
         os.dispatch(Event::WifiScanCompleted { operation: first }),
         Action::Rejected
     );
+}
+
+#[test]
+fn replacement_is_rejected_while_saved_wifi_connect_is_in_flight() {
+    let mut os = MicroOs::new();
+    let operation = boot_configured(&mut os);
+    os.dispatch(Event::OpenSettings);
+    let before = os.clone();
+    assert_eq!(os.dispatch(Event::WifiScanRequested), Action::Rejected);
+    assert_eq!(os.dispatch(Event::WifiConnectRequested), Action::Rejected);
+    assert_eq!(os, before);
     assert_eq!(
-        os.provisioning_state(),
-        &ProvisioningState::Scanning(second)
-    );
-    assert_eq!(
-        os.dispatch(Event::WifiScanCompleted { operation: second }),
+        os.dispatch(Event::WifiConnected { operation }),
         Action::None
     );
 }
@@ -451,18 +461,12 @@ fn replacement_scan_and_failure_preserve_active_link_and_credentials() {
         panic!()
     };
     assert_eq!(os.live_wifi_state(), &LiveWifiState::Connected);
-    let action = os.dispatch(Event::WifiFailed {
-        operation,
-        reason: WifiFailure::Authentication,
-    });
-    let Action::Actions(actions) = action else {
-        panic!()
-    };
-    assert!(actions.contains(&Action::ClearPendingWifi { operation }));
-    assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::ScheduleWifiReconnect { after_secs: 1, .. }))
+    assert_eq!(
+        os.dispatch(Event::WifiFailed {
+            operation,
+            reason: WifiFailure::Authentication,
+        }),
+        Action::ClearPendingWifi { operation }
     );
     assert!(os.network_configured());
     assert_eq!(os.live_wifi_state(), &LiveWifiState::Connected);
@@ -526,13 +530,86 @@ fn replacement_provisioning_invalidates_pending_saved_reconnect() {
         panic!()
     };
     os.dispatch(Event::OpenSettings);
-    let Action::ConnectWifi { .. } = os.dispatch(Event::WifiConnectRequested) else {
+    let Action::ConnectWifi {
+        operation: replacement,
+    } = os.dispatch(Event::WifiConnectRequested)
+    else {
         panic!()
     };
     assert_eq!(
         os.dispatch(Event::ReconnectDue { reconnect }),
         Action::Rejected
     );
+    let Action::Actions(actions) = os.dispatch(Event::WifiFailed {
+        operation: replacement,
+        reason: WifiFailure::Authentication,
+    }) else {
+        panic!()
+    };
+    assert!(actions.contains(&Action::ClearPendingWifi {
+        operation: replacement
+    }));
+    let Some(Action::ScheduleWifiReconnect { reconnect, .. }) = actions
+        .iter()
+        .find(|action| matches!(action, Action::ScheduleWifiReconnect { .. }))
+    else {
+        panic!("disconnected saved network must be recoverable")
+    };
+    assert!(matches!(
+        os.dispatch(Event::ReconnectDue {
+            reconnect: *reconnect
+        }),
+        Action::ConnectSavedWifi { .. }
+    ));
+}
+
+#[test]
+fn destructive_operations_freeze_trusted_context_until_completion() {
+    let mut clear = MicroOs::new();
+    connect_saved(&mut clear);
+    clear.dispatch(Event::OpenSettings);
+    let Action::ConfirmClearNetwork { confirmation } = clear.dispatch(Event::ClearNetworkRequested)
+    else {
+        panic!()
+    };
+    clear.dispatch(Event::ClearNetworkConfirmed { confirmation });
+    assert_eq!(clear.dispatch(Event::BackPressed), Action::Rejected);
+    assert_eq!(
+        clear.dispatch(Event::OpenApp(AppId::Counter)),
+        Action::Rejected
+    );
+    assert_eq!(clear.state(), &State::Settings);
+    assert_eq!(
+        clear.dispatch(Event::ClearNetworkCompleted {
+            confirmation,
+            result: Err(FailureReason::Internal)
+        }),
+        Action::None
+    );
+    assert_eq!(clear.dispatch(Event::BackPressed), Action::ShowLauncher);
+
+    let mut reset = MicroOs::new();
+    connect_saved(&mut reset);
+    reset.dispatch(Event::OpenSettings);
+    let Action::ConfirmFactoryReset { confirmation } = reset.dispatch(Event::FactoryResetRequested)
+    else {
+        panic!()
+    };
+    reset.dispatch(Event::FactoryResetConfirmed { confirmation });
+    assert_eq!(reset.dispatch(Event::HomePressed), Action::Rejected);
+    assert_eq!(
+        reset.dispatch(Event::OpenApp(AppId::Counter)),
+        Action::Rejected
+    );
+    assert_eq!(reset.state(), &State::Settings);
+    assert_eq!(
+        reset.dispatch(Event::FactoryResetCompleted {
+            confirmation,
+            result: Err(FailureReason::Internal)
+        }),
+        Action::None
+    );
+    assert_eq!(reset.dispatch(Event::HomePressed), Action::ShowLauncher);
 }
 
 #[test]
@@ -677,13 +754,13 @@ fn all_wifi_failure_reasons_retain_operation_identity() {
         let Action::ConnectWifi { operation } = os.dispatch(Event::WifiConnectRequested) else {
             panic!()
         };
-        let Action::Actions(actions) = os.dispatch(Event::WifiFailed {
-            operation,
-            reason: reason.clone(),
-        }) else {
-            panic!()
-        };
-        assert!(actions.contains(&Action::ClearPendingWifi { operation }));
+        assert_eq!(
+            os.dispatch(Event::WifiFailed {
+                operation,
+                reason: reason.clone(),
+            }),
+            Action::ClearPendingWifi { operation }
+        );
         assert!(matches!(
             os.provisioning_state(),
             ProvisioningState::Failed {

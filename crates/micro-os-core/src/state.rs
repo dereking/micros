@@ -292,6 +292,22 @@ impl MicroOs {
     }
 
     pub fn dispatch(&mut self, event: Event) -> Action {
+        if self.destructive_operation_in_flight()
+            && matches!(
+                &event,
+                Event::SetupSkipped
+                    | Event::OpenSettings
+                    | Event::BackPressed
+                    | Event::HomePressed
+                    | Event::OpenApp(_)
+                    | Event::AppStarted { .. }
+                    | Event::AppFailed { .. }
+                    | Event::RestartApp
+                    | Event::AppStopped { .. }
+            )
+        {
+            return Action::Rejected;
+        }
         match event {
             Event::BootSampled { safe_mode } => self.boot_sampled(safe_mode),
             Event::StorageInitialized(result) => self.storage_initialized(result),
@@ -570,10 +586,19 @@ impl MicroOs {
         matches!(self.state, State::FirstRunSetup | State::Settings)
     }
 
+    fn destructive_operation_in_flight(&self) -> bool {
+        self.clearing_network.is_some() || self.factory_resetting.is_some()
+    }
+
+    fn wifi_admits_provisioning(&self) -> bool {
+        matches!(
+            self.provisioning_state,
+            ProvisioningState::Idle | ProvisioningState::Failed { .. }
+        ) && !matches!(self.live_wifi_state, LiveWifiState::Connecting(_))
+    }
+
     fn wifi_scan_requested(&mut self) -> Action {
-        if !self.wifi_context()
-            || matches!(self.provisioning_state, ProvisioningState::Persisting(_))
-        {
+        if !self.wifi_context() || !self.wifi_admits_provisioning() {
             return Action::Rejected;
         }
         let Some(operation) = self.issue_wifi_operation_id() else {
@@ -593,9 +618,7 @@ impl MicroOs {
     }
 
     fn wifi_connect_requested(&mut self) -> Action {
-        if !self.wifi_context()
-            || matches!(self.provisioning_state, ProvisioningState::Persisting(_))
-        {
+        if !self.wifi_context() || !self.wifi_admits_provisioning() {
             return Action::Rejected;
         }
         let Some(operation) = self.issue_wifi_operation_id() else {
@@ -647,34 +670,52 @@ impl MicroOs {
         if !saved_connect && !replacement {
             return Action::Rejected;
         }
-        let Some(reconnect) = self.issue_wifi_operation_id() else {
-            return Action::Rejected;
+        let needs_saved_recovery = self.network_configured
+            && (saved_connect || self.live_wifi_state == LiveWifiState::Disconnected);
+        let reconnect = if needs_saved_recovery {
+            let Some(reconnect) = self.issue_wifi_operation_id() else {
+                return Action::Rejected;
+            };
+            Some(reconnect)
+        } else {
+            None
         };
-        let delay = RECONNECT_DELAYS[self.reconnect_index];
-        self.reconnect_index = (self.reconnect_index + 1).min(RECONNECT_DELAYS.len() - 1);
-        self.pending_reconnect = Some(reconnect);
         if saved_connect {
             self.live_wifi_state = LiveWifiState::Disconnected;
         }
         if replacement {
             self.provisioning_state = ProvisioningState::Failed { operation, reason };
-            Action::Actions(vec![
-                Action::ClearPendingWifi { operation },
-                Action::ScheduleWifiReconnect {
-                    reconnect,
-                    after_secs: delay,
-                },
-            ])
-        } else {
-            Action::ScheduleWifiReconnect {
+        }
+        if let Some(reconnect) = reconnect {
+            let delay = RECONNECT_DELAYS[self.reconnect_index];
+            self.reconnect_index = (self.reconnect_index + 1).min(RECONNECT_DELAYS.len() - 1);
+            self.pending_reconnect = Some(reconnect);
+            let schedule = Action::ScheduleWifiReconnect {
                 reconnect,
                 after_secs: delay,
+            };
+            if replacement {
+                Action::Actions(vec![Action::ClearPendingWifi { operation }, schedule])
+            } else {
+                schedule
             }
+        } else if replacement {
+            self.pending_reconnect = None;
+            Action::ClearPendingWifi { operation }
+        } else {
+            Action::None
         }
     }
 
     fn reconnect_due(&mut self, reconnect: WifiOperationId) -> Action {
-        if self.pending_reconnect != Some(reconnect) || !self.network_configured {
+        if self.pending_reconnect != Some(reconnect)
+            || !self.network_configured
+            || self.live_wifi_state != LiveWifiState::Disconnected
+            || !matches!(
+                self.provisioning_state,
+                ProvisioningState::Idle | ProvisioningState::Failed { .. }
+            )
+        {
             return Action::Rejected;
         }
         let Some(operation) = self.issue_wifi_operation_id() else {
@@ -686,7 +727,13 @@ impl MicroOs {
     }
 
     fn connect_saved_now(&mut self) -> Action {
-        if !self.network_configured {
+        if !self.network_configured
+            || matches!(self.live_wifi_state, LiveWifiState::Connecting(_))
+            || !matches!(
+                self.provisioning_state,
+                ProvisioningState::Idle | ProvisioningState::Failed { .. }
+            )
+        {
             return Action::Rejected;
         }
         let Some(operation) = self.issue_wifi_operation_id() else {
@@ -806,5 +853,65 @@ impl MicroOs {
         self.cancel_pending_confirmation();
         self.state = State::SafeMode;
         Action::EnterSafeMode(reason)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn confirmation_ids_stop_before_max_without_mutating_state() {
+        let mut os = MicroOs::new();
+        os.state = State::Settings;
+        os.next_confirmation_id = u64::MAX - 1;
+        assert_eq!(
+            os.dispatch(Event::ClearNetworkRequested),
+            Action::ConfirmClearNetwork {
+                confirmation: ConfirmationId(u64::MAX - 1)
+            }
+        );
+        os.pending_confirmation = None;
+        let before = os.clone();
+        assert_eq!(os.dispatch(Event::ClearNetworkRequested), Action::Rejected);
+        assert_eq!(os, before);
+    }
+
+    #[test]
+    fn wifi_operation_ids_stop_before_max_without_mutating_state() {
+        let mut os = MicroOs::new();
+        os.state = State::FirstRunSetup;
+        os.next_wifi_operation_id = u64::MAX - 1;
+        assert_eq!(
+            os.dispatch(Event::WifiScanRequested),
+            Action::StartWifiScan {
+                operation: WifiOperationId(u64::MAX - 1)
+            }
+        );
+        os.provisioning_state = ProvisioningState::Idle;
+        let before = os.clone();
+        assert_eq!(os.dispatch(Event::WifiScanRequested), Action::Rejected);
+        assert_eq!(os, before);
+    }
+
+    #[test]
+    fn app_session_ids_stop_before_max_without_mutating_state() {
+        let mut os = MicroOs::new();
+        os.state = State::Launcher;
+        os.next_app_session_id = u64::MAX - 1;
+        assert_eq!(
+            os.dispatch(Event::OpenApp(AppId::Counter)),
+            Action::StartApp {
+                app: AppId::Counter,
+                session: AppSessionId(u64::MAX - 1)
+            }
+        );
+        os.state = State::Launcher;
+        let before = os.clone();
+        assert_eq!(
+            os.dispatch(Event::OpenApp(AppId::Counter)),
+            Action::Rejected
+        );
+        assert_eq!(os, before);
     }
 }
