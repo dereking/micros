@@ -7,6 +7,13 @@ readonly official_sha256='5351d443eaa605cab1eb80d050d867c18e1ce2b33c9cbc78aae1b7
 readonly example_path='ESP32-S3-Touch-LCD-7-Demo/ESP-IDF/08_lvgl_Porting'
 readonly repo_root=${0:A:h:h}
 readonly default_vendor_dir="$repo_root/work/vendor/spotpear"
+readonly test_mode=${MICRO_SPOTPEAR_TEST_MODE:-0}
+
+if [[ $test_mode != 1 ]] && \
+   (( ${+MICRO_SPOTPEAR_URL} || ${+MICRO_SPOTPEAR_SHA256} || ${+MICRO_SPOTPEAR_OUT} )); then
+  print -u2 -- 'vendor overrides require MICRO_SPOTPEAR_TEST_MODE=1'
+  exit 2
+fi
 
 if (( ${+MICRO_SPOTPEAR_OUT} )) && [[ -z $MICRO_SPOTPEAR_OUT ]]; then
   print -u2 -- 'MICRO_SPOTPEAR_OUT must not be empty'
@@ -37,7 +44,8 @@ case "$canonical_vendor_dir" in
     ;;
 esac
 
-if [[ ${MICRO_SPOTPEAR_TEST_ALLOW_OUTSIDE_REPO:-0} != 1 && \
+if [[ $test_mode != 1 || ${MICRO_SPOTPEAR_TEST_ALLOW_OUTSIDE_REPO:-0} != 1 ]] && \
+   [[ \
       $canonical_vendor_dir != "$canonical_default_dir" && \
       $canonical_vendor_dir != "$canonical_default_dir"/* ]]; then
   print -u2 -- "vendor output must remain under $canonical_default_dir"
@@ -65,4 +73,8 @@ test -d "$staging_dir/$example_path"
 /bin/rm -rf -- "$demo_root"
 /bin/mv -- "$staging_dir/ESP32-S3-Touch-LCD-7-Demo" "$vendor_dir/"
 
-print -r -- "Verified $archive_name and extracted $example_path under $vendor_dir"
+if [[ $test_mode == 1 ]]; then
+  print -r -- "Verified fixture/test source checksum and extracted $example_path under $vendor_dir"
+else
+  print -r -- "Verified official $archive_name and extracted $example_path under $vendor_dir"
+fi

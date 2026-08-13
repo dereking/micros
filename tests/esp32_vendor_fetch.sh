@@ -23,6 +23,30 @@ print -r -- 'must not extract' > "$fixture_tree/ESP32-S3-Touch-LCD-7-Demo/ESP-ID
 
 readonly fixture_sha=$(/usr/bin/shasum -a 256 "$fixture_zip" | /usr/bin/awk '{print $1}')
 readonly fixture_url="file://$fixture_zip"
+readonly override_error="$fixture_root/override-error.log"
+
+if MICRO_SPOTPEAR_URL="$fixture_url" \
+  MICRO_SPOTPEAR_SHA256="$fixture_sha" \
+  MICRO_SPOTPEAR_OUT="$output_dir" \
+  MICRO_SPOTPEAR_TEST_ALLOW_OUTSIDE_REPO=1 \
+  zsh "$fetch_script" >/dev/null 2>"$override_error"; then
+  print -u2 'vendor overrides were accepted without MICRO_SPOTPEAR_TEST_MODE=1'
+  exit 1
+fi
+/usr/bin/grep -Fq 'vendor overrides require MICRO_SPOTPEAR_TEST_MODE=1' "$override_error" || {
+  print -u2 'override rejection did not explain how to enable test mode'
+  exit 1
+}
+
+if MICRO_SPOTPEAR_URL="$fixture_url" \
+  MICRO_SPOTPEAR_SHA256="$fixture_sha" \
+  MICRO_SPOTPEAR_OUT="$output_dir" \
+  MICRO_SPOTPEAR_TEST_MODE=true \
+  MICRO_SPOTPEAR_TEST_ALLOW_OUTSIDE_REPO=1 \
+  zsh "$fetch_script" >/dev/null 2>&1; then
+  print -u2 'vendor overrides accepted a test-mode value other than exact 1'
+  exit 1
+fi
 
 expect_refused_output() {
   local label=$1
@@ -31,6 +55,7 @@ expect_refused_output() {
   if MICRO_SPOTPEAR_URL="$fixture_url" \
     MICRO_SPOTPEAR_SHA256="$fixture_sha" \
     MICRO_SPOTPEAR_OUT="$candidate" \
+    MICRO_SPOTPEAR_TEST_MODE=1 \
     MICRO_SPOTPEAR_TEST_ALLOW_OUTSIDE_REPO="$allow_outside" \
     zsh "$fetch_script" >/dev/null 2>&1; then
     print -u2 -- "unsafe output unexpectedly accepted: $label"
@@ -50,6 +75,7 @@ print -r -- 'keep on checksum failure' > "$demo_root/sentinel.txt"
 if MICRO_SPOTPEAR_URL="$fixture_url" \
   MICRO_SPOTPEAR_SHA256='0000000000000000000000000000000000000000000000000000000000000000' \
   MICRO_SPOTPEAR_OUT="$output_dir" \
+  MICRO_SPOTPEAR_TEST_MODE=1 \
   MICRO_SPOTPEAR_TEST_ALLOW_OUTSIDE_REPO=1 \
   zsh "$fetch_script" >/dev/null 2>&1; then
   print -u2 'bad SHA unexpectedly succeeded'
@@ -64,11 +90,20 @@ run_fetch() {
   MICRO_SPOTPEAR_URL="$fixture_url" \
     MICRO_SPOTPEAR_SHA256="$fixture_sha" \
     MICRO_SPOTPEAR_OUT="$output_dir" \
+    MICRO_SPOTPEAR_TEST_MODE=1 \
     MICRO_SPOTPEAR_TEST_ALLOW_OUTSIDE_REPO=1 \
     zsh "$fetch_script"
 }
 
-run_fetch >/dev/null
+fetch_output=$(run_fetch)
+print -r -- "$fetch_output" | /usr/bin/grep -Fq 'Verified fixture/test source checksum' || {
+  print -u2 'test-mode output did not identify the fixture/test source'
+  exit 1
+}
+if print -r -- "$fetch_output" | /usr/bin/grep -Fq 'Verified official'; then
+  print -u2 'test-mode output claimed official verification'
+  exit 1
+fi
 test -f "$demo_root/ESP-IDF/08_lvgl_Porting/main/main.c" || {
   print -u2 'wanted vendor example was not extracted'
   exit 1
