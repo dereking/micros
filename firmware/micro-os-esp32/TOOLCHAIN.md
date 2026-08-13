@@ -15,6 +15,10 @@ generated `sdkconfig`, or build output.
 
 ## Install and verify
 
+**Status:** ESP-IDF and Espressif Rust toolchain installation and verification are deferred and have not been performed.
+The commands below are the pinned procedure for a later toolchain-validation
+session, not a record of success.
+
 Run from the repository root. All cloned or generated toolchain state stays
 under the ignored `work/toolchains/` tree. These commands install a project-local
 ESP-IDF and an Espressif Rust toolchain; they do not install a global ESP-IDF.
@@ -41,7 +45,7 @@ cargo +esp --version
 The expected ESP-IDF verification output identifies `v5.5.4`. The Rust target
 query must print exactly `xtensa-esp32s3-espidf`.
 
-## Fetch, build, and flash
+## Fetch, build, and flash the untouched vendor demo
 
 Fetch the pinned board reference (the script verifies its SHA-256 before
 extracting only the selected ESP-IDF example):
@@ -50,28 +54,30 @@ extracting only the selected ESP-IDF example):
 zsh scripts/fetch-spotpear-demo.sh
 ```
 
-Build the Micro OS firmware with the pinned ESP-IDF:
+Build the fetched reference example unchanged with the pinned ESP-IDF. The
+commands operate on the ignored copy under `work/vendor/`; they do not turn the
+LVGL 8 demo into committed Micro OS source.
 
 ```zsh
-export CARGO_HOME="$PWD/work/toolchains/cargo"
-export RUSTUP_HOME="$PWD/work/toolchains/rustup"
-export PATH="$CARGO_HOME/bin:$PATH"
 source work/toolchains/esp-idf/export.sh
-source work/toolchains/espup-export.sh
-idf.py -C firmware/micro-os-esp32 set-target esp32s3
-idf.py -C firmware/micro-os-esp32 reconfigure
-idf.py -C firmware/micro-os-esp32 build
+idf.py -C work/vendor/spotpear/ESP32-S3-Touch-LCD-7-Demo/ESP-IDF/08_lvgl_Porting set-target esp32s3
+idf.py -C work/vendor/spotpear/ESP32-S3-Touch-LCD-7-Demo/ESP-IDF/08_lvgl_Porting reconfigure
+idf.py -C work/vendor/spotpear/ESP32-S3-Touch-LCD-7-Demo/ESP-IDF/08_lvgl_Porting build
 ```
 
 Connect the board, replace the port value if necessary, then flash and monitor:
 
 ```zsh
 export ESPPORT=/dev/cu.usbmodem101
-idf.py -C firmware/micro-os-esp32 -p "$ESPPORT" flash
-idf.py -C firmware/micro-os-esp32 -p "$ESPPORT" monitor
+idf.py -C work/vendor/spotpear/ESP32-S3-Touch-LCD-7-Demo/ESP-IDF/08_lvgl_Porting -p "$ESPPORT" flash
+idf.py -C work/vendor/spotpear/ESP32-S3-Touch-LCD-7-Demo/ESP-IDF/08_lvgl_Porting -p "$ESPPORT" monitor
 ```
 
 Exit the serial monitor with `Ctrl-]`.
+
+Future Micro OS firmware will live under `firmware/micro-os-esp32/`, use LVGL
+9.5.0, and receive its own build commands once an ESP-IDF project exists there.
+The vendor demo commands above are only for validating the pinned board source.
 
 ## Hardware verification checklist — not yet performed
 

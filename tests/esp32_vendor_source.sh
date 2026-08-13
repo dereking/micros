@@ -30,6 +30,16 @@ for expected in 'ESP-IDF 5.5.4' 'LVGL 9.5.0'; do
   }
 done
 
+for expected in \
+  'installation and verification are deferred and have not been performed' \
+  'idf.py -C work/vendor/spotpear/ESP32-S3-Touch-LCD-7-Demo/ESP-IDF/08_lvgl_Porting build' \
+  'idf.py -C work/vendor/spotpear/ESP32-S3-Touch-LCD-7-Demo/ESP-IDF/08_lvgl_Porting -p "$ESPPORT" flash'; do
+  /usr/bin/grep -Fq "$expected" "$toolchain_doc" || {
+    print -u2 "toolchain document missing: $expected"
+    exit 1
+  }
+done
+
 ignored=(
   work/vendor/spotpear/demo.zip
   work/toolchains/esp-idf/
