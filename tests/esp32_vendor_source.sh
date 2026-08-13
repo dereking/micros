@@ -31,7 +31,9 @@ for expected in 'ESP-IDF 5.5.4' 'LVGL 9.5.0'; do
 done
 
 for expected in \
-  'installation and verification are deferred and have not been performed' \
+  'project-local ESP-IDF 5.5.4 toolchain was installed' \
+  'Espressif Rust toolchain remains' \
+  'no firmware was flashed and no hardware verification was' \
   'export IDF_TOOLS_PATH="$PWD/work/toolchains/espressif"' \
   'idf.py -C work/vendor/spotpear/ESP32-S3-Touch-LCD-7-Demo/ESP-IDF/08_lvgl_Porting build' \
   'idf.py -C work/vendor/spotpear/ESP32-S3-Touch-LCD-7-Demo/ESP-IDF/08_lvgl_Porting -p "$ESPPORT" flash'; do

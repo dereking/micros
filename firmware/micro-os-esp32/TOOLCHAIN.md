@@ -15,9 +15,11 @@ generated `sdkconfig`, or build output.
 
 ## Install and verify
 
-**Status:** ESP-IDF and Espressif Rust toolchain installation and verification are deferred and have not been performed.
-The commands below are the pinned procedure for a later toolchain-validation
-session, not a record of success.
+**Status:** The project-local ESP-IDF 5.5.4 toolchain was installed and used to
+build the Micro OS scaffold on 2026-08-14. The Espressif Rust toolchain remains
+deferred until the Rust Runtime integration task. This records only a local
+toolchain/build check; no firmware was flashed and no hardware verification was
+performed.
 
 Run from the repository root. All cloned or generated toolchain state stays
 under the ignored `work/toolchains/` tree. These commands install a project-local
@@ -77,8 +79,15 @@ idf.py -C work/vendor/spotpear/ESP32-S3-Touch-LCD-7-Demo/ESP-IDF/08_lvgl_Porting
 
 Exit the serial monitor with `Ctrl-]`.
 
-Future Micro OS firmware will live under `firmware/micro-os-esp32/`, use LVGL
-9.5.0, and receive its own build commands once an ESP-IDF project exists there.
+Micro OS firmware lives under `firmware/micro-os-esp32/` and builds with:
+
+```zsh
+export IDF_TOOLS_PATH="$PWD/work/toolchains/espressif"
+source work/toolchains/esp-idf/export.sh
+idf.py -C firmware/micro-os-esp32 set-target esp32s3
+idf.py -C firmware/micro-os-esp32 build
+```
+
 The vendor demo commands above are only for validating the pinned board source.
 
 ## Hardware verification checklist — not yet performed
