@@ -281,6 +281,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "micro-renderer-web"
+version = "0.1.0"
+dependencies = [
+ "micro-core",
+ "micro-ir",
+]
+
+[[package]]
 name = "micro-vm"
 version = "0.1.0"
 dependencies = [

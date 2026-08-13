@@ -6,6 +6,7 @@ members = [
   "crates/micro-compiler",
   "crates/micro-lvgl",
   "crates/micro-host-sdl",
+  "crates/micro-renderer-web",
 ]
 resolver = "2"
 
