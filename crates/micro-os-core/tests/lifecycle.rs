@@ -751,6 +751,146 @@ fn pending_destructive_confirmation_prevents_wifi_from_racing_confirm() {
 }
 
 #[test]
+fn cancelling_confirmation_resumes_the_saved_reconnect() {
+    let mut os = MicroOs::new();
+    let operation = boot_configured(&mut os);
+    let Action::ScheduleWifiReconnect {
+        reconnect,
+        after_secs,
+    } = os.dispatch(Event::WifiFailed {
+        operation,
+        reason: WifiFailure::Timeout,
+    })
+    else {
+        panic!()
+    };
+    os.dispatch(Event::OpenSettings);
+    os.dispatch(Event::ClearNetworkRequested);
+    assert_eq!(
+        os.dispatch(Event::ReconnectDue { reconnect }),
+        Action::Rejected
+    );
+    assert_eq!(
+        os.dispatch(Event::BackPressed),
+        Action::Actions(vec![
+            Action::ShowLauncher,
+            Action::ScheduleWifiReconnect {
+                reconnect,
+                after_secs
+            }
+        ])
+    );
+    assert!(matches!(
+        os.dispatch(Event::ReconnectDue { reconnect }),
+        Action::ConnectSavedWifi { .. }
+    ));
+}
+
+#[test]
+fn clear_failure_resumes_suspended_reconnect_and_success_discards_it() {
+    let mut os = MicroOs::new();
+    let operation = boot_configured(&mut os);
+    let Action::ScheduleWifiReconnect {
+        reconnect,
+        after_secs,
+    } = os.dispatch(Event::WifiFailed {
+        operation,
+        reason: WifiFailure::Timeout,
+    })
+    else {
+        panic!()
+    };
+    os.dispatch(Event::OpenSettings);
+    let Action::ConfirmClearNetwork { confirmation } = os.dispatch(Event::ClearNetworkRequested)
+    else {
+        panic!()
+    };
+    os.dispatch(Event::ClearNetworkConfirmed { confirmation });
+    assert_eq!(
+        os.dispatch(Event::ReconnectDue { reconnect }),
+        Action::Rejected
+    );
+    assert_eq!(
+        os.dispatch(Event::ClearNetworkCompleted {
+            confirmation,
+            result: Err(FailureReason::Internal)
+        }),
+        Action::ScheduleWifiReconnect {
+            reconnect,
+            after_secs
+        }
+    );
+    assert!(matches!(
+        os.dispatch(Event::ReconnectDue { reconnect }),
+        Action::ConnectSavedWifi { .. }
+    ));
+
+    let mut success = MicroOs::new();
+    let operation = boot_configured(&mut success);
+    let Action::ScheduleWifiReconnect { reconnect, .. } = success.dispatch(Event::WifiFailed {
+        operation,
+        reason: WifiFailure::Timeout,
+    }) else {
+        panic!()
+    };
+    success.dispatch(Event::OpenSettings);
+    let Action::ConfirmClearNetwork { confirmation } =
+        success.dispatch(Event::ClearNetworkRequested)
+    else {
+        panic!()
+    };
+    success.dispatch(Event::ClearNetworkConfirmed { confirmation });
+    success.dispatch(Event::ClearNetworkCompleted {
+        confirmation,
+        result: Ok(()),
+    });
+    assert_eq!(
+        success.dispatch(Event::ReconnectDue { reconnect }),
+        Action::Rejected
+    );
+}
+
+#[test]
+fn factory_reset_failure_resumes_suspended_reconnect() {
+    let mut os = MicroOs::new();
+    let operation = boot_configured(&mut os);
+    let Action::ScheduleWifiReconnect {
+        reconnect,
+        after_secs,
+    } = os.dispatch(Event::WifiFailed {
+        operation,
+        reason: WifiFailure::Timeout,
+    })
+    else {
+        panic!()
+    };
+    os.dispatch(Event::OpenSettings);
+    let Action::ConfirmFactoryReset { confirmation } = os.dispatch(Event::FactoryResetRequested)
+    else {
+        panic!()
+    };
+    os.dispatch(Event::FactoryResetConfirmed { confirmation });
+    assert_eq!(
+        os.dispatch(Event::ReconnectDue { reconnect }),
+        Action::Rejected
+    );
+    assert_eq!(
+        os.dispatch(Event::FactoryResetCompleted {
+            confirmation,
+            result: Err(FailureReason::Internal)
+        }),
+        Action::ScheduleWifiReconnect {
+            reconnect,
+            after_secs
+        }
+    );
+    assert!(matches!(
+        os.dispatch(Event::ReconnectDue { reconnect }),
+        Action::ConnectSavedWifi { .. }
+    ));
+}
+
+#[test]
 fn completed_wifi_token_remains_stale_across_destructive_confirmation() {
     let mut os = MicroOs::new();
     connect_saved(&mut os);

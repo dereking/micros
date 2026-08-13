@@ -222,6 +222,12 @@ struct ClearOperation {
     safe_mode: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PendingReconnect {
+    reconnect: WifiOperationId,
+    after_secs: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MicroOs {
     state: State,
@@ -233,6 +239,8 @@ pub struct MicroOs {
     clearing_network: Option<ClearOperation>,
     factory_resetting: Option<ConfirmationId>,
     pending_reconnect: Option<WifiOperationId>,
+    pending_reconnect_delay: Option<u32>,
+    suspended_reconnect: Option<PendingReconnect>,
     reconnect_index: usize,
     next_confirmation_id: u64,
     next_wifi_operation_id: u64,
@@ -258,6 +266,8 @@ impl MicroOs {
             clearing_network: None,
             factory_resetting: None,
             pending_reconnect: None,
+            pending_reconnect_delay: None,
+            suspended_reconnect: None,
             reconnect_index: 0,
             next_confirmation_id: 1,
             next_wifi_operation_id: 1,
@@ -485,7 +495,7 @@ impl MicroOs {
         if self.state != State::Launcher {
             return Action::Rejected;
         }
-        self.cancel_pending_confirmation();
+        let _ = self.cancel_pending_confirmation();
         self.state = State::Settings;
         Action::ShowSettings
     }
@@ -493,9 +503,13 @@ impl MicroOs {
     fn go_home(&mut self) -> Action {
         match self.state.clone() {
             State::Settings => {
-                self.cancel_pending_confirmation();
+                let resumed = self.cancel_pending_confirmation();
                 self.state = State::Launcher;
-                Action::ShowLauncher
+                if let Some(resumed) = resumed {
+                    Action::Actions(vec![Action::ShowLauncher, resumed])
+                } else {
+                    Action::ShowLauncher
+                }
             }
             State::AppStarting { app, session } | State::AppRunning { app, session } => {
                 self.state = State::AppStopping {
@@ -522,7 +536,7 @@ impl MicroOs {
         let Some(session) = self.issue_app_session_id() else {
             return Action::Rejected;
         };
-        self.cancel_pending_confirmation();
+        let _ = self.cancel_pending_confirmation();
         self.state = State::AppStarting {
             app: app.clone(),
             session,
@@ -631,6 +645,7 @@ impl MicroOs {
             return Action::Rejected;
         };
         self.pending_reconnect = None;
+        self.pending_reconnect_delay = None;
         self.provisioning_state = ProvisioningState::Scanning(operation);
         Action::StartWifiScan { operation }
     }
@@ -659,6 +674,7 @@ impl MicroOs {
             return Action::Rejected;
         };
         self.pending_reconnect = None;
+        self.pending_reconnect_delay = None;
         self.provisioning_state = ProvisioningState::ConnectingReplacement(operation);
         Action::ConnectWifi { operation }
     }
@@ -668,6 +684,7 @@ impl MicroOs {
             self.live_wifi_state = LiveWifiState::Connected;
             self.reconnect_index = 0;
             self.pending_reconnect = None;
+            self.pending_reconnect_delay = None;
             return Action::None;
         }
         if self.provisioning_state == ProvisioningState::ConnectingReplacement(operation) {
@@ -686,6 +703,7 @@ impl MicroOs {
         self.live_wifi_state = LiveWifiState::Connected;
         self.provisioning_state = ProvisioningState::Idle;
         self.pending_reconnect = None;
+        self.pending_reconnect_delay = None;
         if self.state == State::FirstRunSetup {
             self.state = State::Launcher;
             Action::ShowLauncher
@@ -721,6 +739,7 @@ impl MicroOs {
             let delay = RECONNECT_DELAYS[self.reconnect_index];
             self.reconnect_index = (self.reconnect_index + 1).min(RECONNECT_DELAYS.len() - 1);
             self.pending_reconnect = Some(reconnect);
+            self.pending_reconnect_delay = Some(delay);
             let schedule = Action::ScheduleWifiReconnect {
                 reconnect,
                 after_secs: delay,
@@ -732,6 +751,7 @@ impl MicroOs {
             }
         } else if replacement {
             self.pending_reconnect = None;
+            self.pending_reconnect_delay = None;
             Action::ClearPendingWifi { operation }
         } else {
             Action::None
@@ -755,6 +775,7 @@ impl MicroOs {
             return Action::Rejected;
         };
         self.pending_reconnect = None;
+        self.pending_reconnect_delay = None;
         self.live_wifi_state = LiveWifiState::Connecting(operation);
         Action::ConnectSavedWifi { operation }
     }
@@ -775,6 +796,7 @@ impl MicroOs {
             return Action::Rejected;
         };
         self.pending_reconnect = None;
+        self.pending_reconnect_delay = None;
         self.live_wifi_state = LiveWifiState::Connecting(operation);
         Action::ConnectSavedWifi { operation }
     }
@@ -804,7 +826,7 @@ impl MicroOs {
             return Action::Rejected;
         }
         self.pending_confirmation = None;
-        self.pending_reconnect = None;
+        self.suspend_pending_reconnect();
         self.clearing_network = Some(ClearOperation {
             confirmation,
             safe_mode: self.state == State::SafeMode,
@@ -825,12 +847,14 @@ impl MicroOs {
         }
         self.clearing_network = None;
         match result {
-            Err(_) => Action::None,
+            Err(_) => self.resume_suspended_reconnect().unwrap_or(Action::None),
             Ok(()) => {
                 self.network_configured = false;
                 self.live_wifi_state = LiveWifiState::Disconnected;
                 self.provisioning_state = ProvisioningState::Idle;
                 self.pending_reconnect = None;
+                self.pending_reconnect_delay = None;
+                self.suspended_reconnect = None;
                 if operation.safe_mode {
                     self.state = State::SafeMode;
                     Action::None
@@ -863,7 +887,7 @@ impl MicroOs {
             return Action::Rejected;
         }
         self.pending_confirmation = None;
-        self.pending_reconnect = None;
+        self.suspend_pending_reconnect();
         self.factory_resetting = Some(confirmation);
         Action::FactoryReset { confirmation }
     }
@@ -878,18 +902,61 @@ impl MicroOs {
         }
         self.factory_resetting = None;
         if result.is_ok() {
+            self.pending_reconnect = None;
+            self.pending_reconnect_delay = None;
+            self.suspended_reconnect = None;
             Action::Reboot
         } else {
-            Action::None
+            self.resume_suspended_reconnect().unwrap_or(Action::None)
         }
     }
 
-    fn cancel_pending_confirmation(&mut self) {
+    fn cancel_pending_confirmation(&mut self) -> Option<Action> {
+        let was_pending = self.pending_confirmation.take().is_some();
+        if !was_pending {
+            return None;
+        }
+        self.pending_reconnect
+            .zip(self.pending_reconnect_delay)
+            .map(|(reconnect, after_secs)| Action::ScheduleWifiReconnect {
+                reconnect,
+                after_secs,
+            })
+    }
+
+    fn suspend_pending_reconnect(&mut self) {
+        self.suspended_reconnect = self
+            .pending_reconnect
+            .take()
+            .zip(self.pending_reconnect_delay.take())
+            .map(|(reconnect, after_secs)| PendingReconnect {
+                reconnect,
+                after_secs,
+            });
+    }
+
+    fn resume_suspended_reconnect(&mut self) -> Option<Action> {
+        let reconnect = self.suspended_reconnect.take()?;
+        if !self.network_configured || self.live_wifi_state != LiveWifiState::Disconnected {
+            return None;
+        }
+        self.pending_reconnect = Some(reconnect.reconnect);
+        self.pending_reconnect_delay = Some(reconnect.after_secs);
+        Some(Action::ScheduleWifiReconnect {
+            reconnect: reconnect.reconnect,
+            after_secs: reconnect.after_secs,
+        })
+    }
+
+    fn discard_reconnects(&mut self) {
         self.pending_confirmation = None;
+        self.pending_reconnect = None;
+        self.pending_reconnect_delay = None;
+        self.suspended_reconnect = None;
     }
 
     fn enter_safe_mode(&mut self, reason: FailureReason) -> Action {
-        self.cancel_pending_confirmation();
+        self.discard_reconnects();
         self.state = State::SafeMode;
         Action::EnterSafeMode(reason)
     }
