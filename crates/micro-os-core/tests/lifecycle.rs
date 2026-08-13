@@ -229,6 +229,7 @@ fn wifi_failures_are_distinct_and_reconnect_is_capped_then_reset() {
             ])
         );
         assert_eq!(os.wifi_state(), &WifiState::Failed(failure));
+        assert!(!os.network_configured());
         assert_eq!(os.next_reconnect_delay(), delay);
     }
     os.dispatch(Event::WifiConnectRequested);
@@ -243,6 +244,26 @@ fn wifi_scan_is_limited_to_setup_and_settings() {
     assert_eq!(os.dispatch(Event::WifiScanRequested), Action::Rejected);
     os.dispatch(Event::OpenSettings);
     assert_eq!(os.dispatch(Event::WifiScanRequested), Action::StartWifiScan);
+}
+
+#[test]
+fn failed_replacement_wifi_keeps_the_active_saved_network() {
+    let mut os = MicroOs::new();
+    boot_to_launcher(&mut os);
+    os.dispatch(Event::OpenSettings);
+    os.dispatch(Event::WifiScanRequested);
+    os.dispatch(Event::WifiScanCompleted);
+    os.dispatch(Event::WifiConnectRequested);
+
+    assert_eq!(
+        os.dispatch(Event::WifiFailed(WifiFailure::Authentication)),
+        Action::Actions(vec![
+            Action::ClearPendingWifi,
+            Action::ScheduleWifiReconnect { after_secs: 1 }
+        ])
+    );
+    assert_eq!(os.state(), &State::Settings);
+    assert!(os.network_configured());
 }
 
 #[test]

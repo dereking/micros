@@ -435,7 +435,6 @@ impl MicroOs {
         ) {
             return Action::Rejected;
         }
-        self.network_configured = false;
         self.wifi_state = WifiState::Failed(reason);
         let delay = RECONNECT_DELAYS[self.reconnect_index];
         self.last_reconnect_delay = delay;
