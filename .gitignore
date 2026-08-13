@@ -1,12 +1,49 @@
+# Operating-system metadata
 .DS_Store
+Thumbs.db
+
+# Local agent and editor state
 .superpowers/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local environment overrides; templates remain trackable
+.env
+.env.*
+!.env.example
+
+# Rust and native build output
 target/
 debug/
-node_modules/
 native/build/
-apps/*/dist/
-*.mbc
+cmake-build-*/
 **/*.rs.bk
 *.pdb
 **/mutants.out*/
-.idea/
+
+# Node and TypeScript output
+node_modules/
+apps/*/dist/
+dist/
+*.tsbuildinfo
+.npm/
+
+# Runtime and test output
+*.mbc
+coverage/
+*.profraw
+*.profdata
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
