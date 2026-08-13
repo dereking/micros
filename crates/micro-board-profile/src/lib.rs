@@ -285,8 +285,9 @@ impl BoardProfile {
     }
 
     fn validate_resources(&self) -> Result<(), ProfileError> {
-        const INTERNAL_FRAMEBUFFER_BUDGET_BYTES: u64 = 256 * 1024;
+        const INTERNAL_DISPLAY_BUDGET_BYTES: u64 = 256 * 1024;
         const RGB565_BYTES_PER_PIXEL: u64 = 2;
+        const BOUNCE_BUFFER_COUNT: u64 = 2;
 
         ensure(
             (1..=2).contains(&self.resources.framebuffers),
@@ -309,33 +310,40 @@ impl BoardProfile {
             .checked_mul(RGB565_BYTES_PER_PIXEL)
             .and_then(|bytes| bytes.checked_mul(u64::from(self.resources.framebuffers)))
             .ok_or_else(|| arithmetic_overflow("framebuffer byte count"))?;
+        let bounce_total = u64::from(self.display.width)
+            .checked_mul(u64::from(self.resources.bounce_buffer_lines))
+            .and_then(|pixels| pixels.checked_mul(RGB565_BYTES_PER_PIXEL))
+            .and_then(|bytes| bytes.checked_mul(BOUNCE_BUFFER_COUNT))
+            .ok_or_else(|| arithmetic_overflow("bounce buffer byte count"))?;
+        let internal_framebuffer_bytes = if self.resources.prefer_psram {
+            0
+        } else {
+            framebuffer_bytes
+        };
+        let internal_used = bounce_total
+            .checked_add(internal_framebuffer_bytes)
+            .ok_or_else(|| arithmetic_overflow("total internal display memory"))?;
         ensure(
-            framebuffer_bytes <= INTERNAL_FRAMEBUFFER_BUDGET_BYTES || self.resources.prefer_psram,
+            internal_used <= INTERNAL_DISPLAY_BUDGET_BYTES,
             format!(
-                "PSRAM must be preferred for {framebuffer_bytes} framebuffer bytes; internal budget is {INTERNAL_FRAMEBUFFER_BUDGET_BYTES} bytes"
+                "internal RAM use of {internal_used} bytes exceeds the {INTERNAL_DISPLAY_BUDGET_BYTES}-byte budget; enable PSRAM for framebuffers or reduce bounce buffer lines"
             ),
         )?;
 
-        if self.resources.prefer_psram {
-            let bounce_buffer_bytes = u64::from(self.display.width)
-                .checked_mul(u64::from(self.resources.bounce_buffer_lines))
-                .and_then(|pixels| pixels.checked_mul(RGB565_BYTES_PER_PIXEL))
-                .ok_or_else(|| arithmetic_overflow("bounce buffer byte count"))?;
-            let requested_bytes = framebuffer_bytes
-                .checked_add(bounce_buffer_bytes)
-                .ok_or_else(|| arithmetic_overflow("total display buffer byte count"))?;
-            let declared_psram_bytes =
-                u64::from(self.hardware.psram_mb)
-                    .checked_mul(1024 * 1024)
-                    .ok_or_else(|| arithmetic_overflow("declared PSRAM byte count"))?;
-            ensure(
-                requested_bytes <= declared_psram_bytes,
-                format!(
-                    "display buffers require {requested_bytes} bytes, which exceeds declared PSRAM capacity of {declared_psram_bytes} bytes"
-                ),
-            )?;
-        }
-        Ok(())
+        let psram_used = if self.resources.prefer_psram {
+            framebuffer_bytes
+        } else {
+            0
+        };
+        let declared_psram_bytes = u64::from(self.hardware.psram_mb)
+            .checked_mul(1024 * 1024)
+            .ok_or_else(|| arithmetic_overflow("declared PSRAM byte count"))?;
+        ensure(
+            psram_used <= declared_psram_bytes,
+            format!(
+                "framebuffers require {psram_used} bytes, which exceeds declared PSRAM capacity of {declared_psram_bytes} bytes"
+            ),
+        )
     }
 
     fn validate_shared_signals(&self, catalog: &DriverCatalog) -> Result<(), ProfileError> {

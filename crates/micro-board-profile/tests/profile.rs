@@ -296,6 +296,61 @@ fn calculates_framebuffer_memory_policy() {
 }
 
 #[test]
+fn accounts_for_two_internal_bounce_buffers() {
+    let mut combined_internal_overflow = preset_value();
+    set(
+        &mut combined_internal_overflow,
+        "/display/width",
+        json!(340),
+    );
+    set(
+        &mut combined_internal_overflow,
+        "/display/height",
+        json!(380),
+    );
+    set(
+        &mut combined_internal_overflow,
+        "/resources/framebuffers",
+        json!(1),
+    );
+    set(
+        &mut combined_internal_overflow,
+        "/resources/bounceBufferLines",
+        json!(80),
+    );
+    set(
+        &mut combined_internal_overflow,
+        "/resources/preferPsram",
+        json!(false),
+    );
+    let message = validation_message(combined_internal_overflow);
+    assert!(message.contains("367200"));
+    assert!(message.contains("internal RAM"));
+
+    let mut boundary_with_psram = preset_value();
+    set(
+        &mut boundary_with_psram,
+        "/resources/bounceBufferLines",
+        json!(80),
+    );
+    parse_and_validate(boundary_with_psram)
+        .expect("two 800x80 bounce buffers use 256000 internal bytes");
+
+    let mut boundary_without_psram = preset_value();
+    set(
+        &mut boundary_without_psram,
+        "/resources/bounceBufferLines",
+        json!(80),
+    );
+    set(
+        &mut boundary_without_psram,
+        "/resources/preferPsram",
+        json!(false),
+    );
+    assert!(validation_message(boundary_without_psram).contains("internal RAM"));
+}
+
+#[test]
 fn parse_and_semantic_errors_are_distinct_and_clear() {
     let parse = BoardProfile::from_json("{ definitely not json }").unwrap_err();
     assert!(matches!(parse, ProfileError::Parse(_)));
