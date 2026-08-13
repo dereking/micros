@@ -1,0 +1,25 @@
+[package]
+name = "micro-host-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+micro-core.workspace = true
+micro-ir.workspace = true
+micro-vm.workspace = true
+micro-renderer-web = { path = "../micro-renderer-web" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = [
+  "Document",
+  "Element",
+  "Event",
+  "EventTarget",
+  "Node",
+  "Window",
+] }
