@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
+use std::ops::RangeInclusive;
 
 use serde::{Deserialize, Serialize};
 
@@ -105,6 +106,8 @@ pub struct DriverCatalog {
     display_drivers: BTreeSet<String>,
     touch_drivers: BTreeSet<String>,
     expander_drivers: BTreeSet<String>,
+    supported_i2c_buses: BTreeSet<u8>,
+    expander_output_range: RangeInclusive<u8>,
 }
 
 impl DriverCatalog {
@@ -114,6 +117,8 @@ impl DriverCatalog {
             display_drivers: BTreeSet::from(["esp-lcd-rgb".to_owned()]),
             touch_drivers: BTreeSet::from(["gt911".to_owned()]),
             expander_drivers: BTreeSet::from(["ch422g".to_owned()]),
+            supported_i2c_buses: BTreeSet::from([0, 1]),
+            expander_output_range: 0..=5,
         }
     }
 }
@@ -146,17 +151,30 @@ impl Error for ProfileError {
 
 impl BoardProfile {
     pub fn from_json(json: &str) -> Result<Self, ProfileError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct ProfileEnvelope {
+            schema_version: u32,
+        }
+
+        let envelope: ProfileEnvelope = serde_json::from_str(json).map_err(ProfileError::Parse)?;
+        if envelope.schema_version != 1 {
+            return Err(ProfileError::Validation(format!(
+                "unsupported schema version {}; expected 1",
+                envelope.schema_version
+            )));
+        }
         serde_json::from_str(json).map_err(ProfileError::Parse)
     }
 
     pub fn validate(&self, catalog: &DriverCatalog) -> Result<(), ProfileError> {
         self.validate_identity_and_catalog(catalog)?;
-        self.validate_hardware()?;
         self.validate_drivers(catalog)?;
         self.validate_display()?;
         self.validate_resources()?;
+        self.validate_hardware()?;
         self.validate_gpio_assignments()?;
-        self.validate_shared_signals()?;
+        self.validate_shared_signals(catalog)?;
         Ok(())
     }
 
@@ -267,6 +285,9 @@ impl BoardProfile {
     }
 
     fn validate_resources(&self) -> Result<(), ProfileError> {
+        const INTERNAL_FRAMEBUFFER_BUDGET_BYTES: u64 = 256 * 1024;
+        const RGB565_BYTES_PER_PIXEL: u64 = 2;
+
         ensure(
             (1..=2).contains(&self.resources.framebuffers),
             format!(
@@ -281,13 +302,63 @@ impl BoardProfile {
                 self.resources.bounce_buffer_lines
             ),
         )?;
+        let pixels = u64::from(self.display.width)
+            .checked_mul(u64::from(self.display.height))
+            .ok_or_else(|| arithmetic_overflow("display pixel count"))?;
+        let framebuffer_bytes = pixels
+            .checked_mul(RGB565_BYTES_PER_PIXEL)
+            .and_then(|bytes| bytes.checked_mul(u64::from(self.resources.framebuffers)))
+            .ok_or_else(|| arithmetic_overflow("framebuffer byte count"))?;
         ensure(
-            self.display.width != 800 || self.display.height != 480 || self.resources.prefer_psram,
-            "PSRAM must be preferred for an 800x480 display".to_owned(),
-        )
+            framebuffer_bytes <= INTERNAL_FRAMEBUFFER_BUDGET_BYTES || self.resources.prefer_psram,
+            format!(
+                "PSRAM must be preferred for {framebuffer_bytes} framebuffer bytes; internal budget is {INTERNAL_FRAMEBUFFER_BUDGET_BYTES} bytes"
+            ),
+        )?;
+
+        if self.resources.prefer_psram {
+            let bounce_buffer_bytes = u64::from(self.display.width)
+                .checked_mul(u64::from(self.resources.bounce_buffer_lines))
+                .and_then(|pixels| pixels.checked_mul(RGB565_BYTES_PER_PIXEL))
+                .ok_or_else(|| arithmetic_overflow("bounce buffer byte count"))?;
+            let requested_bytes = framebuffer_bytes
+                .checked_add(bounce_buffer_bytes)
+                .ok_or_else(|| arithmetic_overflow("total display buffer byte count"))?;
+            let declared_psram_bytes =
+                u64::from(self.hardware.psram_mb)
+                    .checked_mul(1024 * 1024)
+                    .ok_or_else(|| arithmetic_overflow("declared PSRAM byte count"))?;
+            ensure(
+                requested_bytes <= declared_psram_bytes,
+                format!(
+                    "display buffers require {requested_bytes} bytes, which exceeds declared PSRAM capacity of {declared_psram_bytes} bytes"
+                ),
+            )?;
+        }
+        Ok(())
     }
 
-    fn validate_shared_signals(&self) -> Result<(), ProfileError> {
+    fn validate_shared_signals(&self, catalog: &DriverCatalog) -> Result<(), ProfileError> {
+        for (owner, bus) in [("touch", self.touch.bus), ("expander", self.expander.bus)] {
+            ensure(
+                catalog.supported_i2c_buses.contains(&bus),
+                format!("unsupported I2C bus {bus} for {owner}"),
+            )?;
+        }
+        for (owner, output) in [
+            ("touch.resetExpander", self.touch.reset_expander),
+            ("expander.touchReset", self.expander.touch_reset),
+            ("backlight.enableExpander", self.backlight.enable_expander),
+            ("expander.backlightEnable", self.expander.backlight_enable),
+        ] {
+            ensure(
+                catalog.expander_output_range.contains(&output),
+                format!(
+                    "expander output {output} for {owner} is outside {:?}",
+                    catalog.expander_output_range
+                ),
+            )?;
+        }
         ensure(
             self.touch.bus == self.expander.bus,
             format!(
@@ -353,6 +424,10 @@ fn ensure(condition: bool, message: String) -> Result<(), ProfileError> {
     } else {
         Err(ProfileError::Validation(message))
     }
+}
+
+fn arithmetic_overflow(calculation: &str) -> ProfileError {
+    ProfileError::Validation(format!("arithmetic overflow calculating {calculation}"))
 }
 
 fn register_gpio(

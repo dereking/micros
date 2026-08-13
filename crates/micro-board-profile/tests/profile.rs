@@ -107,6 +107,13 @@ fn rejects_unknown_schema_version() {
 }
 
 #[test]
+fn rejects_future_schema_before_deserializing_v1_fields() {
+    let error = BoardProfile::from_json(r#"{"schemaVersion":2}"#).unwrap_err();
+    assert!(matches!(error, ProfileError::Validation(_)));
+    assert!(error.to_string().contains("unsupported schema version 2"));
+}
+
+#[test]
 fn rejects_unknown_catalog_and_unavailable_drivers() {
     for (pointer, replacement, expected) in [
         ("/driverCatalog", json!("esp32s3-v2"), "driver catalog"),
@@ -186,6 +193,52 @@ fn permits_only_consistent_i2c_pin_sharing() {
 }
 
 #[test]
+fn rejects_unsupported_i2c_buses_and_expander_outputs() {
+    for (pointer, replacement, expected) in [
+        ("/touch/bus", json!(255), "I2C bus"),
+        ("/expander/bus", json!(255), "I2C bus"),
+        ("/touch/resetExpander", json!(254), "expander output"),
+        ("/expander/touchReset", json!(254), "expander output"),
+        ("/backlight/enableExpander", json!(255), "expander output"),
+        ("/expander/backlightEnable", json!(255), "expander output"),
+    ] {
+        let mut value = preset_value();
+        set(&mut value, pointer, replacement);
+        assert!(validation_message(value).contains(expected));
+    }
+
+    let mut alternate_bus_and_output_edges = preset_value();
+    set(&mut alternate_bus_and_output_edges, "/touch/bus", json!(1));
+    set(
+        &mut alternate_bus_and_output_edges,
+        "/expander/bus",
+        json!(1),
+    );
+    set(
+        &mut alternate_bus_and_output_edges,
+        "/touch/resetExpander",
+        json!(5),
+    );
+    set(
+        &mut alternate_bus_and_output_edges,
+        "/expander/touchReset",
+        json!(5),
+    );
+    set(
+        &mut alternate_bus_and_output_edges,
+        "/backlight/enableExpander",
+        json!(0),
+    );
+    set(
+        &mut alternate_bus_and_output_edges,
+        "/expander/backlightEnable",
+        json!(0),
+    );
+    parse_and_validate(alternate_bus_and_output_edges)
+        .expect("catalog should allow I2C bus 1 and CH422G outputs 0 through 5");
+}
+
+#[test]
 fn rejects_invalid_display_geometry_timing_and_format() {
     for (pointer, replacement, expected) in [
         ("/display/width", json!(0), "width"),
@@ -220,6 +273,29 @@ fn rejects_invalid_resource_policy() {
 }
 
 #[test]
+fn calculates_framebuffer_memory_policy() {
+    let mut nearly_full_size = preset_value();
+    set(&mut nearly_full_size, "/display/width", json!(799));
+    set(
+        &mut nearly_full_size,
+        "/resources/preferPsram",
+        json!(false),
+    );
+    assert!(validation_message(nearly_full_size).contains("PSRAM"));
+
+    let mut small = preset_value();
+    set(&mut small, "/display/width", json!(320));
+    set(&mut small, "/display/height", json!(240));
+    set(&mut small, "/resources/framebuffers", json!(1));
+    set(&mut small, "/resources/preferPsram", json!(false));
+    parse_and_validate(small).expect("a small framebuffer may use internal memory");
+
+    let mut exceeds_declared_psram = preset_value();
+    set(&mut exceeds_declared_psram, "/hardware/psramMb", json!(1));
+    assert!(validation_message(exceeds_declared_psram).contains("exceeds declared PSRAM"));
+}
+
+#[test]
 fn parse_and_semantic_errors_are_distinct_and_clear() {
     let parse = BoardProfile::from_json("{ definitely not json }").unwrap_err();
     assert!(matches!(parse, ProfileError::Parse(_)));
@@ -231,10 +307,7 @@ fn parse_and_semantic_errors_are_distinct_and_clear() {
 
     let mut value = preset_value();
     set(&mut value, "/schemaVersion", json!(99));
-    let semantic = BoardProfile::from_json(&value.to_string())
-        .unwrap()
-        .validate(&catalog())
-        .unwrap_err();
+    let semantic = BoardProfile::from_json(&value.to_string()).unwrap_err();
     assert!(matches!(semantic, ProfileError::Validation(_)));
     assert_eq!(
         semantic.to_string(),
