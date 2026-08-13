@@ -104,6 +104,7 @@ pub struct DriverCatalog {
     pub id: String,
     display_drivers: BTreeSet<String>,
     touch_drivers: BTreeSet<String>,
+    expander_drivers: BTreeSet<String>,
 }
 
 impl DriverCatalog {
@@ -112,6 +113,7 @@ impl DriverCatalog {
             id: "esp32s3-v1".to_owned(),
             display_drivers: BTreeSet::from(["esp-lcd-rgb".to_owned()]),
             touch_drivers: BTreeSet::from(["gt911".to_owned()]),
+            expander_drivers: BTreeSet::from(["ch422g".to_owned()]),
         }
     }
 }
@@ -150,7 +152,8 @@ impl BoardProfile {
     pub fn validate(&self, catalog: &DriverCatalog) -> Result<(), ProfileError> {
         self.validate_identity_and_catalog(catalog)?;
         self.validate_hardware()?;
-        self.validate_display(catalog)?;
+        self.validate_drivers(catalog)?;
+        self.validate_display()?;
         self.validate_resources()?;
         self.validate_gpio_assignments()?;
         self.validate_shared_signals()?;
@@ -202,7 +205,7 @@ impl BoardProfile {
         )
     }
 
-    fn validate_display(&self, catalog: &DriverCatalog) -> Result<(), ProfileError> {
+    fn validate_drivers(&self, catalog: &DriverCatalog) -> Result<(), ProfileError> {
         ensure(
             catalog.display_drivers.contains(&self.display.driver),
             format!("unavailable display driver {:?}", self.display.driver),
@@ -211,6 +214,13 @@ impl BoardProfile {
             catalog.touch_drivers.contains(&self.touch.driver),
             format!("unavailable touch driver {:?}", self.touch.driver),
         )?;
+        ensure(
+            catalog.expander_drivers.contains(&self.expander.driver),
+            format!("unavailable expander driver {:?}", self.expander.driver),
+        )
+    }
+
+    fn validate_display(&self) -> Result<(), ProfileError> {
         ensure(
             (1..=800).contains(&self.display.width),
             format!("display width {} is outside 1..=800", self.display.width),
