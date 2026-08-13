@@ -23,6 +23,7 @@ MICRO_EXPORT int micro_native_poll(micro_native_t *native);
 MICRO_EXPORT uint32_t micro_native_timer(micro_native_t *native);
 MICRO_EXPORT int micro_native_take_activation(micro_native_t *native, uint32_t *handler_id);
 MICRO_EXPORT void micro_native_inject_activation(micro_native_t *native, uint32_t handler_id);
+MICRO_EXPORT int micro_native_queue_click(micro_native_t *native, uint32_t node_id);
 MICRO_EXPORT int micro_native_create_column(micro_native_t *native, uint32_t node_id, uint32_t parent_id);
 MICRO_EXPORT int micro_native_create_label(micro_native_t *native, uint32_t node_id, uint32_t parent_id, const char *text);
 MICRO_EXPORT int micro_native_create_button(micro_native_t *native, uint32_t node_id, uint32_t parent_id, const char *text, uint32_t handler_id);

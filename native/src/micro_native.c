@@ -156,9 +156,24 @@ int micro_native_poll(micro_native_t *native) {
             case SDL_EVENT_MOUSE_MOTION:
                 native->pointer_position.x = (lv_coord_t)event.motion.x;
                 native->pointer_position.y = (lv_coord_t)event.motion.y;
+                lv_indev_read(native->pointer);
                 break;
-            case SDL_EVENT_MOUSE_BUTTON_DOWN: native->pointer_pressed = true; break;
-            case SDL_EVENT_MOUSE_BUTTON_UP: native->pointer_pressed = false; break;
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+                if (event.button.button == SDL_BUTTON_LEFT) {
+                    native->pointer_position.x = (lv_coord_t)event.button.x;
+                    native->pointer_position.y = (lv_coord_t)event.button.y;
+                    native->pointer_pressed = true;
+                    lv_indev_read(native->pointer);
+                }
+                break;
+            case SDL_EVENT_MOUSE_BUTTON_UP:
+                if (event.button.button == SDL_BUTTON_LEFT) {
+                    native->pointer_position.x = (lv_coord_t)event.button.x;
+                    native->pointer_position.y = (lv_coord_t)event.button.y;
+                    native->pointer_pressed = false;
+                    lv_indev_read(native->pointer);
+                }
+                break;
             default: break;
         }
     }
@@ -179,6 +194,27 @@ int micro_native_take_activation(micro_native_t *native, uint32_t *handler_id) {
 
 void micro_native_inject_activation(micro_native_t *native, uint32_t handler_id) {
     enqueue_activation(native, handler_id);
+}
+
+int micro_native_queue_click(micro_native_t *native, uint32_t node_id) {
+    if (node_id >= MICRO_MAX_NODES || native->objects[node_id] == NULL) return 0;
+    lv_obj_update_layout(native->objects[node_id]);
+    lv_area_t coordinates;
+    lv_obj_get_coords(native->objects[node_id], &coordinates);
+    float x = (float)(coordinates.x1 + coordinates.x2) / 2.0F;
+    float y = (float)(coordinates.y1 + coordinates.y2) / 2.0F;
+    SDL_Event down = {0};
+    down.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    down.button.windowID = SDL_GetWindowID(native->window);
+    down.button.button = SDL_BUTTON_LEFT;
+    down.button.down = true;
+    down.button.clicks = 1;
+    down.button.x = x;
+    down.button.y = y;
+    SDL_Event up = down;
+    up.type = SDL_EVENT_MOUSE_BUTTON_UP;
+    up.button.down = false;
+    return SDL_PushEvent(&down) && SDL_PushEvent(&up);
 }
 
 int micro_native_create_column(micro_native_t *native, uint32_t node_id, uint32_t parent_id) {

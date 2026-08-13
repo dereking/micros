@@ -36,21 +36,22 @@ fn run() -> Result<(), String> {
     };
     let bytes = std::fs::read(path).map_err(|error| format!("cannot read MBC: {error}"))?;
     let image = decode(&bytes).map_err(|error| format!("cannot load MBC: {error}"))?;
-    let first_handler = image.nodes.iter().find_map(|node| node.on_click);
+    let first_button = image
+        .nodes
+        .iter()
+        .find_map(|node| node.on_click.map(|handler| (node.id, handler)));
     let bridge = NativeBridge::create(480, 320, smoke)?;
     let renderer = LvglRenderer::new(bridge);
     let mut runtime = Runtime::new(image, renderer, 10_000).map_err(|error| error.to_string())?;
 
     if smoke {
-        let handler = first_handler.ok_or_else(|| "smoke App has no button handler".to_owned())?;
-        runtime
-            .renderer_mut()
-            .bridge_mut()
-            .inject_activation(handler);
-        runtime
-            .renderer_mut()
-            .bridge_mut()
-            .inject_activation(handler);
+        let (button, _handler) =
+            first_button.ok_or_else(|| "smoke App has no button handler".to_owned())?;
+        runtime.renderer_mut().bridge_mut().queue_click(button)?;
+        runtime.renderer_mut().bridge_mut().queue_click(button)?;
+        if !runtime.renderer_mut().bridge_mut().poll() {
+            return Err("smoke native host quit while processing clicks".into());
+        }
         host_iteration(&mut runtime)?;
         if runtime.state(StateId(0)) != Some(&Value::Number(2.0)) {
             return Err("smoke Counter did not reach state 2".into());

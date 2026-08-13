@@ -17,6 +17,7 @@ unsafe extern "C" {
     fn micro_native_timer(native: *mut c_void) -> c_uint;
     fn micro_native_take_activation(native: *mut c_void, handler_id: *mut c_uint) -> c_int;
     fn micro_native_inject_activation(native: *mut c_void, handler_id: c_uint);
+    fn micro_native_queue_click(native: *mut c_void, node: c_uint) -> c_int;
     fn micro_native_create_column(native: *mut c_void, node: c_uint, parent: c_uint) -> c_int;
     fn micro_native_create_label(
         native: *mut c_void,
@@ -84,6 +85,13 @@ impl NativeBridge {
 
     pub fn inject_activation(&mut self, id: FunctionId) {
         unsafe { micro_native_inject_activation(self.raw.as_ptr(), id.0) };
+    }
+
+    pub fn queue_click(&mut self, node: NodeId) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_queue_click(self.raw.as_ptr(), node.0) },
+            "queue click",
+        )
     }
 }
 

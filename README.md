@@ -124,7 +124,7 @@ The workspace tests cover:
 - real Counter compile → load → two clicks → `Count: 2`
 - LVGL tree/patch mapping through a fake bridge
 - SDL3/LVGL hidden-window creation and activation queue
-- full hidden native Counter execution to state `2`
+- full hidden native Counter execution to state `2` through queued SDL pointer clicks
 
 ## Troubleshooting
 
