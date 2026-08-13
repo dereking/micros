@@ -32,6 +32,7 @@ done
 
 for expected in \
   'installation and verification are deferred and have not been performed' \
+  'export IDF_TOOLS_PATH="$PWD/work/toolchains/espressif"' \
   'idf.py -C work/vendor/spotpear/ESP32-S3-Touch-LCD-7-Demo/ESP-IDF/08_lvgl_Porting build' \
   'idf.py -C work/vendor/spotpear/ESP32-S3-Touch-LCD-7-Demo/ESP-IDF/08_lvgl_Porting -p "$ESPPORT" flash'; do
   /usr/bin/grep -Fq "$expected" "$toolchain_doc" || {
@@ -39,6 +40,14 @@ for expected in \
     exit 1
   }
 done
+
+cargo_install_line=$(/usr/bin/grep -nF 'cargo install espup --locked' "$toolchain_doc" | /usr/bin/cut -d: -f1)
+rustup_home_line=$(/usr/bin/grep -nF 'export RUSTUP_HOME="$PWD/work/toolchains/rustup"' "$toolchain_doc" | /usr/bin/head -n 1 | /usr/bin/cut -d: -f1)
+test -n "$cargo_install_line" && test -n "$rustup_home_line" && \
+  test "$cargo_install_line" -lt "$rustup_home_line" || {
+  print -u2 "cargo install espup must precede the project-local RUSTUP_HOME export"
+  exit 1
+}
 
 ignored=(
   work/vendor/spotpear/demo.zip
@@ -62,7 +71,7 @@ if /usr/bin/git check-ignore -q firmware/micro-os-esp32/sdkconfig.defaults; then
 fi
 
 if /usr/bin/git ls-files | /usr/bin/grep -Eq \
-  '(^|/)work/vendor/.*\.zip$|ESP32-S3-Touch-LCD-7-Demo\.zip$'; then
-  print -u2 "vendor archive is tracked"
+  '^(work/vendor|work/toolchains)/'; then
+  print -u2 "local vendor source or toolchain is tracked"
   exit 1
 fi

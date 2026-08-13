@@ -26,8 +26,8 @@ ESP-IDF and an Espressif Rust toolchain; they do not install a global ESP-IDF.
 ```zsh
 mkdir -p work/toolchains
 export CARGO_HOME="$PWD/work/toolchains/cargo"
-export RUSTUP_HOME="$PWD/work/toolchains/rustup"
 export PATH="$CARGO_HOME/bin:$PATH"
+export IDF_TOOLS_PATH="$PWD/work/toolchains/espressif"
 git clone --branch v5.5.4 --depth 1 --recursive \
   https://github.com/espressif/esp-idf.git work/toolchains/esp-idf
 work/toolchains/esp-idf/install.sh esp32s3
@@ -35,6 +35,7 @@ source work/toolchains/esp-idf/export.sh
 idf.py --version
 
 cargo install espup --locked
+export RUSTUP_HOME="$PWD/work/toolchains/rustup"
 espup install --targets esp32s3 \
   --std --export-file work/toolchains/espup-export.sh
 source work/toolchains/espup-export.sh
@@ -59,6 +60,7 @@ commands operate on the ignored copy under `work/vendor/`; they do not turn the
 LVGL 8 demo into committed Micro OS source.
 
 ```zsh
+export IDF_TOOLS_PATH="$PWD/work/toolchains/espressif"
 source work/toolchains/esp-idf/export.sh
 idf.py -C work/vendor/spotpear/ESP32-S3-Touch-LCD-7-Demo/ESP-IDF/08_lvgl_Porting set-target esp32s3
 idf.py -C work/vendor/spotpear/ESP32-S3-Touch-LCD-7-Demo/ESP-IDF/08_lvgl_Porting reconfigure
