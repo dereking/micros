@@ -1,0 +1,578 @@
+use std::collections::BTreeMap;
+
+use micro_ir::{
+    AppImage, BindingId, Constant, Function, FunctionId, FunctionKind, HandlerId, Instruction,
+    NodeId, ScalarType, StateDecl, StateId, TextSource, UiKind, UiNodeSpec, validate,
+};
+use swc_common::{SourceMap, Span, Spanned, sync::Lrc};
+use swc_ecma_ast::{
+    ArrowExpr, AssignOp, AssignTarget, BinaryOp, BlockStmtOrExpr, Callee, Decl, Expr, Lit,
+    MemberExpr, MemberProp, Module, ModuleItem, Pat, Prop, PropName, PropOrSpread,
+    SimpleAssignTarget, Stmt, UpdateOp,
+};
+
+use crate::{Diagnostic, ParsedProgram, parse::diagnostic_at, parse_validated};
+
+pub fn compile_source(path: &str, source: &str) -> Result<AppImage, Vec<Diagnostic>> {
+    let ParsedProgram {
+        module,
+        source_map,
+        path,
+    } = parse_validated(path, source)?;
+    Lowerer::new(&source_map, &path)
+        .lower(&module)
+        .map_err(|error| vec![error])
+}
+
+struct Lowerer<'a> {
+    source_map: &'a SourceMap,
+    path: &'a str,
+    constants: Vec<Constant>,
+    states: Vec<StateDecl>,
+    state_symbols: BTreeMap<String, (StateId, ScalarType)>,
+    functions: Vec<Function>,
+    nodes: Vec<UiNodeSpec>,
+    binding_count: u32,
+    handler_count: u32,
+}
+
+impl<'a> Lowerer<'a> {
+    fn new(source_map: &'a Lrc<SourceMap>, path: &'a str) -> Self {
+        Self {
+            source_map,
+            path,
+            constants: Vec::new(),
+            states: Vec::new(),
+            state_symbols: BTreeMap::new(),
+            functions: Vec::new(),
+            nodes: Vec::new(),
+            binding_count: 0,
+            handler_count: 0,
+        }
+    }
+
+    fn lower(mut self, module: &Module) -> Result<AppImage, Diagnostic> {
+        for item in &module.body {
+            if let ModuleItem::Stmt(Stmt::Decl(Decl::Var(declaration))) = item {
+                for declarator in &declaration.decls {
+                    let Pat::Ident(name) = &declarator.name else {
+                        continue;
+                    };
+                    let Some(initializer) = &declarator.init else {
+                        continue;
+                    };
+                    if call_name_expr(initializer).as_deref() == Some("state") {
+                        self.lower_state(name.id.sym.as_ref(), initializer)?;
+                    }
+                }
+            }
+        }
+
+        let mount_argument = module
+            .body
+            .iter()
+            .find_map(|item| {
+                let ModuleItem::Stmt(Stmt::Expr(statement)) = item else {
+                    return None;
+                };
+                let Expr::Call(call) = &*statement.expr else {
+                    return None;
+                };
+                (call_name(call).as_deref() == Some("ui.mount")).then(|| &*call.args[0].expr)
+            })
+            .ok_or_else(|| self.error(module.span, "MTS010", "ui.mount call is missing"))?;
+        let root = self.lower_ui(mount_argument)?;
+        let source_map = self.source_map;
+        let path = self.path;
+        let image = AppImage {
+            constants: self.constants,
+            states: self.states,
+            functions: self.functions,
+            nodes: self.nodes,
+            root,
+        };
+        validate(&image)
+            .map_err(|error| diagnostic_at(source_map, path, module.span, "MTS010", error.0))?;
+        Ok(image)
+    }
+
+    fn lower_state(&mut self, name: &str, initializer: &Expr) -> Result<(), Diagnostic> {
+        let Expr::Call(call) = initializer else {
+            unreachable!()
+        };
+        let constant = literal_constant(&call.args[0].expr).ok_or_else(|| {
+            self.error(
+                call.args[0].span(),
+                "MTS011",
+                "state initial value must be a scalar literal",
+            )
+        })?;
+        let ty = constant.scalar_type();
+        let initial = self.intern(constant);
+        let id = StateId(self.states.len() as u32);
+        self.states.push(StateDecl { ty, initial });
+        self.state_symbols.insert(name.to_owned(), (id, ty));
+        Ok(())
+    }
+
+    fn lower_ui(&mut self, expression: &Expr) -> Result<NodeId, Diagnostic> {
+        let Expr::Call(call) = expression else {
+            return Err(self.error(expression.span(), "MTS012", "UI value must be an ui.* call"));
+        };
+        match call_name(call).as_deref() {
+            Some("ui.column") => {
+                let id = self.reserve_node(UiKind::Column);
+                let Expr::Array(children) = &*call.args[0].expr else {
+                    return Err(self.error(
+                        call.args[0].span(),
+                        "MTS012",
+                        "ui.column expects a child array",
+                    ));
+                };
+                let mut child_ids = Vec::new();
+                for child in children.elems.iter().flatten() {
+                    child_ids.push(self.lower_ui(&child.expr)?);
+                }
+                self.nodes[id.0 as usize].children = child_ids;
+                Ok(id)
+            }
+            Some("ui.text") => {
+                let id = self.reserve_node(UiKind::Text);
+                let source = if call_name_expr(&call.args[0].expr).as_deref() == Some("bind") {
+                    let Expr::Call(binding) = &*call.args[0].expr else {
+                        unreachable!()
+                    };
+                    let arrow = as_arrow(&binding.args[0].expr).ok_or_else(|| {
+                        self.error(binding.args[0].span(), "MTS012", "bind expects an arrow")
+                    })?;
+                    TextSource::Binding(self.add_function(arrow, true)?)
+                } else {
+                    let constant = literal_constant(&call.args[0].expr).ok_or_else(|| {
+                        self.error(
+                            call.args[0].span(),
+                            "MTS012",
+                            "ui.text expects a string or bind",
+                        )
+                    })?;
+                    TextSource::Constant(self.intern(constant))
+                };
+                self.nodes[id.0 as usize].text = Some(source);
+                Ok(id)
+            }
+            Some("ui.button") => {
+                let id = self.reserve_node(UiKind::Button);
+                let label = literal_constant(&call.args[0].expr)
+                    .filter(|constant| matches!(constant, Constant::String(_)))
+                    .ok_or_else(|| {
+                        self.error(
+                            call.args[0].span(),
+                            "MTS012",
+                            "button label must be a string",
+                        )
+                    })?;
+                self.nodes[id.0 as usize].text = Some(TextSource::Constant(self.intern(label)));
+                let arrow = button_handler(&call.args[1].expr).ok_or_else(|| {
+                    self.error(call.args[1].span(), "MTS012", "onClick arrow is required")
+                })?;
+                self.nodes[id.0 as usize].on_click = Some(self.add_function(arrow, false)?);
+                Ok(id)
+            }
+            _ => Err(self.error(call.span, "MTS012", "unsupported UI call")),
+        }
+    }
+
+    fn reserve_node(&mut self, kind: UiKind) -> NodeId {
+        let id = NodeId(self.nodes.len() as u32);
+        self.nodes.push(UiNodeSpec {
+            id,
+            kind,
+            children: vec![],
+            text: None,
+            on_click: None,
+        });
+        id
+    }
+
+    fn add_function(&mut self, arrow: &ArrowExpr, binding: bool) -> Result<FunctionId, Diagnostic> {
+        let kind = if binding {
+            let id = BindingId(self.binding_count);
+            self.binding_count += 1;
+            FunctionKind::Binding(id)
+        } else {
+            let id = HandlerId(self.handler_count);
+            self.handler_count += 1;
+            FunctionKind::Handler(id)
+        };
+        let function = FunctionLowerer::new(self, kind).lower_arrow(arrow)?;
+        let id = FunctionId(self.functions.len() as u32);
+        self.functions.push(function);
+        Ok(id)
+    }
+
+    fn intern(&mut self, constant: Constant) -> u32 {
+        if let Some(index) = self
+            .constants
+            .iter()
+            .position(|existing| existing == &constant)
+        {
+            index as u32
+        } else {
+            let index = self.constants.len() as u32;
+            self.constants.push(constant);
+            index
+        }
+    }
+
+    fn error(&self, span: Span, code: &'static str, message: impl Into<String>) -> Diagnostic {
+        diagnostic_at(self.source_map, self.path, span, code, message.into())
+    }
+}
+
+struct FunctionLowerer<'lowerer, 'source> {
+    parent: &'lowerer mut Lowerer<'source>,
+    kind: FunctionKind,
+    locals: BTreeMap<String, (u16, ScalarType)>,
+    code: Vec<Instruction>,
+}
+
+impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
+    fn new(parent: &'lowerer mut Lowerer<'source>, kind: FunctionKind) -> Self {
+        Self {
+            parent,
+            kind,
+            locals: BTreeMap::new(),
+            code: Vec::new(),
+        }
+    }
+
+    fn lower_arrow(mut self, arrow: &ArrowExpr) -> Result<Function, Diagnostic> {
+        match (&self.kind, &*arrow.body) {
+            (FunctionKind::Binding(_), BlockStmtOrExpr::Expr(expression)) => {
+                self.expression(expression)?;
+            }
+            (FunctionKind::Binding(_), BlockStmtOrExpr::BlockStmt(block)) => {
+                for statement in &block.stmts {
+                    self.statement(statement)?;
+                }
+            }
+            (_, BlockStmtOrExpr::Expr(expression)) => {
+                self.expression(expression)?;
+                self.code.push(Instruction::Pop);
+            }
+            (_, BlockStmtOrExpr::BlockStmt(block)) => {
+                for statement in &block.stmts {
+                    self.statement(statement)?;
+                }
+            }
+        }
+        if !matches!(self.code.last(), Some(Instruction::Return)) {
+            self.code.push(Instruction::Return);
+        }
+        Ok(Function {
+            kind: self.kind,
+            locals: self.locals.len() as u16,
+            max_stack: 64,
+            code: self.code,
+        })
+    }
+
+    fn statement(&mut self, statement: &Stmt) -> Result<(), Diagnostic> {
+        match statement {
+            Stmt::Decl(Decl::Var(declaration)) => {
+                for declarator in &declaration.decls {
+                    let Pat::Ident(name) = &declarator.name else {
+                        unreachable!()
+                    };
+                    let initializer = declarator.init.as_ref().ok_or_else(|| {
+                        self.error(declarator.span, "local initializer is required")
+                    })?;
+                    let ty = self.expression(initializer)?;
+                    let id = self.locals.len() as u16;
+                    self.locals.insert(name.id.sym.to_string(), (id, ty));
+                    self.code.push(Instruction::StoreLocal(id));
+                }
+            }
+            Stmt::Expr(statement) => {
+                self.expression(&statement.expr)?;
+                self.code.push(Instruction::Pop);
+            }
+            Stmt::Block(block) => {
+                for statement in &block.stmts {
+                    self.statement(statement)?;
+                }
+            }
+            Stmt::If(statement) => {
+                self.expression(&statement.test)?;
+                let false_jump = self.emit_jump_if_false();
+                self.statement(&statement.cons)?;
+                if let Some(alternate) = &statement.alt {
+                    let end_jump = self.emit_jump();
+                    self.patch(false_jump, self.code.len());
+                    self.statement(alternate)?;
+                    self.patch(end_jump, self.code.len());
+                } else {
+                    self.patch(false_jump, self.code.len());
+                }
+            }
+            Stmt::While(statement) => {
+                let start = self.code.len();
+                self.expression(&statement.test)?;
+                let exit = self.emit_jump_if_false();
+                self.statement(&statement.body)?;
+                self.code.push(Instruction::Jump(start as u32));
+                self.patch(exit, self.code.len());
+            }
+            Stmt::Return(statement) => {
+                if let Some(argument) = &statement.arg {
+                    self.expression(argument)?;
+                }
+                self.code.push(Instruction::Return);
+            }
+            Stmt::Empty(_) => {}
+            _ => return Err(self.error(statement.span(), "unsupported function statement")),
+        }
+        Ok(())
+    }
+
+    fn expression(&mut self, expression: &Expr) -> Result<ScalarType, Diagnostic> {
+        match expression {
+            Expr::Lit(_) => {
+                let constant = literal_constant(expression).unwrap();
+                let ty = constant.scalar_type();
+                let id = self.parent.intern(constant);
+                self.code.push(Instruction::Const(id));
+                Ok(ty)
+            }
+            Expr::Ident(identifier) => {
+                let (id, ty) = self
+                    .locals
+                    .get(identifier.sym.as_ref())
+                    .copied()
+                    .ok_or_else(|| self.error(identifier.span, "unknown local"))?;
+                self.code.push(Instruction::LoadLocal(id));
+                Ok(ty)
+            }
+            Expr::Member(member) => {
+                let (id, ty) = self.state_member(member)?;
+                self.code.push(Instruction::LoadState(id));
+                Ok(ty)
+            }
+            Expr::Tpl(template) => {
+                let first = template
+                    .quasis
+                    .first()
+                    .map(|quasi| quasi.raw.to_string())
+                    .unwrap_or_default();
+                let first_id = self.parent.intern(Constant::String(first));
+                self.code.push(Instruction::Const(first_id));
+                for (index, expression) in template.exprs.iter().enumerate() {
+                    self.expression(expression)?;
+                    self.code.push(Instruction::ToString);
+                    self.code.push(Instruction::Concat);
+                    let tail = template.quasis[index + 1].raw.to_string();
+                    if !tail.is_empty() {
+                        let id = self.parent.intern(Constant::String(tail));
+                        self.code.push(Instruction::Const(id));
+                        self.code.push(Instruction::Concat);
+                    }
+                }
+                Ok(ScalarType::String)
+            }
+            Expr::Bin(binary) => {
+                let left = self.expression(&binary.left)?;
+                let right = self.expression(&binary.right)?;
+                let (instruction, ty) = match binary.op {
+                    BinaryOp::Add => (Instruction::Add, left),
+                    BinaryOp::Sub => (Instruction::Sub, ScalarType::Number),
+                    BinaryOp::Mul => (Instruction::Mul, ScalarType::Number),
+                    BinaryOp::Div => (Instruction::Div, ScalarType::Number),
+                    BinaryOp::EqEq | BinaryOp::EqEqEq | BinaryOp::NotEq | BinaryOp::NotEqEq => {
+                        (Instruction::Eq, ScalarType::Bool)
+                    }
+                    BinaryOp::Lt | BinaryOp::LtEq => (Instruction::Lt, ScalarType::Bool),
+                    BinaryOp::Gt | BinaryOp::GtEq => (Instruction::Gt, ScalarType::Bool),
+                    _ => return Err(self.error(binary.span, "unsupported binary operator")),
+                };
+                if matches!(
+                    instruction,
+                    Instruction::Add | Instruction::Sub | Instruction::Mul | Instruction::Div
+                ) && (left != ScalarType::Number || right != ScalarType::Number)
+                {
+                    return Err(self.error(binary.span, "arithmetic operands must be numbers"));
+                }
+                self.code.push(instruction);
+                Ok(ty)
+            }
+            Expr::Update(update) => self.update(&update.arg, update.op),
+            Expr::Assign(assign) if assign.op == AssignOp::Assign => {
+                self.assignment(&assign.left, &assign.right)
+            }
+            Expr::Paren(parenthesized) => self.expression(&parenthesized.expr),
+            _ => Err(self.error(expression.span(), "unsupported function expression")),
+        }
+    }
+
+    fn update(&mut self, target: &Expr, op: UpdateOp) -> Result<ScalarType, Diagnostic> {
+        let one = self.parent.intern(Constant::Number(1.0));
+        match target {
+            Expr::Member(member) => {
+                let (id, ty) = self.state_member(member)?;
+                if ty != ScalarType::Number {
+                    return Err(self.error(target.span(), "update target must be numeric"));
+                }
+                self.code.push(Instruction::LoadState(id));
+                self.code.push(Instruction::Const(one));
+                self.code.push(if op == UpdateOp::PlusPlus {
+                    Instruction::Add
+                } else {
+                    Instruction::Sub
+                });
+                self.code.push(Instruction::Dup);
+                self.code.push(Instruction::StoreState(id));
+                Ok(ty)
+            }
+            Expr::Ident(identifier) => {
+                let (id, ty) = self
+                    .locals
+                    .get(identifier.sym.as_ref())
+                    .copied()
+                    .ok_or_else(|| self.error(identifier.span, "unknown local"))?;
+                self.code.push(Instruction::LoadLocal(id));
+                self.code.push(Instruction::Const(one));
+                self.code.push(if op == UpdateOp::PlusPlus {
+                    Instruction::Add
+                } else {
+                    Instruction::Sub
+                });
+                self.code.push(Instruction::Dup);
+                self.code.push(Instruction::StoreLocal(id));
+                Ok(ty)
+            }
+            _ => Err(self.error(target.span(), "unsupported update target")),
+        }
+    }
+
+    fn assignment(
+        &mut self,
+        target: &AssignTarget,
+        value: &Expr,
+    ) -> Result<ScalarType, Diagnostic> {
+        let ty = self.expression(value)?;
+        self.code.push(Instruction::Dup);
+        match target {
+            AssignTarget::Simple(SimpleAssignTarget::Ident(identifier)) => {
+                let (id, expected) = self
+                    .locals
+                    .get(identifier.sym.as_ref())
+                    .copied()
+                    .ok_or_else(|| self.error(identifier.span, "unknown local"))?;
+                if ty != expected {
+                    return Err(self.error(identifier.span, "assignment type mismatch"));
+                }
+                self.code.push(Instruction::StoreLocal(id));
+            }
+            AssignTarget::Simple(SimpleAssignTarget::Member(member)) => {
+                let (id, expected) = self.state_member(member)?;
+                if ty != expected {
+                    return Err(self.error(member.span, "state assignment type mismatch"));
+                }
+                self.code.push(Instruction::StoreState(id));
+            }
+            _ => return Err(self.error(target.span(), "unsupported assignment target")),
+        }
+        Ok(ty)
+    }
+
+    fn state_member(&self, member: &MemberExpr) -> Result<(StateId, ScalarType), Diagnostic> {
+        let Expr::Ident(object) = &*member.obj else {
+            return Err(self.error(member.span, "state access must use an identifier"));
+        };
+        self.parent
+            .state_symbols
+            .get(object.sym.as_ref())
+            .copied()
+            .ok_or_else(|| self.error(member.span, "unknown state"))
+    }
+
+    fn emit_jump_if_false(&mut self) -> usize {
+        let index = self.code.len();
+        self.code.push(Instruction::JumpIfFalse(0));
+        index
+    }
+    fn emit_jump(&mut self) -> usize {
+        let index = self.code.len();
+        self.code.push(Instruction::Jump(0));
+        index
+    }
+    fn patch(&mut self, index: usize, target: usize) {
+        match &mut self.code[index] {
+            Instruction::Jump(value) | Instruction::JumpIfFalse(value) => *value = target as u32,
+            _ => unreachable!(),
+        }
+    }
+    fn error(&self, span: Span, message: impl Into<String>) -> Diagnostic {
+        self.parent.error(span, "MTS013", message)
+    }
+}
+
+fn literal_constant(expression: &Expr) -> Option<Constant> {
+    match expression {
+        Expr::Lit(Lit::Num(value)) => Some(Constant::Number(value.value)),
+        Expr::Lit(Lit::Str(value)) => {
+            Some(Constant::String(value.value.to_string_lossy().into_owned()))
+        }
+        Expr::Lit(Lit::Bool(value)) => Some(Constant::Bool(value.value)),
+        Expr::Lit(Lit::Null(_)) => Some(Constant::Null),
+        _ => None,
+    }
+}
+
+fn call_name_expr(expression: &Expr) -> Option<String> {
+    let Expr::Call(call) = expression else {
+        return None;
+    };
+    call_name(call)
+}
+fn call_name(call: &swc_ecma_ast::CallExpr) -> Option<String> {
+    let Callee::Expr(callee) = &call.callee else {
+        return None;
+    };
+    match &**callee {
+        Expr::Ident(identifier) => Some(identifier.sym.to_string()),
+        Expr::Member(member) => {
+            let Expr::Ident(object) = &*member.obj else {
+                return None;
+            };
+            let MemberProp::Ident(property) = &member.prop else {
+                return None;
+            };
+            Some(format!("{}.{}", object.sym, property.sym))
+        }
+        _ => None,
+    }
+}
+fn as_arrow(expression: &Expr) -> Option<&ArrowExpr> {
+    match expression {
+        Expr::Arrow(arrow) => Some(arrow),
+        _ => None,
+    }
+}
+fn button_handler(expression: &Expr) -> Option<&ArrowExpr> {
+    let Expr::Object(object) = expression else {
+        return None;
+    };
+    object.props.iter().find_map(|property| {
+        let PropOrSpread::Prop(property) = property else {
+            return None;
+        };
+        let Prop::KeyValue(property) = &**property else {
+            return None;
+        };
+        let PropName::Ident(name) = &property.key else {
+            return None;
+        };
+        (name.sym == *"onClick")
+            .then(|| as_arrow(&property.value))
+            .flatten()
+    })
+}

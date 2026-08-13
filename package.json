@@ -1,0 +1,10 @@
+{
+  "name": "micro-app-platform-mvp",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build:app": "cargo run -p micro-compiler --bin microc -- apps/counter/app.ts apps/counter/dist/app.mbc",
+    "demo": "npm run build:app && cargo run -p micro-host-sdl --features native -- apps/counter/dist/app.mbc",
+    "test": "cargo test --workspace"
+  }
+}

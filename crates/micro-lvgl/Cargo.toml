@@ -1,0 +1,9 @@
+[package]
+name = "micro-lvgl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+micro-core.workspace = true
+micro-ir.workspace = true

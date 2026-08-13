@@ -1,0 +1,366 @@
+use std::collections::BTreeSet;
+
+use swc_common::{FileName, SourceMap, Span, Spanned, sync::Lrc};
+use swc_ecma_ast::{
+    ArrowExpr, AssignTarget, BlockStmtOrExpr, Callee, Decl, Expr, Lit, MemberExpr, MemberProp,
+    Module, ModuleItem, Pat, Prop, PropName, PropOrSpread, SimpleAssignTarget, Stmt, VarDeclKind,
+};
+use swc_ecma_parser::{Parser, StringInput, Syntax, TsSyntax, lexer::Lexer};
+
+use crate::Diagnostic;
+
+pub struct ParsedProgram {
+    pub module: Module,
+    pub source_map: Lrc<SourceMap>,
+    pub path: String,
+}
+
+pub fn validate_source(path: &str, source: &str) -> Result<(), Vec<Diagnostic>> {
+    parse_validated(path, source).map(|_| ())
+}
+
+pub fn parse_validated(path: &str, source: &str) -> Result<ParsedProgram, Vec<Diagnostic>> {
+    let source_map: Lrc<SourceMap> = Default::default();
+    let file =
+        source_map.new_source_file(FileName::Custom(path.to_owned()).into(), source.to_owned());
+    let lexer = Lexer::new(
+        Syntax::Typescript(TsSyntax {
+            tsx: false,
+            ..Default::default()
+        }),
+        Default::default(),
+        StringInput::from(&*file),
+        None,
+    );
+    let mut parser = Parser::new_from(lexer);
+    let module = match parser.parse_module() {
+        Ok(module) => module,
+        Err(error) => {
+            return Err(vec![diagnostic_at(
+                &source_map,
+                path,
+                error.span(),
+                "MTS000",
+                format!("TypeScript parse error: {:?}", error.kind()),
+            )]);
+        }
+    };
+    if let Some(error) = parser.take_errors().into_iter().next() {
+        return Err(vec![diagnostic_at(
+            &source_map,
+            path,
+            error.span(),
+            "MTS000",
+            format!("TypeScript parse error: {:?}", error.kind()),
+        )]);
+    }
+
+    let mut validator = Validator {
+        source_map: &source_map,
+        path,
+        known: BTreeSet::new(),
+        mount_count: 0,
+        errors: Vec::new(),
+    };
+    validator.module(&module);
+    if validator.errors.is_empty() {
+        Ok(ParsedProgram {
+            module,
+            source_map,
+            path: path.to_owned(),
+        })
+    } else {
+        Err(validator.errors)
+    }
+}
+
+pub(crate) fn diagnostic_at(
+    source_map: &SourceMap,
+    path: &str,
+    span: Span,
+    code: &'static str,
+    message: String,
+) -> Diagnostic {
+    let location = source_map.lookup_char_pos(span.lo());
+    Diagnostic {
+        code,
+        path: path.to_owned(),
+        line: location.line,
+        column: location.col_display + 1,
+        message,
+        hint: None,
+    }
+}
+
+struct Validator<'a> {
+    source_map: &'a SourceMap,
+    path: &'a str,
+    known: BTreeSet<String>,
+    mount_count: usize,
+    errors: Vec<Diagnostic>,
+}
+
+impl Validator<'_> {
+    fn module(&mut self, module: &Module) {
+        for item in &module.body {
+            match item {
+                ModuleItem::Stmt(statement) => self.statement(statement),
+                ModuleItem::ModuleDecl(declaration) => {
+                    self.unsupported(declaration.span(), "runtime module declarations")
+                }
+            }
+        }
+    }
+
+    fn statement(&mut self, statement: &Stmt) {
+        match statement {
+            Stmt::Decl(Decl::Var(declaration)) => {
+                if declaration.kind == VarDeclKind::Var {
+                    self.unsupported(declaration.span, "var declarations");
+                }
+                for declarator in &declaration.decls {
+                    let Pat::Ident(binding) = &declarator.name else {
+                        self.unsupported(declarator.name.span(), "destructuring");
+                        continue;
+                    };
+                    if let Some(initializer) = &declarator.init {
+                        self.expression(initializer);
+                    }
+                    self.known.insert(binding.id.sym.to_string());
+                }
+            }
+            Stmt::Expr(statement) => self.expression(&statement.expr),
+            Stmt::Block(block) => {
+                for statement in &block.stmts {
+                    self.statement(statement);
+                }
+            }
+            Stmt::If(statement) => {
+                self.expression(&statement.test);
+                self.statement(&statement.cons);
+                if let Some(alternate) = &statement.alt {
+                    self.statement(alternate);
+                }
+            }
+            Stmt::While(statement) => {
+                self.expression(&statement.test);
+                self.statement(&statement.body);
+            }
+            Stmt::Return(statement) => {
+                if let Some(argument) = &statement.arg {
+                    self.expression(argument);
+                }
+            }
+            Stmt::Empty(_) => {}
+            Stmt::Decl(declaration) => self.unsupported(declaration.span(), "declaration"),
+            _ => self.unsupported(statement.span(), "statement"),
+        }
+    }
+
+    fn expression(&mut self, expression: &Expr) {
+        match expression {
+            Expr::Lit(Lit::Str(_) | Lit::Bool(_) | Lit::Null(_) | Lit::Num(_)) => {}
+            Expr::Ident(identifier) => {
+                let name = identifier.sym.as_ref();
+                if !self.known.contains(name) && !matches!(name, "state" | "bind" | "ui") {
+                    self.unsupported(identifier.span, format!("global `{name}`"));
+                }
+            }
+            Expr::Call(call) => self.call(call),
+            Expr::Member(member) => self.member(member),
+            Expr::Arrow(arrow) => self.arrow(arrow),
+            Expr::Tpl(template) => {
+                for expression in &template.exprs {
+                    self.expression(expression);
+                }
+            }
+            Expr::Bin(binary) => {
+                self.expression(&binary.left);
+                self.expression(&binary.right);
+            }
+            Expr::Unary(unary) => self.expression(&unary.arg),
+            Expr::Update(update) => self.assignable(&update.arg),
+            Expr::Assign(assign) => {
+                self.expression(&assign.right);
+                match &assign.left {
+                    AssignTarget::Simple(SimpleAssignTarget::Ident(identifier)) => {
+                        if !self.known.contains(identifier.sym.as_ref()) {
+                            self.unsupported(identifier.span, "assignment target");
+                        }
+                    }
+                    AssignTarget::Simple(SimpleAssignTarget::Member(member)) => self.member(member),
+                    _ => self.unsupported(assign.left.span(), "assignment target"),
+                }
+            }
+            Expr::Cond(conditional) => {
+                self.expression(&conditional.test);
+                self.expression(&conditional.cons);
+                self.expression(&conditional.alt);
+            }
+            Expr::Paren(parenthesized) => self.expression(&parenthesized.expr),
+            Expr::Array(array) => {
+                for element in &array.elems {
+                    match element {
+                        Some(element) if element.spread.is_none() => self.expression(&element.expr),
+                        Some(element) => self.unsupported(element.span(), "spread"),
+                        None => self.unsupported(array.span, "array holes"),
+                    }
+                }
+            }
+            _ => self.unsupported(expression.span(), "expression"),
+        }
+    }
+
+    fn call(&mut self, call: &swc_ecma_ast::CallExpr) {
+        let Some(name) = call_name(call) else {
+            self.unsupported(call.span, "call target");
+            return;
+        };
+        let expected = match name.as_str() {
+            "state" | "bind" | "ui.mount" | "ui.column" | "ui.text" => 1,
+            "ui.button" => 2,
+            _ => {
+                self.unsupported(call.span, format!("call `{name}`"));
+                return;
+            }
+        };
+        if call.args.len() != expected || call.args.iter().any(|argument| argument.spread.is_some())
+        {
+            self.sdk_error(
+                call.span,
+                format!("`{name}` expects {expected} argument(s)"),
+            );
+            return;
+        }
+        if name == "ui.mount" {
+            self.mount_count += 1;
+            if self.mount_count > 1 {
+                self.errors.push(diagnostic_at(
+                    self.source_map,
+                    self.path,
+                    call.span,
+                    "MTS003",
+                    "exactly one ui.mount call is allowed".into(),
+                ));
+            }
+        }
+        if name == "ui.button" {
+            self.expression(&call.args[0].expr);
+            self.button_options(&call.args[1].expr);
+        } else {
+            for argument in &call.args {
+                self.expression(&argument.expr);
+            }
+        }
+    }
+
+    fn button_options(&mut self, expression: &Expr) {
+        let Expr::Object(object) = expression else {
+            self.sdk_error(
+                expression.span(),
+                "ui.button options must be an object".into(),
+            );
+            return;
+        };
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                self.unsupported(property.span(), "spread");
+                continue;
+            };
+            let Prop::KeyValue(property) = &**property else {
+                self.unsupported(property.span(), "button property");
+                continue;
+            };
+            let PropName::Ident(name) = &property.key else {
+                self.unsupported(property.key.span(), "computed button property");
+                continue;
+            };
+            if name.sym != *"onClick" {
+                self.errors.push(diagnostic_at(
+                    self.source_map,
+                    self.path,
+                    name.span,
+                    "MTS002",
+                    format!("unknown ui.button property `{}`", name.sym),
+                ));
+            }
+            self.expression(&property.value);
+        }
+    }
+
+    fn arrow(&mut self, arrow: &ArrowExpr) {
+        if arrow.is_async || arrow.is_generator {
+            self.unsupported(arrow.span, "async or generator arrow function");
+            return;
+        }
+        if !arrow.params.is_empty() {
+            self.unsupported(arrow.span, "arrow parameters");
+        }
+        match &*arrow.body {
+            BlockStmtOrExpr::BlockStmt(block) => {
+                for statement in &block.stmts {
+                    self.statement(statement);
+                }
+            }
+            BlockStmtOrExpr::Expr(expression) => self.expression(expression),
+        }
+    }
+
+    fn member(&mut self, member: &MemberExpr) {
+        let MemberProp::Ident(property) = &member.prop else {
+            self.unsupported(member.span, "computed property access");
+            return;
+        };
+        if property.sym != *"value" {
+            self.unsupported(member.span, format!("property `{}`", property.sym));
+        }
+        self.expression(&member.obj);
+    }
+
+    fn assignable(&mut self, expression: &Expr) {
+        match expression {
+            Expr::Ident(identifier) if self.known.contains(identifier.sym.as_ref()) => {}
+            Expr::Member(member) => self.member(member),
+            _ => self.unsupported(expression.span(), "update target"),
+        }
+    }
+
+    fn unsupported(&mut self, span: Span, construct: impl Into<String>) {
+        self.errors.push(diagnostic_at(
+            self.source_map,
+            self.path,
+            span,
+            "MTS001",
+            format!("unsupported syntax: {}", construct.into()),
+        ));
+    }
+
+    fn sdk_error(&mut self, span: Span, message: String) {
+        self.errors.push(diagnostic_at(
+            self.source_map,
+            self.path,
+            span,
+            "MTS002",
+            message,
+        ));
+    }
+}
+
+fn call_name(call: &swc_ecma_ast::CallExpr) -> Option<String> {
+    let Callee::Expr(callee) = &call.callee else {
+        return None;
+    };
+    match &**callee {
+        Expr::Ident(identifier) => Some(identifier.sym.to_string()),
+        Expr::Member(member) => {
+            let Expr::Ident(object) = &*member.obj else {
+                return None;
+            };
+            let MemberProp::Ident(property) = &member.prop else {
+                return None;
+            };
+            Some(format!("{}.{}", object.sym, property.sym))
+        }
+        _ => None,
+    }
+}

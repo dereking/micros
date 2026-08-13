@@ -1,0 +1,18 @@
+[package]
+name = "micro-host-sdl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+native = []
+
+[dependencies]
+micro-core.workspace = true
+micro-ir.workspace = true
+micro-vm.workspace = true
+micro-lvgl = { path = "../micro-lvgl" }
+
+[build-dependencies]
+cmake = "0.1.54"

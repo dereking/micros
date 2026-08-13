@@ -1,0 +1,20 @@
+[workspace]
+members = [
+  "crates/micro-ir",
+  "crates/micro-vm",
+  "crates/micro-core",
+  "crates/micro-compiler",
+  "crates/micro-lvgl",
+  "crates/micro-host-sdl",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.dependencies]
+micro-ir = { path = "crates/micro-ir" }
+micro-vm = { path = "crates/micro-vm" }
+micro-core = { path = "crates/micro-core" }

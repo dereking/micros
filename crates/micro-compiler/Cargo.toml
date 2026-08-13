@@ -1,0 +1,18 @@
+[package]
+name = "micro-compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+micro-ir.workspace = true
+swc_common = "25.0.0"
+swc_ecma_ast = "28.0.0"
+swc_ecma_parser = { version = "44.0.0", features = ["typescript"] }
+
+[[bin]]
+name = "microc"
+path = "src/bin/microc.rs"
+
+[dev-dependencies]
+micro-core.workspace = true
