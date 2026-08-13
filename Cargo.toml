@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/micro-board-profile",
   "crates/micro-ir",
   "crates/micro-vm",
   "crates/micro-core",
@@ -20,3 +21,5 @@ version = "0.1.0"
 micro-ir = { path = "crates/micro-ir" }
 micro-vm = { path = "crates/micro-vm" }
 micro-core = { path = "crates/micro-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

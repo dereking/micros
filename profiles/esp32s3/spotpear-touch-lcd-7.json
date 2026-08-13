@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "spotpear-esp32s3-touch-lcd-7-v1.2-n8r8",
+  "name": "Spotpear ESP32-S3 Touch LCD 7 V1.2",
+  "chipFamily": "esp32s3",
+  "boardRevision": "1.2",
+  "hardware": {
+    "flashMb": 8,
+    "psramMb": 8,
+    "psramMode": "octal"
+  },
+  "display": {
+    "driver": "esp-lcd-rgb",
+    "width": 800,
+    "height": 480,
+    "colorFormat": "rgb565",
+    "pixelClockHz": 16000000,
+    "pclkActiveNegative": true,
+    "hsync": 46,
+    "vsync": 3,
+    "de": 5,
+    "pclk": 7,
+    "data": [14, 38, 18, 17, 10, 39, 0, 45, 48, 47, 21, 1, 2, 42, 41, 40],
+    "timing": {
+      "hPulse": 4,
+      "hBack": 8,
+      "hFront": 8,
+      "vPulse": 4,
+      "vBack": 8,
+      "vFront": 8
+    }
+  },
+  "touch": {
+    "driver": "gt911",
+    "bus": 0,
+    "sda": 8,
+    "scl": 9,
+    "irq": 4,
+    "resetExpander": 1,
+    "swapXY": false,
+    "mirrorX": false,
+    "mirrorY": false
+  },
+  "expander": {
+    "driver": "ch422g",
+    "bus": 0,
+    "sda": 8,
+    "scl": 9,
+    "touchReset": 1,
+    "backlightEnable": 2
+  },
+  "backlight": {
+    "kind": "binary",
+    "enableExpander": 2
+  },
+  "resources": {
+    "framebuffers": 2,
+    "bounceBufferLines": 10,
+    "preferPsram": true
+  },
+  "driverCatalog": "esp32s3-v1"
+}
