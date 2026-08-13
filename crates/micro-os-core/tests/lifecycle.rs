@@ -40,9 +40,12 @@ fn boot_first_run(os: &mut MicroOs) {
 
 fn boot_configured(os: &mut MicroOs) -> WifiOperationId {
     boot_to_system_ui(os);
-    let Action::ConnectSavedWifi { operation } =
-        os.dispatch(Event::NetworkConfigLoaded { configured: true })
+    let Action::Actions(actions) = os.dispatch(Event::NetworkConfigLoaded { configured: true })
     else {
+        panic!("configured boot must expose UI and connection effects");
+    };
+    assert_eq!(actions[0], Action::ShowLauncher);
+    let Action::ConnectSavedWifi { operation } = actions[1] else {
         panic!("configured boot must connect saved WiFi");
     };
     assert_eq!(os.state(), &State::Launcher);
@@ -125,6 +128,20 @@ fn every_initialization_failure_enters_safe_mode() {
         ui.dispatch(Event::SystemUiInitialized(Err(reason.clone()))),
         Action::EnterSafeMode(reason)
     );
+}
+
+#[test]
+fn configured_boot_explicitly_shows_launcher_and_connects_saved_wifi() {
+    let mut os = MicroOs::new();
+    boot_to_system_ui(&mut os);
+    let action = os.dispatch(Event::NetworkConfigLoaded { configured: true });
+    let Action::Actions(actions) = action else {
+        panic!("configured boot must expose both UI and connection effects")
+    };
+    assert_eq!(actions.len(), 2);
+    assert_eq!(actions[0], Action::ShowLauncher);
+    assert!(matches!(actions[1], Action::ConnectSavedWifi { .. }));
+    assert_eq!(os.state(), &State::Launcher);
 }
 
 #[test]
@@ -219,6 +236,37 @@ fn destructive_operations_cannot_overlap() {
     };
     os.dispatch(Event::FactoryResetConfirmed { confirmation });
     assert_eq!(os.dispatch(Event::ClearNetworkRequested), Action::Rejected);
+}
+
+#[test]
+fn pending_destructive_confirmation_rejects_cross_requests_both_ways() {
+    let mut clear_first = MicroOs::new();
+    connect_saved(&mut clear_first);
+    clear_first.dispatch(Event::OpenSettings);
+    let clear = clear_first.dispatch(Event::ClearNetworkRequested);
+    assert!(matches!(clear, Action::ConfirmClearNetwork { .. }));
+    assert_eq!(
+        clear_first.dispatch(Event::FactoryResetRequested),
+        Action::Rejected
+    );
+    assert!(matches!(
+        clear_first.pending_confirmation(),
+        Some(PendingConfirmation::ClearNetwork(_))
+    ));
+
+    let mut reset_first = MicroOs::new();
+    connect_saved(&mut reset_first);
+    reset_first.dispatch(Event::OpenSettings);
+    let reset = reset_first.dispatch(Event::FactoryResetRequested);
+    assert!(matches!(reset, Action::ConfirmFactoryReset { .. }));
+    assert_eq!(
+        reset_first.dispatch(Event::ClearNetworkRequested),
+        Action::Rejected
+    );
+    assert!(matches!(
+        reset_first.pending_confirmation(),
+        Some(PendingConfirmation::FactoryReset(_))
+    ));
 }
 
 #[test]
@@ -569,4 +617,79 @@ fn restarted_app_rejects_old_session_callbacks() {
             session: new
         }
     );
+}
+
+#[test]
+fn app_lifecycle_repeats_with_back_teardown_and_fresh_sessions() {
+    let mut os = MicroOs::new();
+    boot_configured(&mut os);
+    let first = action_session(os.dispatch(Event::OpenApp(AppId::Counter)));
+    os.dispatch(Event::AppStarted { session: first });
+    assert_eq!(
+        os.dispatch(Event::BackPressed),
+        Action::StopApp {
+            app: AppId::Counter,
+            session: first
+        }
+    );
+    assert_eq!(
+        os.dispatch(Event::AppStopped { session: first }),
+        Action::ShowLauncher
+    );
+    let second = action_session(os.dispatch(Event::OpenApp(AppId::Counter)));
+    assert_ne!(first, second);
+    os.dispatch(Event::AppStarted { session: second });
+    assert_eq!(
+        os.state(),
+        &State::AppRunning {
+            app: AppId::Counter,
+            session: second
+        }
+    );
+}
+
+#[test]
+fn trusted_app_error_and_settings_home_return_to_launcher() {
+    let mut os = MicroOs::new();
+    boot_configured(&mut os);
+    let session = action_session(os.dispatch(Event::OpenApp(AppId::Counter)));
+    os.dispatch(Event::AppFailed {
+        session,
+        reason: FailureReason::AppCrashed,
+    });
+    assert_eq!(os.dispatch(Event::HomePressed), Action::ShowLauncher);
+    assert_eq!(os.state(), &State::Launcher);
+    os.dispatch(Event::OpenSettings);
+    assert_eq!(os.dispatch(Event::HomePressed), Action::ShowLauncher);
+    assert_eq!(os.state(), &State::Launcher);
+}
+
+#[test]
+fn all_wifi_failure_reasons_retain_operation_identity() {
+    for reason in [
+        WifiFailure::Timeout,
+        WifiFailure::Authentication,
+        WifiFailure::NetworkMissing,
+        WifiFailure::Internal,
+    ] {
+        let mut os = MicroOs::new();
+        boot_first_run(&mut os);
+        let Action::ConnectWifi { operation } = os.dispatch(Event::WifiConnectRequested) else {
+            panic!()
+        };
+        let Action::Actions(actions) = os.dispatch(Event::WifiFailed {
+            operation,
+            reason: reason.clone(),
+        }) else {
+            panic!()
+        };
+        assert!(actions.contains(&Action::ClearPendingWifi { operation }));
+        assert!(matches!(
+            os.provisioning_state(),
+            ProvisioningState::Failed {
+                operation: failed_operation,
+                reason: failed_reason
+            } if *failed_operation == operation && *failed_reason == reason
+        ));
+    }
 }

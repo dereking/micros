@@ -431,7 +431,10 @@ impl MicroOs {
             self.network_configured = true;
             self.live_wifi_state = LiveWifiState::Connecting(operation);
             self.state = State::Launcher;
-            Action::ConnectSavedWifi { operation }
+            Action::Actions(vec![
+                Action::ShowLauncher,
+                Action::ConnectSavedWifi { operation },
+            ])
         } else {
             self.network_configured = false;
             self.live_wifi_state = LiveWifiState::Disconnected;
@@ -700,6 +703,7 @@ impl MicroOs {
 
     fn clear_network_requested(&mut self) -> Action {
         if !self.confirmation_context()
+            || self.pending_confirmation.is_some()
             || self.clearing_network.is_some()
             || self.factory_resetting.is_some()
         {
@@ -756,6 +760,7 @@ impl MicroOs {
 
     fn factory_reset_requested(&mut self) -> Action {
         if !self.confirmation_context()
+            || self.pending_confirmation.is_some()
             || self.factory_resetting.is_some()
             || self.clearing_network.is_some()
         {
