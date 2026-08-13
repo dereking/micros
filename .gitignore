@@ -55,3 +55,13 @@ products/micro-web-player/public/apps/*.mbc
 products/micro-web-player/dist/
 test-results/
 playwright-report/
+
+# Local ESP32 vendor references and toolchains
+work/vendor/
+work/toolchains/
+
+# ESP-IDF generated and machine-local state
+firmware/micro-os-esp32/build/
+firmware/micro-os-esp32/managed_components/
+firmware/micro-os-esp32/sdkconfig
+firmware/micro-os-esp32/sdkconfig.old
