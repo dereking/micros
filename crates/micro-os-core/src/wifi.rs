@@ -1,3 +1,6 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WifiOperationId(pub u64);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WifiFailure {
     Authentication,
@@ -7,11 +10,20 @@ pub enum WifiFailure {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WifiState {
-    Idle,
-    Scanning,
-    Connecting,
-    PendingPersistence,
+pub enum LiveWifiState {
+    Disconnected,
+    Connecting(WifiOperationId),
     Connected,
-    Failed(WifiFailure),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProvisioningState {
+    Idle,
+    Scanning(WifiOperationId),
+    ConnectingReplacement(WifiOperationId),
+    Persisting(WifiOperationId),
+    Failed {
+        operation: WifiOperationId,
+        reason: WifiFailure,
+    },
 }

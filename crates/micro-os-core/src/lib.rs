@@ -2,6 +2,7 @@ mod state;
 mod wifi;
 
 pub use state::{
-    Action, AppId, Backlight, Event, FailureReason, Language, MicroOs, ScreenTimeout, State,
+    Action, AppDestination, AppId, AppSessionId, Backlight, ConfirmationId, Event, FailureReason,
+    Language, MicroOs, PendingConfirmation, ScreenTimeout, State,
 };
-pub use wifi::{WifiFailure, WifiState};
+pub use wifi::{LiveWifiState, ProvisioningState, WifiFailure, WifiOperationId};

@@ -1,10 +1,27 @@
-use crate::{WifiFailure, WifiState};
+use crate::{LiveWifiState, ProvisioningState, WifiFailure, WifiOperationId};
 
 const RECONNECT_DELAYS: [u32; 5] = [1, 2, 5, 10, 30];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppId {
     Counter,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppSessionId(pub u64);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AppDestination {
+    Launcher,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConfirmationId(pub u64);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PendingConfirmation {
+    ClearNetwork(ConfirmationId),
+    FactoryReset(ConfirmationId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,39 +64,90 @@ pub enum State {
     SystemUiReady,
     FirstRunSetup,
     Launcher,
-    AppStarting(AppId),
-    AppRunning(AppId),
-    AppError { app: AppId, reason: FailureReason },
+    AppStarting {
+        app: AppId,
+        session: AppSessionId,
+    },
+    AppRunning {
+        app: AppId,
+        session: AppSessionId,
+    },
+    AppStopping {
+        app: AppId,
+        session: AppSessionId,
+        destination: AppDestination,
+    },
+    AppError {
+        app: AppId,
+        session: AppSessionId,
+        reason: FailureReason,
+    },
     Settings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
-    BootSampled { safe_mode: bool },
+    BootSampled {
+        safe_mode: bool,
+    },
     StorageInitialized(Result<(), FailureReason>),
     ProfileValidated(Result<(), FailureReason>),
     DisplayInitialized(Result<(), FailureReason>),
     SystemUiInitialized(Result<(), FailureReason>),
-    NetworkConfigLoaded { configured: bool },
+    NetworkConfigLoaded {
+        configured: bool,
+    },
     SetupSkipped,
     OpenSettings,
     BackPressed,
     HomePressed,
     OpenApp(AppId),
-    AppStarted,
-    AppFailed(FailureReason),
+    AppStarted {
+        session: AppSessionId,
+    },
+    AppFailed {
+        session: AppSessionId,
+        reason: FailureReason,
+    },
     RestartApp,
-    AppStopped,
+    AppStopped {
+        session: AppSessionId,
+    },
     WifiScanRequested,
-    WifiScanCompleted,
+    WifiScanCompleted {
+        operation: WifiOperationId,
+    },
     WifiConnectRequested,
-    WifiConnected,
-    WifiPersisted,
-    WifiFailed(WifiFailure),
+    WifiConnected {
+        operation: WifiOperationId,
+    },
+    WifiPersisted {
+        operation: WifiOperationId,
+    },
+    WifiFailed {
+        operation: WifiOperationId,
+        reason: WifiFailure,
+    },
+    ReconnectDue {
+        reconnect: WifiOperationId,
+    },
+    ReconnectNowRequested,
     ClearNetworkRequested,
-    ClearNetworkConfirmed,
+    ClearNetworkConfirmed {
+        confirmation: ConfirmationId,
+    },
+    ClearNetworkCompleted {
+        confirmation: ConfirmationId,
+        result: Result<(), FailureReason>,
+    },
     FactoryResetRequested,
-    FactoryResetConfirmed,
+    FactoryResetConfirmed {
+        confirmation: ConfirmationId,
+    },
+    FactoryResetCompleted {
+        confirmation: ConfirmationId,
+        result: Result<(), FailureReason>,
+    },
     RebootRequested,
 }
 
@@ -97,32 +165,74 @@ pub enum Action {
     ShowFirstRunSetup,
     ShowLauncher,
     ShowSettings,
-    StartWifiScan,
-    ConnectWifi,
-    PersistWifi,
-    ClearPendingWifi,
-    ScheduleWifiReconnect { after_secs: u32 },
-    StartApp(AppId),
-    StopApp(AppId),
-    ShowAppError { app: AppId, reason: FailureReason },
-    ConfirmClearNetwork,
-    ClearNetwork,
-    ConfirmFactoryReset,
-    FactoryReset,
+    StartWifiScan {
+        operation: WifiOperationId,
+    },
+    ConnectWifi {
+        operation: WifiOperationId,
+    },
+    ConnectSavedWifi {
+        operation: WifiOperationId,
+    },
+    PersistWifi {
+        operation: WifiOperationId,
+    },
+    ClearPendingWifi {
+        operation: WifiOperationId,
+    },
+    ScheduleWifiReconnect {
+        reconnect: WifiOperationId,
+        after_secs: u32,
+    },
+    StartApp {
+        app: AppId,
+        session: AppSessionId,
+    },
+    StopApp {
+        app: AppId,
+        session: AppSessionId,
+    },
+    ShowAppError {
+        app: AppId,
+        session: AppSessionId,
+        reason: FailureReason,
+    },
+    ConfirmClearNetwork {
+        confirmation: ConfirmationId,
+    },
+    ClearNetwork {
+        confirmation: ConfirmationId,
+    },
+    ConfirmFactoryReset {
+        confirmation: ConfirmationId,
+    },
+    FactoryReset {
+        confirmation: ConfirmationId,
+    },
     Reboot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ClearOperation {
+    confirmation: ConfirmationId,
+    safe_mode: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MicroOs {
     state: State,
-    wifi_state: WifiState,
+    live_wifi_state: LiveWifiState,
+    provisioning_state: ProvisioningState,
     network_configured: bool,
     boot_started: bool,
-    app_stop_pending: bool,
-    clear_network_pending: bool,
-    factory_reset_pending: bool,
+    pending_confirmation: Option<PendingConfirmation>,
+    clearing_network: Option<ClearOperation>,
+    factory_resetting: Option<ConfirmationId>,
+    pending_reconnect: Option<WifiOperationId>,
     reconnect_index: usize,
-    last_reconnect_delay: u32,
+    next_confirmation_id: u64,
+    next_wifi_operation_id: u64,
+    next_app_session_id: u64,
 }
 
 impl Default for MicroOs {
@@ -136,14 +246,18 @@ impl MicroOs {
     pub fn new() -> Self {
         Self {
             state: State::EarlyBoot,
-            wifi_state: WifiState::Idle,
+            live_wifi_state: LiveWifiState::Disconnected,
+            provisioning_state: ProvisioningState::Idle,
             network_configured: false,
             boot_started: false,
-            app_stop_pending: false,
-            clear_network_pending: false,
-            factory_reset_pending: false,
+            pending_confirmation: None,
+            clearing_network: None,
+            factory_resetting: None,
+            pending_reconnect: None,
             reconnect_index: 0,
-            last_reconnect_delay: RECONNECT_DELAYS[0],
+            next_confirmation_id: 1,
+            next_wifi_operation_id: 1,
+            next_app_session_id: 1,
         }
     }
 
@@ -153,8 +267,18 @@ impl MicroOs {
     }
 
     #[must_use]
-    pub fn wifi_state(&self) -> &WifiState {
-        &self.wifi_state
+    pub fn live_wifi_state(&self) -> &LiveWifiState {
+        &self.live_wifi_state
+    }
+
+    #[must_use]
+    pub fn provisioning_state(&self) -> &ProvisioningState {
+        &self.provisioning_state
+    }
+
+    #[must_use]
+    pub fn pending_confirmation(&self) -> Option<&PendingConfirmation> {
+        self.pending_confirmation.as_ref()
     }
 
     #[must_use]
@@ -164,7 +288,7 @@ impl MicroOs {
 
     #[must_use]
     pub fn next_reconnect_delay(&self) -> u32 {
-        self.last_reconnect_delay
+        RECONNECT_DELAYS[self.reconnect_index]
     }
 
     pub fn dispatch(&mut self, event: Event) -> Action {
@@ -179,22 +303,57 @@ impl MicroOs {
             Event::OpenSettings => self.open_settings(),
             Event::BackPressed | Event::HomePressed => self.go_home(),
             Event::OpenApp(app) => self.open_app(app),
-            Event::AppStarted => self.app_started(),
-            Event::AppFailed(reason) => self.app_failed(reason),
+            Event::AppStarted { session } => self.app_started(session),
+            Event::AppFailed { session, reason } => self.app_failed(session, reason),
             Event::RestartApp => self.restart_app(),
-            Event::AppStopped => self.app_stopped(),
+            Event::AppStopped { session } => self.app_stopped(session),
             Event::WifiScanRequested => self.wifi_scan_requested(),
-            Event::WifiScanCompleted => self.wifi_scan_completed(),
+            Event::WifiScanCompleted { operation } => self.wifi_scan_completed(operation),
             Event::WifiConnectRequested => self.wifi_connect_requested(),
-            Event::WifiConnected => self.wifi_connected(),
-            Event::WifiPersisted => self.wifi_persisted(),
-            Event::WifiFailed(reason) => self.wifi_failed(reason),
+            Event::WifiConnected { operation } => self.wifi_connected(operation),
+            Event::WifiPersisted { operation } => self.wifi_persisted(operation),
+            Event::WifiFailed { operation, reason } => self.wifi_failed(operation, reason),
+            Event::ReconnectDue { reconnect } => self.reconnect_due(reconnect),
+            Event::ReconnectNowRequested => self.connect_saved_now(),
             Event::ClearNetworkRequested => self.clear_network_requested(),
-            Event::ClearNetworkConfirmed => self.clear_network_confirmed(),
+            Event::ClearNetworkConfirmed { confirmation } => {
+                self.clear_network_confirmed(confirmation)
+            }
+            Event::ClearNetworkCompleted {
+                confirmation,
+                result,
+            } => self.clear_network_completed(confirmation, result),
             Event::FactoryResetRequested => self.factory_reset_requested(),
-            Event::FactoryResetConfirmed => self.factory_reset_confirmed(),
+            Event::FactoryResetConfirmed { confirmation } => {
+                self.factory_reset_confirmed(confirmation)
+            }
+            Event::FactoryResetCompleted {
+                confirmation,
+                result,
+            } => self.factory_reset_completed(confirmation, result),
             Event::RebootRequested => Action::Reboot,
         }
+    }
+
+    fn issue_confirmation_id(&mut self) -> Option<ConfirmationId> {
+        let next = self.next_confirmation_id.checked_add(1)?;
+        let id = ConfirmationId(self.next_confirmation_id);
+        self.next_confirmation_id = next;
+        Some(id)
+    }
+
+    fn issue_wifi_operation_id(&mut self) -> Option<WifiOperationId> {
+        let next = self.next_wifi_operation_id.checked_add(1)?;
+        let id = WifiOperationId(self.next_wifi_operation_id);
+        self.next_wifi_operation_id = next;
+        Some(id)
+    }
+
+    fn issue_app_session_id(&mut self) -> Option<AppSessionId> {
+        let next = self.next_app_session_id.checked_add(1)?;
+        let id = AppSessionId(self.next_app_session_id);
+        self.next_app_session_id = next;
+        Some(id)
     }
 
     fn boot_sampled(&mut self, safe_mode: bool) -> Action {
@@ -265,13 +424,17 @@ impl MicroOs {
         if self.state != State::SystemUiReady {
             return Action::Rejected;
         }
-        self.network_configured = configured;
         if configured {
-            self.wifi_state = WifiState::Connected;
+            let Some(operation) = self.issue_wifi_operation_id() else {
+                return Action::Rejected;
+            };
+            self.network_configured = true;
+            self.live_wifi_state = LiveWifiState::Connecting(operation);
             self.state = State::Launcher;
-            Action::ShowLauncher
+            Action::ConnectSavedWifi { operation }
         } else {
-            self.wifi_state = WifiState::Idle;
+            self.network_configured = false;
+            self.live_wifi_state = LiveWifiState::Disconnected;
             self.state = State::FirstRunSetup;
             Action::ShowFirstRunSetup
         }
@@ -289,6 +452,7 @@ impl MicroOs {
         if self.state != State::Launcher {
             return Action::Rejected;
         }
+        self.cancel_pending_confirmation();
         self.state = State::Settings;
         Action::ShowSettings
     }
@@ -296,17 +460,19 @@ impl MicroOs {
     fn go_home(&mut self) -> Action {
         match self.state.clone() {
             State::Settings => {
+                self.cancel_pending_confirmation();
                 self.state = State::Launcher;
                 Action::ShowLauncher
             }
-            State::AppStarting(app) | State::AppRunning(app) => {
-                if self.app_stop_pending {
-                    Action::Rejected
-                } else {
-                    self.app_stop_pending = true;
-                    Action::StopApp(app)
-                }
+            State::AppStarting { app, session } | State::AppRunning { app, session } => {
+                self.state = State::AppStopping {
+                    app: app.clone(),
+                    session,
+                    destination: AppDestination::Launcher,
+                };
+                Action::StopApp { app, session }
             }
+            State::AppStopping { .. } => Action::Rejected,
             State::AppError { .. } => {
                 self.state = State::Launcher;
                 Action::ShowLauncher
@@ -320,53 +486,81 @@ impl MicroOs {
         if self.state != State::Launcher {
             return Action::Rejected;
         }
-        self.app_stop_pending = false;
-        self.state = State::AppStarting(app.clone());
-        Action::StartApp(app)
-    }
-
-    fn app_started(&mut self) -> Action {
-        if self.app_stop_pending {
-            return Action::Rejected;
-        }
-        let State::AppStarting(app) = self.state.clone() else {
+        let Some(session) = self.issue_app_session_id() else {
             return Action::Rejected;
         };
-        self.state = State::AppRunning(app);
+        self.cancel_pending_confirmation();
+        self.state = State::AppStarting {
+            app: app.clone(),
+            session,
+        };
+        Action::StartApp { app, session }
+    }
+
+    fn app_started(&mut self, callback_session: AppSessionId) -> Action {
+        let State::AppStarting { app, session } = self.state.clone() else {
+            return Action::Rejected;
+        };
+        if session != callback_session {
+            return Action::Rejected;
+        }
+        self.state = State::AppRunning { app, session };
         Action::None
     }
 
-    fn app_failed(&mut self, reason: FailureReason) -> Action {
-        let app = match self.state.clone() {
-            State::AppStarting(app) | State::AppRunning(app) => app,
-            _ => return Action::Rejected,
-        };
-        self.app_stop_pending = false;
-        self.state = State::AppError {
-            app: app.clone(),
-            reason: reason.clone(),
-        };
-        Action::ShowAppError { app, reason }
+    fn app_failed(&mut self, callback_session: AppSessionId, reason: FailureReason) -> Action {
+        match self.state.clone() {
+            State::AppStarting { app, session } | State::AppRunning { app, session }
+                if session == callback_session =>
+            {
+                self.state = State::AppError {
+                    app: app.clone(),
+                    session,
+                    reason: reason.clone(),
+                };
+                Action::ShowAppError {
+                    app,
+                    session,
+                    reason,
+                }
+            }
+            State::AppStopping { session, .. } if session == callback_session => Action::None,
+            _ => Action::Rejected,
+        }
     }
 
     fn restart_app(&mut self) -> Action {
         let State::AppError { app, .. } = self.state.clone() else {
             return Action::Rejected;
         };
-        self.app_stop_pending = false;
-        self.state = State::AppStarting(app.clone());
-        Action::StartApp(app)
+        let Some(session) = self.issue_app_session_id() else {
+            return Action::Rejected;
+        };
+        self.state = State::AppStarting {
+            app: app.clone(),
+            session,
+        };
+        Action::StartApp { app, session }
     }
 
-    fn app_stopped(&mut self) -> Action {
-        if !self.app_stop_pending
-            || !matches!(self.state, State::AppStarting(_) | State::AppRunning(_))
-        {
+    fn app_stopped(&mut self, callback_session: AppSessionId) -> Action {
+        let State::AppStopping {
+            session,
+            destination,
+            ..
+        } = self.state.clone()
+        else {
+            return Action::Rejected;
+        };
+        if session != callback_session {
             return Action::Rejected;
         }
-        self.app_stop_pending = false;
-        self.state = State::Launcher;
-        Action::ShowLauncher
+        match destination {
+            AppDestination::Launcher => {
+                self.state = State::Launcher;
+                Action::ShowLauncher
+            }
+        }
     }
 
     fn wifi_context(&self) -> bool {
@@ -375,51 +569,63 @@ impl MicroOs {
 
     fn wifi_scan_requested(&mut self) -> Action {
         if !self.wifi_context()
-            || !matches!(
-                self.wifi_state,
-                WifiState::Idle | WifiState::Connected | WifiState::Failed(_)
-            )
+            || matches!(self.provisioning_state, ProvisioningState::Persisting(_))
         {
             return Action::Rejected;
         }
-        self.wifi_state = WifiState::Scanning;
-        Action::StartWifiScan
+        let Some(operation) = self.issue_wifi_operation_id() else {
+            return Action::Rejected;
+        };
+        self.pending_reconnect = None;
+        self.provisioning_state = ProvisioningState::Scanning(operation);
+        Action::StartWifiScan { operation }
     }
 
-    fn wifi_scan_completed(&mut self) -> Action {
-        if self.wifi_state != WifiState::Scanning {
+    fn wifi_scan_completed(&mut self, operation: WifiOperationId) -> Action {
+        if self.provisioning_state != ProvisioningState::Scanning(operation) {
             return Action::Rejected;
         }
-        self.wifi_state = WifiState::Idle;
+        self.provisioning_state = ProvisioningState::Idle;
         Action::None
     }
 
     fn wifi_connect_requested(&mut self) -> Action {
         if !self.wifi_context()
-            || !matches!(self.wifi_state, WifiState::Idle | WifiState::Failed(_))
+            || matches!(self.provisioning_state, ProvisioningState::Persisting(_))
         {
             return Action::Rejected;
         }
-        self.wifi_state = WifiState::Connecting;
-        Action::ConnectWifi
-    }
-
-    fn wifi_connected(&mut self) -> Action {
-        if self.wifi_state != WifiState::Connecting {
+        let Some(operation) = self.issue_wifi_operation_id() else {
             return Action::Rejected;
-        }
-        self.reconnect_index = 0;
-        self.last_reconnect_delay = RECONNECT_DELAYS[0];
-        self.wifi_state = WifiState::PendingPersistence;
-        Action::PersistWifi
+        };
+        self.pending_reconnect = None;
+        self.provisioning_state = ProvisioningState::ConnectingReplacement(operation);
+        Action::ConnectWifi { operation }
     }
 
-    fn wifi_persisted(&mut self) -> Action {
-        if self.wifi_state != WifiState::PendingPersistence {
+    fn wifi_connected(&mut self, operation: WifiOperationId) -> Action {
+        if self.live_wifi_state == LiveWifiState::Connecting(operation) {
+            self.live_wifi_state = LiveWifiState::Connected;
+            self.reconnect_index = 0;
+            self.pending_reconnect = None;
+            return Action::None;
+        }
+        if self.provisioning_state == ProvisioningState::ConnectingReplacement(operation) {
+            self.provisioning_state = ProvisioningState::Persisting(operation);
+            self.reconnect_index = 0;
+            return Action::PersistWifi { operation };
+        }
+        Action::Rejected
+    }
+
+    fn wifi_persisted(&mut self, operation: WifiOperationId) -> Action {
+        if self.provisioning_state != ProvisioningState::Persisting(operation) {
             return Action::Rejected;
         }
         self.network_configured = true;
-        self.wifi_state = WifiState::Connected;
+        self.live_wifi_state = LiveWifiState::Connected;
+        self.provisioning_state = ProvisioningState::Idle;
+        self.pending_reconnect = None;
         if self.state == State::FirstRunSetup {
             self.state = State::Launcher;
             Action::ShowLauncher
@@ -428,58 +634,171 @@ impl MicroOs {
         }
     }
 
-    fn wifi_failed(&mut self, reason: WifiFailure) -> Action {
-        if !matches!(
-            self.wifi_state,
-            WifiState::Connecting | WifiState::PendingPersistence
-        ) {
+    fn wifi_failed(&mut self, operation: WifiOperationId, reason: WifiFailure) -> Action {
+        let saved_connect = self.live_wifi_state == LiveWifiState::Connecting(operation);
+        let replacement = matches!(
+            self.provisioning_state,
+            ProvisioningState::ConnectingReplacement(id) | ProvisioningState::Persisting(id)
+                if id == operation
+        );
+        if !saved_connect && !replacement {
             return Action::Rejected;
         }
-        self.wifi_state = WifiState::Failed(reason);
+        let Some(reconnect) = self.issue_wifi_operation_id() else {
+            return Action::Rejected;
+        };
         let delay = RECONNECT_DELAYS[self.reconnect_index];
-        self.last_reconnect_delay = delay;
         self.reconnect_index = (self.reconnect_index + 1).min(RECONNECT_DELAYS.len() - 1);
-        Action::Actions(vec![
-            Action::ClearPendingWifi,
-            Action::ScheduleWifiReconnect { after_secs: delay },
-        ])
+        self.pending_reconnect = Some(reconnect);
+        if saved_connect {
+            self.live_wifi_state = LiveWifiState::Disconnected;
+        }
+        if replacement {
+            self.provisioning_state = ProvisioningState::Failed { operation, reason };
+            Action::Actions(vec![
+                Action::ClearPendingWifi { operation },
+                Action::ScheduleWifiReconnect {
+                    reconnect,
+                    after_secs: delay,
+                },
+            ])
+        } else {
+            Action::ScheduleWifiReconnect {
+                reconnect,
+                after_secs: delay,
+            }
+        }
+    }
+
+    fn reconnect_due(&mut self, reconnect: WifiOperationId) -> Action {
+        if self.pending_reconnect != Some(reconnect) || !self.network_configured {
+            return Action::Rejected;
+        }
+        let Some(operation) = self.issue_wifi_operation_id() else {
+            return Action::Rejected;
+        };
+        self.pending_reconnect = None;
+        self.live_wifi_state = LiveWifiState::Connecting(operation);
+        Action::ConnectSavedWifi { operation }
+    }
+
+    fn connect_saved_now(&mut self) -> Action {
+        if !self.network_configured {
+            return Action::Rejected;
+        }
+        let Some(operation) = self.issue_wifi_operation_id() else {
+            return Action::Rejected;
+        };
+        self.pending_reconnect = None;
+        self.live_wifi_state = LiveWifiState::Connecting(operation);
+        Action::ConnectSavedWifi { operation }
+    }
+
+    fn confirmation_context(&self) -> bool {
+        matches!(self.state, State::Settings | State::SafeMode)
     }
 
     fn clear_network_requested(&mut self) -> Action {
-        if self.state != State::Settings {
+        if !self.confirmation_context()
+            || self.clearing_network.is_some()
+            || self.factory_resetting.is_some()
+        {
             return Action::Rejected;
         }
-        self.clear_network_pending = true;
-        Action::ConfirmClearNetwork
+        let Some(confirmation) = self.issue_confirmation_id() else {
+            return Action::Rejected;
+        };
+        self.pending_confirmation = Some(PendingConfirmation::ClearNetwork(confirmation));
+        Action::ConfirmClearNetwork { confirmation }
     }
 
-    fn clear_network_confirmed(&mut self) -> Action {
-        if !self.clear_network_pending {
+    fn clear_network_confirmed(&mut self, confirmation: ConfirmationId) -> Action {
+        if self.pending_confirmation != Some(PendingConfirmation::ClearNetwork(confirmation)) {
             return Action::Rejected;
         }
-        self.clear_network_pending = false;
-        self.network_configured = false;
-        self.wifi_state = WifiState::Idle;
-        Action::ClearNetwork
+        self.pending_confirmation = None;
+        self.clearing_network = Some(ClearOperation {
+            confirmation,
+            safe_mode: self.state == State::SafeMode,
+        });
+        Action::ClearNetwork { confirmation }
+    }
+
+    fn clear_network_completed(
+        &mut self,
+        confirmation: ConfirmationId,
+        result: Result<(), FailureReason>,
+    ) -> Action {
+        let Some(operation) = self.clearing_network.clone() else {
+            return Action::Rejected;
+        };
+        if operation.confirmation != confirmation {
+            return Action::Rejected;
+        }
+        self.clearing_network = None;
+        match result {
+            Err(_) => Action::None,
+            Ok(()) => {
+                self.network_configured = false;
+                self.live_wifi_state = LiveWifiState::Disconnected;
+                self.provisioning_state = ProvisioningState::Idle;
+                self.pending_reconnect = None;
+                if operation.safe_mode {
+                    self.state = State::SafeMode;
+                    Action::None
+                } else {
+                    self.state = State::FirstRunSetup;
+                    Action::ShowFirstRunSetup
+                }
+            }
+        }
     }
 
     fn factory_reset_requested(&mut self) -> Action {
-        if !matches!(self.state, State::Settings | State::SafeMode) {
+        if !self.confirmation_context()
+            || self.factory_resetting.is_some()
+            || self.clearing_network.is_some()
+        {
             return Action::Rejected;
         }
-        self.factory_reset_pending = true;
-        Action::ConfirmFactoryReset
+        let Some(confirmation) = self.issue_confirmation_id() else {
+            return Action::Rejected;
+        };
+        self.pending_confirmation = Some(PendingConfirmation::FactoryReset(confirmation));
+        Action::ConfirmFactoryReset { confirmation }
     }
 
-    fn factory_reset_confirmed(&mut self) -> Action {
-        if !self.factory_reset_pending {
+    fn factory_reset_confirmed(&mut self, confirmation: ConfirmationId) -> Action {
+        if self.pending_confirmation != Some(PendingConfirmation::FactoryReset(confirmation)) {
             return Action::Rejected;
         }
-        self.factory_reset_pending = false;
-        Action::FactoryReset
+        self.pending_confirmation = None;
+        self.factory_resetting = Some(confirmation);
+        Action::FactoryReset { confirmation }
+    }
+
+    fn factory_reset_completed(
+        &mut self,
+        confirmation: ConfirmationId,
+        result: Result<(), FailureReason>,
+    ) -> Action {
+        if self.factory_resetting != Some(confirmation) {
+            return Action::Rejected;
+        }
+        self.factory_resetting = None;
+        if result.is_ok() {
+            Action::Reboot
+        } else {
+            Action::None
+        }
+    }
+
+    fn cancel_pending_confirmation(&mut self) {
+        self.pending_confirmation = None;
     }
 
     fn enter_safe_mode(&mut self, reason: FailureReason) -> Action {
+        self.cancel_pending_confirmation();
         self.state = State::SafeMode;
         Action::EnterSafeMode(reason)
     }
