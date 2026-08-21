@@ -32,13 +32,37 @@ else
 fi
 
 step "Rust toolchain (rustup)"
+# Make an existing rustup install reachable even in non-login shells
+# (npm runs the script via `bash`, which does not read ~/.zshrc).
+export PATH="$HOME/.cargo/bin:$PATH"
+
+# rustup refuses a home path that exists but is not a directory (or a
+# symlink that does not resolve to a directory). Detect it early and give a
+# reversible fix instead of rustup's cryptic "File exists" error.
+bad_home=0
+for home in "$HOME/.rustup" "$HOME/.cargo"; do
+  if { [[ -L "$home" ]] || [[ -e "$home" ]]; } && [[ ! -d "$home" ]]; then
+    printf '  [ERROR] %s exists but is not a directory; rustup cannot use it:\n' "$home"
+    ls -ld "$home" 2>/dev/null
+    printf '  Fix (moves it aside; reversible):\n'
+    printf '      mv %s %s.bak\n' "$home" "$home"
+    bad_home=1
+  fi
+done
+if [[ "$bad_home" -eq 1 ]]; then
+  printf '  Then re-run: npm run setup:dev\n'
+  exit 1
+fi
+
 if command -v cargo >/dev/null 2>&1; then
   info "cargo already installed: $(cargo --version)"
+elif command -v rustup >/dev/null 2>&1; then
+  info "rustup found but no stable toolchain; installing stable..."
+  rustup toolchain install stable --profile default
+  info "cargo $(cargo --version)"
 else
   info "installing Rust via rustup (non-interactive)..."
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-  # shellcheck disable=SC1091
-  source "$HOME/.cargo/env" 2>/dev/null || true
   info "Rust installed: $(cargo --version)"
 fi
 

@@ -43,6 +43,8 @@ fi
 heading "- Rust toolchain"
 if command -v cargo >/dev/null 2>&1; then
   pass "cargo $(cargo --version 2>/dev/null | awk '{print $2}')"
+elif [[ -x "$HOME/.cargo/bin/cargo" ]]; then
+  fail "cargo exists at \$HOME/.cargo/bin but is not on PATH — add to your shell profile: export PATH=\"\$HOME/.cargo/bin:\$PATH\""
 else
   fail "cargo missing — install via https://rustup.rs (or run scripts/setup-dev.sh)"
 fi
