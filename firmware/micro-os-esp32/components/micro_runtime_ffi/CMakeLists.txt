@@ -27,6 +27,8 @@ get_filename_component(REPOSITORY_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." A
 set(CARGO_PROJECT_DIR "${REPOSITORY_ROOT}/crates/micro-host-esp32")
 set(CARGO_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 set(CARGO_TARGET_DIR "${CARGO_BUILD_DIR}/target")
+set(LOCAL_CARGO_HOME "${REPOSITORY_ROOT}/work/toolchains/cargo")
+set(LOCAL_RUSTUP_HOME "${REPOSITORY_ROOT}/work/toolchains/rustup")
 set(RUST_STATIC_LIBRARY
     "${CARGO_TARGET_DIR}/${RUST_TARGET}/${CARGO_BUILD_TYPE}/libmicro_host_esp32.a")
 
@@ -38,10 +40,14 @@ ExternalProject_Add(
   PREFIX "${CARGO_BUILD_DIR}/cargo-project"
   DOWNLOAD_COMMAND ""
   CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env
+    CARGO_HOME=${LOCAL_CARGO_HOME}
+    RUSTUP_HOME=${LOCAL_RUSTUP_HOME}
     cargo clean --package micro-host-esp32 --target ${RUST_TARGET}
       --target-dir ${CARGO_TARGET_DIR}
   USES_TERMINAL_BUILD true
   BUILD_COMMAND ${CMAKE_COMMAND} -E env
+    CARGO_HOME=${LOCAL_CARGO_HOME}
+    RUSTUP_HOME=${LOCAL_RUSTUP_HOME}
     CARGO_CMAKE_BUILD_INCLUDES=$<TARGET_PROPERTY:${COMPONENT_LIB},INCLUDE_DIRECTORIES>
     CARGO_CMAKE_BUILD_LINK_LIBRARIES=$<TARGET_PROPERTY:${COMPONENT_LIB},LINK_LIBRARIES>
     CARGO_CMAKE_BUILD_SDKCONFIG=${sdkconfig}
@@ -50,7 +56,7 @@ ExternalProject_Add(
     RUSTFLAGS=${ESP_RUSTFLAGS}
     MCU=${CONFIG_IDF_TARGET}
     cargo build --manifest-path ${CARGO_PROJECT_DIR}/Cargo.toml
-      --package micro-host-esp32 --target ${RUST_TARGET}
+      --package micro-host-esp32 --target ${RUST_TARGET} --locked
       --target-dir ${CARGO_TARGET_DIR} ${CARGO_BUILD_ARG} ${CARGO_BUILD_STD_ARG}
   INSTALL_COMMAND ""
   BUILD_ALWAYS TRUE
@@ -67,3 +73,5 @@ add_prebuilt_library(micro_host_esp32_rust "${RUST_STATIC_LIBRARY}"
                      PRIV_REQUIRES "${RUST_DEPS}")
 add_dependencies(micro_host_esp32_rust project_micro_host_esp32)
 target_link_libraries(${COMPONENT_LIB} PRIVATE micro_host_esp32_rust)
+target_link_options(${COMPONENT_LIB} INTERFACE
+                    "LINKER:--undefined=micro_runtime_ffi_keepalive")

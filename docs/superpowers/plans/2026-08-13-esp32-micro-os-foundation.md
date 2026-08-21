@@ -280,7 +280,7 @@ Run: `cargo test -p micro-host-esp32`
 
 - [ ] **Step 3: Implement RuntimeHost and C ABI**
 
-`RuntimeHost<B: NativeUi>` owns `Runtime<LvglRenderer<B>>` and exposes safe Rust `new`, `activate`, `tick`, and `stop`. ESP-only exports use opaque `micro_runtime_t *`, copy incoming MBC bytes before decode, catch panics, and fill a caller-owned diagnostic buffer:
+`RuntimeHost<B: NativeUi>` owns `Runtime<LvglRenderer<B>>` and exposes safe Rust `new`, `activate`, `tick`, and `stop`. ESP-only exports use opaque `micro_runtime_t *`, copy incoming MBC bytes before decode, validate all raw enum and pointer inputs, return stable errors, and fill a caller-owned diagnostic buffer. The pinned Xtensa target rejects `panic=unwind`, so its `panic=abort` ABI must not pretend that `catch_unwind` contains panics; host tests retain unwind containment while the target boundary uses checked `Result` paths and treats panic as a process-level fault.
 
 ```c
 micro_runtime_t *micro_runtime_create(const uint8_t *mbc, size_t len,
@@ -301,7 +301,7 @@ micro_state_t micro_os_state(const micro_os_t *);
 void micro_os_destroy(micro_os_t *);
 ```
 
-Use fixed-width C enums with explicit discriminants mirrored by `#[repr(C)]` Rust enums, and add compile-time C assertions plus Rust tests for every discriminant.
+Use explicit C enum discriminants mirrored by `#[repr(C)]` Rust enums, and add compile-time C size/discriminant assertions for the pinned compiler plus Rust tests for every discriminant. Encode every reducer event payload. Return reducer actions through a caller-owned batch that preserves composite structure and all IDs/reasons/results; on insufficient capacity return the required count without mutating reducer state or partially writing output.
 
 - [ ] **Step 4: Test host and target builds**
 
@@ -312,7 +312,7 @@ cargo test -p micro-host-esp32
 idf.py -C firmware/micro-os-esp32 fullclean build
 ```
 
-Expected: host Counter tests pass and `libmicro_host_esp32.a` is linked into the firmware map.
+Expected: host Counter and exhaustive reducer ABI tests pass. A map contract verifies every runtime and OS export has a retained non-zero address sourced from `libmicro_host_esp32.a` rather than a discarded section.
 
 - [ ] **Step 5: Commit**
 

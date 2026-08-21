@@ -7,7 +7,6 @@
 #include "esp_log.h"
 #include "esp_psram.h"
 #include "esp_system.h"
-#include "micro_runtime_ffi.h"
 
 #define MICRO_EXPECTED_MEMORY_BYTES (8U * 1024U * 1024U)
 
@@ -15,13 +14,6 @@ static const char *TAG = "micro_os";
 
 void app_main(void)
 {
-    micro_os_t *os = micro_os_create();
-    if (os == NULL || micro_os_state(os) != MICRO_STATE_EARLY_BOOT) {
-        ESP_LOGE(TAG, "shared Rust OS reducer failed to initialize");
-        abort();
-    }
-    micro_os_destroy(os);
-
     uint32_t flash_size = 0;
     esp_err_t flash_result = esp_flash_get_size(NULL, &flash_size);
     size_t psram_size = esp_psram_get_size();

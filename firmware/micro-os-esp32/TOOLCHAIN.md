@@ -15,11 +15,30 @@ generated `sdkconfig`, or build output.
 
 ## Install and verify
 
-**Status:** The project-local ESP-IDF 5.5.4 and Espressif Rust toolchains were
-installed and used to build the Micro OS scaffold plus shared Rust Runtime on
-2026-08-14. The target is `xtensa-esp32s3-espidf`; the generated firmware map
-contains `libmicro_host_esp32.a`. This records only a local toolchain/build
-check; no firmware was flashed and no hardware verification was performed.
+**Status:** The project-local ESP-IDF 5.5.4 toolchain was installed and used
+to build the Micro OS scaffold plus shared Rust Runtime on 2026-08-14. The
+Espressif Rust toolchain remains project-local under `work/toolchains/` and
+targets `xtensa-esp32s3-espidf`; the generated firmware map contains
+`libmicro_host_esp32.a`. This records only a local toolchain/build check; no firmware was flashed and no hardware verification was performed.
+
+## Panic strategy constraint
+
+The pinned Espressif Rust target uses `panic=abort`. A direct project-local
+experiment with `-Zbuild-std=std,panic_unwind` still selected the target's
+abort strategy and failed looking for `panic_abort`; forcing `-C panic=unwind`
+then failed with `unwinding panics are not supported without std`. Therefore
+the ESP C ABI does not use `catch_unwind`, which cannot contain an abort. It
+validates null pointers, declared lengths and capacities, canonical event
+fields, enum discriminants, addressable byte-size arithmetic, and decode results before mutation and returns
+stable error codes. As with ordinary C opaque handles, an arbitrary non-null
+stale, misaligned, cross-type, aliased, or already-destroyed pointer cannot be
+validated at runtime and violates the documented ABI contract. Host-side tests still use
+unwind containment to prove corrupt MBC does not panic. Out-of-memory and an
+unexpected internal Rust panic remain process-level faults on this target.
+
+C enum width is not guaranteed by ISO C. The public header uses explicit enum
+values and compile-time `sizeof == 4` assertions, verified with both the host C
+compiler and the pinned Xtensa GCC toolchain.
 
 Run from the repository root. All cloned or generated toolchain state stays
 under the ignored `work/toolchains/` tree. These commands install a project-local

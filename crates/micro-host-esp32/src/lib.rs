@@ -10,7 +10,34 @@ use micro_core::{Event, Runtime, RuntimeError};
 use micro_ir::{DecodeError, FunctionId, decode};
 use micro_lvgl::{LvglRenderer, NativeUi};
 
-pub use bridge::{MicroAction, MicroErrorCode, MicroEvent, MicroEventKind, MicroState};
+pub use bridge::{
+    DispatchError, MicroAction, MicroActionKind, MicroAppId, MicroErrorCode, MicroEvent,
+    MicroEventKind, MicroFailureReason, MicroResult, MicroState, MicroWifiFailure,
+    decode_action_batch, encode_action_batch,
+};
+
+pub fn write_diagnostic(buffer: &mut [u8], diagnostic: &str) {
+    if buffer.is_empty() {
+        return;
+    }
+    buffer.fill(0);
+    let capacity = buffer.len() - 1;
+    let mut copied = capacity.min(diagnostic.len());
+    while copied != 0 && !diagnostic.is_char_boundary(copied) {
+        copied -= 1;
+    }
+    buffer[..copied].copy_from_slice(&diagnostic.as_bytes()[..copied]);
+}
+
+pub fn validate_region_length(length: usize, element_size: usize) -> Result<(), MicroErrorCode> {
+    let bytes = length
+        .checked_mul(element_size)
+        .ok_or(MicroErrorCode::InvalidArgument)?;
+    if bytes > isize::MAX as usize {
+        return Err(MicroErrorCode::InvalidArgument);
+    }
+    Ok(())
+}
 
 pub struct OsHost {
     os: micro_os_core::MicroOs,
@@ -30,8 +57,24 @@ impl OsHost {
         }
     }
 
-    pub fn dispatch(&mut self, event: MicroEvent) -> MicroAction {
-        bridge::dispatch(&mut self.os, event)
+    pub fn dispatch(&mut self, event: MicroEvent) -> Result<Vec<MicroAction>, MicroErrorCode> {
+        let event = event.try_into_core()?;
+        Ok(bridge::encode_action_batch(&self.os.dispatch(event)))
+    }
+
+    pub fn dispatch_into(
+        &mut self,
+        event: MicroEvent,
+        output: &mut [MicroAction],
+    ) -> Result<usize, DispatchError> {
+        let event = event
+            .try_into_core()
+            .map_err(|code| DispatchError { code, required: 0 })?;
+        let mut next = self.os.clone();
+        let action = next.dispatch(event);
+        let written = bridge::encode_action_into(&action, output)?;
+        self.os = next;
+        Ok(written)
     }
 
     #[must_use]
@@ -86,7 +129,14 @@ pub struct RuntimeHost<B: NativeUi> {
 
 impl<B: NativeUi> RuntimeHost<B> {
     pub fn new(mbc: &[u8], bridge: B, event_budget: u64) -> Result<Self, HostError> {
-        let owned_mbc = mbc.to_vec();
+        Self::from_owned_mbc(mbc.to_vec(), bridge, event_budget)
+    }
+
+    pub fn from_owned_mbc(
+        owned_mbc: Vec<u8>,
+        bridge: B,
+        event_budget: u64,
+    ) -> Result<Self, HostError> {
         let image = decode(&owned_mbc)?;
         let runtime = Runtime::new(image, LvglRenderer::new(bridge), event_budget)?;
         Ok(Self {
