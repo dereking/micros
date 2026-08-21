@@ -14,6 +14,7 @@
     "test": "cargo test --workspace",
     "test:web:unit": "node --test tests/web/*.test.js",
     "test:web": "npm run test:web:unit && npm run build:web && playwright test",
+    "test:native": "bash scripts/test-native.sh",
     "setup:dev": "bash scripts/setup-dev.sh",
     "check:env": "bash scripts/check-env.sh"
   },

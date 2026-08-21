@@ -31,6 +31,7 @@ LVGL+SDL3（macOS）或 DOM（浏览器 Wasm）。更详细的架构与命令见
 | `npm run dev:web` | 编译 MBC + Wasm，并启动 Vite 开发服务器（热更新） |
 | `npm run preview:web` | 预览已打包产物（端口 4173） |
 | `npm run demo` | 编译 App 并打开原生 480×320 窗口 |
+| `npm run test:native` | 一键原生测试：自检 → 编译 App → 构建宿主 → 无头冒烟 → 打开窗口；`npm run test:native -- --smoke` 只跑冒烟 |
 | `npm test` | 运行全部平台无关 Rust 测试（`cargo test --workspace`） |
 | `npm run test:web` | Web 端：Node 单测 + 构建 + Playwright 浏览器验收 |
 
@@ -156,6 +157,16 @@ npm run preview:web   # http://127.0.0.1:4173/
 ```
 
 ### 5.2 原生宿主（macOS 窗口）
+
+一键原生测试（自检 → 编译 App → 构建宿主 → 无头冒烟 → 打开窗口）：
+
+```bash
+npm run test:native
+# 只跑无头冒烟、不开窗口：
+npm run test:native -- --smoke
+```
+
+打开窗口：
 
 ```bash
 npm run demo   # = build:app + cargo run ... apps/counter/dist/app.mbc

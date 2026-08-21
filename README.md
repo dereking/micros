@@ -107,6 +107,10 @@ cargo run -p micro-host-sdl --features native -- \
 # Open the visible Counter window
 npm run demo
 
+# One-command native test: build + headless smoke + demo window
+npm run test:native
+npm run test:native -- --smoke  # headless smoke only
+
 # Build the Web Player
 npm run build:web
 
