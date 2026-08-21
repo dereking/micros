@@ -75,3 +75,59 @@ fn app_store_persists_across_instances() {
     assert_eq!(store.list().expect("list").len(), 1);
     assert_eq!(store.read("counter").expect("read"), b"MBC1-app-bytes");
 }
+
+#[test]
+fn kv_round_trips_all_scalar_types() {
+    let (_dir, store) = fresh_store();
+    let mut kv = store.open("counter").expect("open");
+    kv.set("count", &KvValue::Number(42.0)).expect("set count");
+    kv.set("name", &KvValue::String("hi".to_owned()))
+        .expect("set name");
+    kv.set("ok", &KvValue::Bool(true)).expect("set ok");
+    kv.set("nil", &KvValue::Null).expect("set nil");
+
+    assert_eq!(kv.get("count"), Ok(Some(KvValue::Number(42.0))));
+    assert_eq!(kv.get("name"), Ok(Some(KvValue::String("hi".to_owned()))));
+    assert_eq!(kv.get("ok"), Ok(Some(KvValue::Bool(true))));
+    assert_eq!(kv.get("nil"), Ok(Some(KvValue::Null)));
+}
+
+#[test]
+fn kv_missing_key_is_none() {
+    let (_dir, store) = fresh_store();
+    let kv = store.open("counter").expect("open");
+    assert_eq!(kv.get("nope"), Ok(None));
+}
+
+#[test]
+fn kv_remove_deletes_the_key() {
+    let (_dir, store) = fresh_store();
+    let mut kv = store.open("counter").expect("open");
+    kv.set("count", &KvValue::Number(1.0)).expect("set");
+    kv.remove("count").expect("remove");
+    assert_eq!(kv.get("count"), Ok(None));
+}
+
+#[test]
+fn kv_namespaces_are_isolated() {
+    let (_dir, store) = fresh_store();
+    let mut alpha = store.open("alpha").expect("open alpha");
+    let beta = store.open("beta").expect("open beta");
+    alpha
+        .set("shared", &KvValue::Number(1.0))
+        .expect("set alpha");
+    assert_eq!(beta.get("shared"), Ok(None));
+}
+
+#[test]
+fn kv_persists_across_open() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    {
+        let store = NativeStore::new(dir.path());
+        let mut kv = store.open("counter").expect("open");
+        kv.set("count", &KvValue::Number(42.0)).expect("set");
+    }
+    let store = NativeStore::new(dir.path());
+    let kv = store.open("counter").expect("open");
+    assert_eq!(kv.get("count"), Ok(Some(KvValue::Number(42.0))));
+}

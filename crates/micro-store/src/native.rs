@@ -1,7 +1,8 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::{AppMeta, AppStore, StoreError};
+use crate::{AppMeta, AppStore, KvStore, KvValue, ScopedKv, StoreError};
 
 const APP_DIR: &str = "apps";
 const KV_DIR: &str = "kv";
@@ -96,5 +97,79 @@ impl AppStore for NativeStore {
             return Err(StoreError::NotFound);
         }
         self.save_manifest(&manifest)
+    }
+}
+
+impl KvStore for NativeStore {
+    fn open(&self, namespace: &str) -> Result<Box<dyn ScopedKv>, StoreError> {
+        Ok(Box::new(NativeScopedKv {
+            root: self.root.clone(),
+            namespace: namespace.to_owned(),
+        }))
+    }
+}
+
+struct NativeScopedKv {
+    root: PathBuf,
+    namespace: String,
+}
+
+impl NativeScopedKv {
+    fn kv_path(&self) -> PathBuf {
+        self.root.join(KV_DIR).join(format!("{}.json", self.namespace))
+    }
+
+    fn load(&self) -> Result<BTreeMap<String, KvValue>, StoreError> {
+        match fs::read(self.kv_path()) {
+            Ok(bytes) => {
+                let raw: serde_json::Map<String, serde_json::Value> = serde_json::from_slice(&bytes)
+                    .map_err(|error| {
+                        StoreError::Corrupt(format!("{}.json: {error}", self.namespace))
+                    })?;
+                let mut out = BTreeMap::new();
+                for (key, value) in raw {
+                    out.insert(
+                        key,
+                        KvValue::from_json(value).ok_or_else(|| {
+                            StoreError::Corrupt(format!(
+                                "{}.json: unsupported value",
+                                self.namespace
+                            ))
+                        })?,
+                    );
+                }
+                Ok(out)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+            Err(error) => Err(StoreError::Io(error.to_string())),
+        }
+    }
+
+    fn save(&self, map: &BTreeMap<String, KvValue>) -> Result<(), StoreError> {
+        let json: serde_json::Map<String, serde_json::Value> = map
+            .iter()
+            .map(|(key, value)| (key.clone(), value.to_json()))
+            .collect();
+        let bytes = serde_json::to_vec_pretty(&json)
+            .map_err(|error| StoreError::Io(error.to_string()))?;
+        atomic_write(&self.kv_path(), &bytes)
+    }
+}
+
+impl ScopedKv for NativeScopedKv {
+    fn get(&self, key: &str) -> Result<Option<KvValue>, StoreError> {
+        Ok(self.load()?.get(key).cloned())
+    }
+
+    fn set(&mut self, key: &str, value: &KvValue) -> Result<(), StoreError> {
+        let mut map = self.load()?;
+        map.insert(key.to_owned(), value.clone());
+        self.save(&map)
+    }
+
+    fn remove(&mut self, key: &str) -> Result<(), StoreError> {
+        let mut map = self.load()?;
+        map.remove(key);
+        self.save(&map)
     }
 }
