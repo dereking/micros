@@ -13,6 +13,23 @@ cd "$REPO_ROOT"
 step() { printf '\n\033[1m[setup] %s\033[0m\n' "$*"; }
 info() { printf '  %s\n' "$*"; }
 
+# A state dir that exists but is not a directory (or a symlink that does not
+# resolve to a directory) breaks the tool that owns it. Detect it early and
+# give a reversible fix instead of the tool's cryptic error.
+#   usage: check_home_dir <name> [reason]
+check_home_dir() {
+  local name="$1" reason="$2"
+  local home="$HOME/$name"
+  if { [[ -L "$home" ]] || [[ -e "$home" ]]; } && [[ ! -d "$home" ]]; then
+    printf '  [ERROR] %s exists but is not a directory; %s:\n' "$home" "$reason"
+    ls -ld "$home" 2>/dev/null
+    printf '  Fix (moves it aside; reversible):\n'
+    printf '      mv %s %s.bak\n' "$home" "$home"
+    return 1
+  fi
+  return 0
+}
+
 step "Platform"
 case "$(uname -s)" in
   Darwin) info "macOS $(sw_vers -productVersion) — good";;
@@ -36,19 +53,9 @@ step "Rust toolchain (rustup)"
 # (npm runs the script via `bash`, which does not read ~/.zshrc).
 export PATH="$HOME/.cargo/bin:$PATH"
 
-# rustup refuses a home path that exists but is not a directory (or a
-# symlink that does not resolve to a directory). Detect it early and give a
-# reversible fix instead of rustup's cryptic "File exists" error.
 bad_home=0
-for home in "$HOME/.rustup" "$HOME/.cargo"; do
-  if { [[ -L "$home" ]] || [[ -e "$home" ]]; } && [[ ! -d "$home" ]]; then
-    printf '  [ERROR] %s exists but is not a directory; rustup cannot use it:\n' "$home"
-    ls -ld "$home" 2>/dev/null
-    printf '  Fix (moves it aside; reversible):\n'
-    printf '      mv %s %s.bak\n' "$home" "$home"
-    bad_home=1
-  fi
-done
+check_home_dir .rustup "rustup cannot use it" || bad_home=1
+check_home_dir .cargo "rustup/cargo cannot use it" || bad_home=1
 if [[ "$bad_home" -eq 1 ]]; then
   printf '  Then re-run: npm run setup:dev\n'
   exit 1
@@ -88,6 +95,12 @@ else
 fi
 
 step "Node dependencies"
+# npm writes its cache to ~/.npm; a broken migration symlink there fails npm
+# with ENOTDIR.
+check_home_dir .npm "npm cannot write its cache" || {
+  printf '  Then re-run: npm run setup:dev\n'
+  exit 1
+}
 if [[ ! -d node_modules ]]; then
   info "installing npm packages..."
   npm install
