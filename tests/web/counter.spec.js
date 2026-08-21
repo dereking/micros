@@ -38,10 +38,12 @@ test("Counter exclusively fills the device canvas with fixed logical typography"
   });
   await expect(page.getByText("Nested app markup")).toBeVisible();
 
-  await expect(page.locator(".micro-text")).toHaveCSS("font-size", "24px");
-  await expect(page.locator(".micro-text")).toHaveCSS("line-height", "32px");
-  await expect(page.locator(".micro-button")).toHaveCSS("font-size", "14px");
-  await expect(page.locator(".micro-button")).toHaveCSS("line-height", "18px");
+  await expect(page.getByText("Counter Studio")).toHaveCSS("font-size", "18px");
+  await expect(page.getByText("Counter Studio")).toHaveCSS("line-height", "24px");
+  await expect(page.getByText("Count: 0")).toHaveCSS("font-size", "24px");
+  await expect(page.getByText("Count: 0")).toHaveCSS("line-height", "32px");
+  await expect(page.getByRole("button", { name: "Add" })).toHaveCSS("font-size", "14px");
+  await expect(page.getByRole("button", { name: "Add" })).toHaveCSS("line-height", "18px");
 
   const dimensions = await appShell.evaluate((element) => {
     const app = element.getBoundingClientRect();
