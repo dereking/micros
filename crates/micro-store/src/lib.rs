@@ -1,5 +1,7 @@
 pub mod native;
 
+pub use native::NativeStore;
+
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

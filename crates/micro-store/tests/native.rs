@@ -1,0 +1,77 @@
+use micro_store::{AppMeta, AppStore, KvStore, KvValue, NativeStore, StoreError};
+use std::fs;
+use tempfile::TempDir;
+
+fn fresh_store() -> (TempDir, NativeStore) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = NativeStore::new(dir.path());
+    (dir, store)
+}
+
+fn counter_meta() -> AppMeta {
+    AppMeta {
+        id: "counter".to_owned(),
+        name: "Counter".to_owned(),
+        version: 1,
+    }
+}
+
+#[test]
+fn install_list_read_round_trip() {
+    let (_dir, mut store) = fresh_store();
+    store
+        .install(counter_meta(), b"MBC1-app-bytes")
+        .expect("install");
+
+    let listed = store.list().expect("list");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, "counter");
+    assert_eq!(listed[0].name, "Counter");
+    assert_eq!(listed[0].version, 1);
+
+    assert_eq!(store.read("counter").expect("read"), b"MBC1-app-bytes");
+}
+
+#[test]
+fn install_overwrites_existing_id() {
+    let (_dir, mut store) = fresh_store();
+    store.install(counter_meta(), b"one").expect("first");
+    store.install(counter_meta(), b"two").expect("second");
+
+    assert_eq!(store.list().expect("list").len(), 1);
+    assert_eq!(store.read("counter").expect("read"), b"two");
+}
+
+#[test]
+fn read_missing_app_is_not_found() {
+    let (_dir, store) = fresh_store();
+    assert_eq!(store.read("counter"), Err(StoreError::NotFound));
+}
+
+#[test]
+fn uninstall_removes_blob_and_manifest_entry() {
+    let (_dir, mut store) = fresh_store();
+    store.install(counter_meta(), b"MBC1-app-bytes").expect("install");
+    store.uninstall("counter").expect("uninstall");
+
+    assert!(store.list().expect("list").is_empty());
+    assert_eq!(store.read("counter"), Err(StoreError::NotFound));
+}
+
+#[test]
+fn uninstall_missing_app_is_not_found() {
+    let (_dir, mut store) = fresh_store();
+    assert_eq!(store.uninstall("ghost"), Err(StoreError::NotFound));
+}
+
+#[test]
+fn app_store_persists_across_instances() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    {
+        let mut store = NativeStore::new(dir.path());
+        store.install(counter_meta(), b"MBC1-app-bytes").expect("install");
+    }
+    let store = NativeStore::new(dir.path());
+    assert_eq!(store.list().expect("list").len(), 1);
+    assert_eq!(store.read("counter").expect("read"), b"MBC1-app-bytes");
+}
