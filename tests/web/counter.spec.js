@@ -16,6 +16,51 @@ test("ESP32 simulator launches the real Counter MBC and returns home", async ({ 
   await expect(runtimeError).toHaveText("");
 });
 
+test("Counter exclusively fills the device canvas with fixed logical typography", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("html").evaluate((element) => { element.style.fontSize = "20px"; });
+  await expect(page.locator(".launcher-copy p")).toHaveCSS("font-size", "9px");
+  await expect(page.locator(".app-grid")).toHaveCSS("column-gap", "10px");
+
+  await page.getByRole("button", { name: "Counter" }).click();
+
+  const systemScreen = page.locator("#system-screen");
+  const appShell = page.locator("#app-shell");
+  await expect(systemScreen).toBeHidden();
+  await expect(appShell).toBeVisible();
+
+  await page.locator("#app-screen").evaluate((screen) => {
+    const nested = document.createElement("div");
+    nested.hidden = true;
+    nested.style.display = "block";
+    nested.textContent = "Nested app markup";
+    screen.append(nested);
+  });
+  await expect(page.getByText("Nested app markup")).toBeVisible();
+
+  await expect(page.locator(".micro-text")).toHaveCSS("font-size", "24px");
+  await expect(page.locator(".micro-text")).toHaveCSS("line-height", "32px");
+  await expect(page.locator(".micro-button")).toHaveCSS("font-size", "14px");
+  await expect(page.locator(".micro-button")).toHaveCSS("line-height", "18px");
+
+  const dimensions = await appShell.evaluate((element) => {
+    const app = element.getBoundingClientRect();
+    const device = document.querySelector("[data-device-screen]");
+    return {
+      appWidth: app.width,
+      appHeight: app.height,
+      deviceWidth: device?.clientWidth,
+      deviceHeight: device?.clientHeight,
+    };
+  });
+  expect(dimensions.appWidth).toBeCloseTo(dimensions.deviceWidth, 0);
+  expect(dimensions.appHeight).toBeCloseTo(dimensions.deviceHeight, 0);
+
+  await page.getByRole("button", { name: "Back" }).click();
+  await expect(page.locator(".launcher-copy h2")).toHaveCSS("font-size", "18px");
+  await expect(page.locator(".launcher-copy h2")).toHaveCSS("line-height", "24px");
+});
+
 test("simulator monitor reflects reducer-backed settings and touch", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Settings" }).click();

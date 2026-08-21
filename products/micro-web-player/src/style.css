@@ -16,30 +16,32 @@ h1 { max-width: 7ch; margin: 0; font-size: clamp(2.3rem, 6vw, 5.2rem); line-heig
 .device-controls { color: #84937d; }
 .device-controls i { width: 1.7rem; height: 2px; background: #3c4a44; }
 .device-screen { position: relative; display: grid; grid-template-rows: minmax(0, 1fr); width: 100%; aspect-ratio: 5 / 3; overflow: hidden; border: 4px solid #080d0b; border-radius: .36rem; background: #dce5da; color: #173128; box-shadow: inset 0 0 0 1px #fff9; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; }
+.device-screen > [hidden] { display: none !important; }
 .system-screen, .app-shell { min-width: 0; min-height: 0; }
-.system-screen { display: grid; align-content: space-between; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #63816e transparent; padding: clamp(1rem, 4vw, 2.2rem); background: radial-gradient(circle at 85% 8%, #a7cf8470, transparent 30%), linear-gradient(145deg, #edf3e7, #c4d8ca); }
-.system-screen::-webkit-scrollbar { width: .38rem; }
+.system-screen { display: grid; align-content: space-between; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #63816e transparent; padding: 24px; background: radial-gradient(circle at 85% 8%, #a7cf8470, transparent 30%), linear-gradient(145deg, #edf3e7, #c4d8ca); }
+.system-screen::-webkit-scrollbar { width: 6px; }
 .system-screen::-webkit-scrollbar-thumb { border-radius: 99px; background: #63816e; }
-.screen-topline { display: flex; justify-content: space-between; color: #49705e; font-size: clamp(.52rem, 1.6vw, .72rem); letter-spacing: .11em; }
+.screen-topline { display: flex; justify-content: space-between; color: #49705e; font-size: 10px; letter-spacing: .11em; }
 .text-button { border: 0; padding: 0; background: none; color: #49705e; cursor: pointer; }
-.launcher-copy p, .settings-copy p, .safe-screen p { margin: 0 0 .4rem; color: #607c6e; font-size: .58rem; letter-spacing: .1em; text-transform: uppercase; }
-.launcher-copy h2, .settings-copy h2, .safe-screen h2 { margin: 0; font-size: clamp(2rem, 7vw, 4.9rem); line-height: .9; }
-.app-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
-.app-grid button { display: grid; gap: .5rem; min-width: 0; padding: clamp(.65rem, 2vw, 1.2rem); border: 1px solid #648472; border-radius: .35rem; background: #f2f2e7aa; color: #173128; text-align: left; cursor: pointer; }
-.app-grid b { color: #c0683b; font-size: .6rem; }
-.app-grid strong { color: #173128; font: 700 clamp(1rem, 3vw, 1.7rem) Fraunces, serif; }
-.app-grid small { color: #5a7667; font-size: .52rem; }
-.settings-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; }
-.settings-actions button, .safe-screen button { min-width: 0; border: 1px solid #63816e; border-radius: .25rem; padding: .55rem; background: #eaf1e8; color: #173128; cursor: pointer; font-size: clamp(.5rem, 1.5vw, .66rem); }
+.launcher-copy p, .settings-copy p, .safe-screen p { margin: 0 0 6px; color: #607c6e; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
+.launcher-copy h2, .settings-copy h2, .safe-screen h2 { margin: 0; font-size: 18px; line-height: 24px; }
+.app-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.app-grid button { display: grid; gap: 8px; min-width: 0; padding: 12px; border: 1px solid #648472; border-radius: 6px; background: #f2f2e7aa; color: #173128; text-align: left; cursor: pointer; }
+.app-grid b { color: #c0683b; font-size: 10px; }
+.app-grid strong { color: #173128; font: 700 16px Fraunces, serif; }
+.app-grid small { color: #5a7667; font-size: 8px; }
+.settings-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.settings-actions button, .safe-screen button { min-width: 0; border: 1px solid #63816e; border-radius: 4px; padding: 9px; background: #eaf1e8; color: #173128; cursor: pointer; font-size: 10px; }
 .settings-actions .danger { background: #efd1bf; border-color: #c0683b; }
-.safe-screen { display: grid; align-content: center; justify-items: start; gap: 1rem; padding: clamp(1rem, 4vw, 2.2rem); background: #edd0b7; color: #442219; }
-.safe-screen span { max-width: 22rem; font-size: .65rem; line-height: 1.5; }
-.app-shell { position: relative; display: grid; min-height: 100%; }
-.app-screen { display: grid; min-height: 100%; place-items: center; }
-.app-back { position: absolute; z-index: 2; top: .75rem; left: .75rem; border: 1px solid #648472; border-radius: 99px; padding: .35rem .55rem; background: #f5f8efdd; color: #173128; cursor: pointer; font-size: .58rem; }
-.micro-column { display: flex; align-items: center; flex-direction: column; gap: clamp(1rem, 4vw, 2rem); }
-.micro-text { font: 700 clamp(1.7rem, 7vw, 4rem) Fraunces, serif; letter-spacing: -.05em; }
-.micro-button { min-width: 8rem; padding: .8rem 1.4rem; border: 0; border-radius: .3rem; background: #1e7256; box-shadow: 0 .5rem 1rem #1e725644; color: #fff; cursor: pointer; font: 700 clamp(.75rem, 2.5vw, 1.05rem) "DM Mono", monospace; }
+.safe-screen { display: grid; align-content: center; justify-items: start; gap: 16px; padding: 24px; background: #edd0b7; color: #442219; }
+.safe-screen span { max-width: 352px; font-size: 10px; line-height: 15px; }
+.app-shell { position: relative; display: grid; }
+.app-shell, .app-screen { width: 100%; height: 100%; min-height: 0; }
+.app-screen { display: grid; place-items: center; }
+.app-back { position: absolute; z-index: 2; top: 12px; left: 12px; border: 1px solid #648472; border-radius: 99px; padding: 6px 9px; background: #f5f8efdd; color: #173128; cursor: pointer; font-size: 9px; }
+.micro-column { display: flex; align-items: center; flex-direction: column; gap: 16px; }
+.micro-text { font: 700 24px/32px Fraunces, serif; letter-spacing: -.05em; }
+.micro-button { min-width: 128px; padding: 13px 22px; border: 0; border-radius: 5px; background: #1e7256; box-shadow: 0 8px 16px #1e725644; color: #fff; cursor: pointer; font: 700 14px/18px "DM Mono", monospace; }
 .monitor { align-self: stretch; display: flex; min-width: 0; flex-direction: column; border: 1px solid #d6ddc744; border-radius: .6rem; background: #17221fca; padding: 1.2rem; }
 .monitor-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .monitor-heading strong { color: #a7cf84; font-size: .58rem; white-space: nowrap; }
