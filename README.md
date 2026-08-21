@@ -43,6 +43,13 @@ npm run demo
 
 The first demo build downloads and compiles SDL 3.4.10 and LVGL 9.5.0. Later builds reuse the cache.
 
+## Development guide
+
+For the full development workflow — one-time environment setup
+(`npm run setup:dev`), environment self-check (`npm run check:env`), building each
+host, and debugging the native / Web / Wasm targets — see
+[docs/development.md](docs/development.md).
+
 ## Web Player
 
 Install the one-time Web toolchain and start the browser runtime:

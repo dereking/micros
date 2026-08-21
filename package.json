@@ -13,7 +13,9 @@
     "demo": "npm run build:app && cargo run -p micro-host-sdl --features native -- apps/counter/dist/app.mbc",
     "test": "cargo test --workspace",
     "test:web:unit": "node --test tests/web/*.test.js",
-    "test:web": "npm run test:web:unit && npm run build:web && playwright test"
+    "test:web": "npm run test:web:unit && npm run build:web && playwright test",
+    "setup:dev": "bash scripts/setup-dev.sh",
+    "check:env": "bash scripts/check-env.sh"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
