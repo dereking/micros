@@ -24,7 +24,10 @@ python3 scripts/generate-font-assets.py fonts
 python3 scripts/generate-font-assets.py fonts --check
 ```
 
-The LVGL assets use 2bpp (four grayscale levels) and RLE compression. The
+The LVGL assets use 2bpp (four grayscale levels) and RLE compression. Any LVGL
+host embedding them must define `LV_USE_FONT_COMPRESSED 1` (see
+`native/lv_conf.h`); without it LVGL returns empty glyph bitmaps and text
+renders invisibly while still occupying layout space. The
 generated 12, 14, 18, 24, and 32px fonts declare intrinsic line heights of
 14, 18, 24, 32, and 40px respectively, matching the closed SDK/CSS metric
 pairs. The
