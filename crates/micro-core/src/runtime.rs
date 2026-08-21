@@ -198,6 +198,7 @@ impl<R: RenderPort> Runtime<R> {
                 children: node.children.clone(),
                 text,
                 on_click: node.on_click,
+                text_style: node.text_style,
             });
         }
         Ok(MicroUiTree {

@@ -1,13 +1,13 @@
 use std::fmt;
 
 use crate::{
-    AppImage, BindingId, Constant, Function, FunctionId, FunctionKind, HandlerId, Instruction,
-    NodeId, ScalarType, StateDecl, StateId, TextSource, UiKind, UiNodeSpec, ValidationError,
-    validate,
+    AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId, FunctionKind,
+    HandlerId, Instruction, NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind,
+    UiNodeSpec, ValidationError, validate,
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
-const VERSION: u16 = 1;
+const VERSION: u16 = 2;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -307,6 +307,22 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
                 out.extend_from_slice(&id.0.to_le_bytes());
             }
         }
+        match node.text_style {
+            None => out.push(0),
+            Some(style) => {
+                out.push(1);
+                out.push(match style.family {
+                    FontFamily::UiSans => 0,
+                });
+                out.push(style.size_px);
+                out.push(match style.weight {
+                    FontWeight::Regular => 0,
+                    FontWeight::Medium => 1,
+                    FontWeight::Bold => 2,
+                });
+                out.push(style.line_height_px);
+            }
+        }
     }
     out.extend_from_slice(&root.0.to_le_bytes());
     Ok(out)
@@ -358,12 +374,50 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
                 });
             }
         };
+        let text_style = match reader.u8()? {
+            0 => None,
+            1 => {
+                let family = match reader.u8()? {
+                    0 => FontFamily::UiSans,
+                    tag => {
+                        return Err(DecodeError::InvalidTag {
+                            section: "font family",
+                            tag,
+                        });
+                    }
+                };
+                let size_px = reader.u8()?;
+                let weight = match reader.u8()? {
+                    0 => FontWeight::Regular,
+                    1 => FontWeight::Medium,
+                    2 => FontWeight::Bold,
+                    tag => {
+                        return Err(DecodeError::InvalidTag {
+                            section: "font weight",
+                            tag,
+                        });
+                    }
+                };
+                let line_height_px = reader.u8()?;
+                Some(
+                    TextStyle::new(family, size_px, weight, line_height_px)
+                        .map_err(|error| DecodeError::InvalidImage(error.to_string()))?,
+                )
+            }
+            tag => {
+                return Err(DecodeError::InvalidTag {
+                    section: "text style",
+                    tag,
+                });
+            }
+        };
         nodes.push(UiNodeSpec {
             id,
             kind,
             children,
             text,
             on_click,
+            text_style,
         });
     }
     let root = NodeId(reader.u32()?);

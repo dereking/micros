@@ -1,6 +1,6 @@
 use std::fmt;
 
-use micro_ir::{FunctionId, NodeId, UiKind};
+use micro_ir::{FunctionId, NodeId, TextStyle, UiKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MicroUiNode {
@@ -9,6 +9,7 @@ pub struct MicroUiNode {
     pub children: Vec<NodeId>,
     pub text: String,
     pub on_click: Option<FunctionId>,
+    pub text_style: Option<TextStyle>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

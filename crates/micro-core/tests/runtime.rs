@@ -2,8 +2,8 @@ use micro_core::{
     Event, EventQueue, MicroUiTree, RenderError, RenderPatch, RenderPort, Runtime, RuntimeError,
 };
 use micro_ir::{
-    AppImage, BindingId, Constant, Function, FunctionId, FunctionKind, HandlerId, Instruction,
-    NodeId, ScalarType, StateDecl, StateId, TextSource, UiKind, UiNodeSpec,
+    AppImage, BindingId, Constant, FontWeight, Function, FunctionId, FunctionKind, HandlerId,
+    Instruction, NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind, UiNodeSpec,
 };
 use micro_vm::{Value, VmError};
 
@@ -107,6 +107,7 @@ fn counter_image() -> AppImage {
                 children: vec![NodeId(1), NodeId(2)],
                 text: None,
                 on_click: None,
+                text_style: None,
             },
             UiNodeSpec {
                 id: NodeId(1),
@@ -114,6 +115,7 @@ fn counter_image() -> AppImage {
                 children: vec![],
                 text: Some(TextSource::Binding(FunctionId(0))),
                 on_click: None,
+                text_style: None,
             },
             UiNodeSpec {
                 id: NodeId(2),
@@ -121,6 +123,7 @@ fn counter_image() -> AppImage {
                 children: vec![],
                 text: Some(TextSource::Constant(4)),
                 on_click: Some(FunctionId(1)),
+                text_style: None,
             },
         ],
         root: NodeId(0),
@@ -152,6 +155,34 @@ fn creates_once_and_patches_counter_text() {
         }]
     );
     assert_eq!(runtime.renderer().created.len(), 1);
+}
+
+#[test]
+fn preserves_text_style_while_patching_only_text() {
+    let mut image = counter_image();
+    let style = TextStyle::ui_sans(24, FontWeight::Bold, 32).unwrap();
+    image.nodes[1].text_style = Some(style);
+    let mut runtime = Runtime::new(image, RecordingRenderer::default(), 10_000).unwrap();
+
+    assert_eq!(
+        runtime.renderer().created[0].nodes[1].text_style,
+        Some(style)
+    );
+
+    runtime.enqueue(Event::Activate(FunctionId(1)));
+    runtime.tick().unwrap();
+
+    assert_eq!(
+        runtime.renderer().patches,
+        [RenderPatch::SetText {
+            node: NodeId(1),
+            text: "Count: 1".into(),
+        }]
+    );
+    assert_eq!(
+        runtime.renderer().created[0].nodes[1].text_style,
+        Some(style)
+    );
 }
 
 #[test]
@@ -284,6 +315,7 @@ fn replaces_binding_dependencies_after_each_evaluation() {
             children: vec![],
             text: Some(TextSource::Binding(FunctionId(0))),
             on_click: None,
+            text_style: None,
         }],
         root: NodeId(0),
     };

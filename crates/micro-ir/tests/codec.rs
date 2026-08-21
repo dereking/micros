@@ -1,7 +1,7 @@
 use micro_ir::{
-    AppImage, BindingId, Constant, DecodeError, Function, FunctionId, FunctionKind, Instruction,
-    NodeId, ScalarType, StateDecl, StateId, TextSource, UiKind, UiNodeSpec, decode, encode,
-    validate,
+    AppImage, BindingId, Constant, DecodeError, FontFamily, FontWeight, Function, FunctionId,
+    FunctionKind, Instruction, NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle,
+    TextStyleError, UiKind, UiNodeSpec, decode, encode, validate,
 };
 
 fn fixture() -> AppImage {
@@ -29,6 +29,7 @@ fn fixture() -> AppImage {
             children: vec![],
             text: Some(TextSource::Binding(FunctionId(0))),
             on_click: None,
+            text_style: None,
         }],
         root: NodeId(0),
     }
@@ -38,6 +39,37 @@ fn fixture() -> AppImage {
 fn round_trips_a_valid_image() {
     let image = fixture();
     assert_eq!(decode(&encode(&image).unwrap()).unwrap(), image);
+}
+
+#[test]
+fn round_trips_an_exact_text_style() {
+    let mut image = fixture();
+    image.nodes[0].text_style =
+        Some(TextStyle::new(FontFamily::UiSans, 18, FontWeight::Medium, 24).unwrap());
+
+    let decoded = decode(&encode(&image).unwrap()).unwrap();
+
+    assert_eq!(decoded.nodes[0].text_style, image.nodes[0].text_style);
+    assert_eq!(decoded, image);
+}
+
+#[test]
+fn text_style_rejects_unsupported_sizes() {
+    assert_eq!(
+        TextStyle::ui_sans(16, FontWeight::Regular, 20),
+        Err(TextStyleError::UnsupportedSize(16))
+    );
+}
+
+#[test]
+fn text_style_rejects_line_height_below_size() {
+    assert_eq!(
+        TextStyle::ui_sans(18, FontWeight::Bold, 17),
+        Err(TextStyleError::LineHeightBelowSize {
+            size_px: 18,
+            line_height_px: 17,
+        })
+    );
 }
 
 #[test]
@@ -54,10 +86,60 @@ fn rejects_bad_magic_and_version() {
     assert_eq!(decode(&bad_magic), Err(DecodeError::BadMagic));
 
     let mut bad_version = encode(&fixture()).unwrap();
-    bad_version[4..6].copy_from_slice(&2_u16.to_le_bytes());
+    bad_version[4..6].copy_from_slice(&1_u16.to_le_bytes());
     assert_eq!(
         decode(&bad_version),
-        Err(DecodeError::UnsupportedVersion(2))
+        Err(DecodeError::UnsupportedVersion(1))
+    );
+}
+
+#[test]
+fn rejects_a_bad_text_style_tag() {
+    let mut bytes = encode(&fixture()).unwrap();
+    let style_tag = bytes.len() - 5;
+    bytes[style_tag] = 2;
+    refresh_checksum(&mut bytes);
+
+    assert_eq!(
+        decode(&bytes),
+        Err(DecodeError::InvalidTag {
+            section: "text style",
+            tag: 2,
+        })
+    );
+}
+
+#[test]
+fn rejects_an_unsupported_serialized_text_size() {
+    let mut image = fixture();
+    image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Medium, 24).unwrap());
+    let mut bytes = encode(&image).unwrap();
+    let size_px = bytes.len() - 7;
+    bytes[size_px] = 16;
+    refresh_checksum(&mut bytes);
+
+    assert_eq!(
+        decode(&bytes),
+        Err(DecodeError::InvalidImage(
+            "unsupported text size 16px".into()
+        ))
+    );
+}
+
+#[test]
+fn rejects_a_serialized_line_height_below_text_size() {
+    let mut image = fixture();
+    image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Bold, 24).unwrap());
+    let mut bytes = encode(&image).unwrap();
+    let line_height_px = bytes.len() - 5;
+    bytes[line_height_px] = 17;
+    refresh_checksum(&mut bytes);
+
+    assert_eq!(
+        decode(&bytes),
+        Err(DecodeError::InvalidImage(
+            "text line height 17px is below text size 18px".into()
+        ))
     );
 }
 
@@ -102,4 +184,24 @@ fn conditional_jump_consumes_its_condition() {
     image.nodes[0].text = Some(TextSource::Constant(1));
     image.nodes[0].on_click = Some(FunctionId(0));
     assert!(validate(&image).is_ok());
+}
+
+fn refresh_checksum(bytes: &mut [u8]) {
+    let checksum = crc32(&bytes[14..]);
+    bytes[10..14].copy_from_slice(&checksum.to_le_bytes());
+}
+
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = !0_u32;
+    for byte in bytes {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            crc = if crc & 1 == 1 {
+                (crc >> 1) ^ 0xedb8_8320
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    !crc
 }

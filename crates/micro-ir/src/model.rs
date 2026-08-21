@@ -77,6 +77,88 @@ pub enum TextSource {
     Binding(FunctionId),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FontFamily {
+    UiSans,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FontWeight {
+    Regular,
+    Medium,
+    Bold,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextStyle {
+    pub family: FontFamily,
+    pub size_px: u8,
+    pub weight: FontWeight,
+    pub line_height_px: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextStyleError {
+    UnsupportedSize(u8),
+    LineHeightBelowSize { size_px: u8, line_height_px: u8 },
+}
+
+impl fmt::Display for TextStyleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedSize(size_px) => {
+                write!(f, "unsupported text size {size_px}px")
+            }
+            Self::LineHeightBelowSize {
+                size_px,
+                line_height_px,
+            } => write!(
+                f,
+                "text line height {line_height_px}px is below text size {size_px}px"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for TextStyleError {}
+
+impl TextStyle {
+    pub fn new(
+        family: FontFamily,
+        size_px: u8,
+        weight: FontWeight,
+        line_height_px: u8,
+    ) -> Result<Self, TextStyleError> {
+        if !matches!(size_px, 12 | 14 | 18 | 24 | 32) {
+            return Err(TextStyleError::UnsupportedSize(size_px));
+        }
+        if line_height_px < size_px {
+            return Err(TextStyleError::LineHeightBelowSize {
+                size_px,
+                line_height_px,
+            });
+        }
+        Ok(Self {
+            family,
+            size_px,
+            weight,
+            line_height_px,
+        })
+    }
+
+    pub fn ui_sans(
+        size_px: u8,
+        weight: FontWeight,
+        line_height_px: u8,
+    ) -> Result<Self, TextStyleError> {
+        Self::new(FontFamily::UiSans, size_px, weight, line_height_px)
+    }
+
+    fn validate(self) -> Result<(), TextStyleError> {
+        Self::new(self.family, self.size_px, self.weight, self.line_height_px).map(|_| ())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UiNodeSpec {
     pub id: NodeId,
@@ -84,6 +166,7 @@ pub struct UiNodeSpec {
     pub children: Vec<NodeId>,
     pub text: Option<TextSource>,
     pub on_click: Option<FunctionId>,
+    pub text_style: Option<TextStyle>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -172,6 +255,11 @@ pub fn validate(image: &AppImage) -> Result<(), ValidationError> {
                     )));
                 }
             }
+        }
+        if let Some(style) = node.text_style {
+            style.validate().map_err(|error| {
+                invalid(format!("node {index} has an invalid text style: {error}"))
+            })?;
         }
     }
     Ok(())

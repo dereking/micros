@@ -50,6 +50,7 @@ fn image(kind: FunctionKind, code: Vec<Instruction>, max_stack: u16) -> AppImage
             children: vec![],
             text: Some(TextSource::Constant(2)),
             on_click: None,
+            text_style: None,
         }],
         root: NodeId(0),
     }

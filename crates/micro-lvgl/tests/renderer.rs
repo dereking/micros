@@ -57,6 +57,7 @@ fn tree() -> MicroUiTree {
                 children: vec![NodeId(1), NodeId(2)],
                 text: String::new(),
                 on_click: None,
+                text_style: None,
             },
             MicroUiNode {
                 id: NodeId(1),
@@ -64,6 +65,7 @@ fn tree() -> MicroUiTree {
                 children: vec![],
                 text: "Count: 0".into(),
                 on_click: None,
+                text_style: None,
             },
             MicroUiNode {
                 id: NodeId(2),
@@ -71,6 +73,7 @@ fn tree() -> MicroUiTree {
                 children: vec![],
                 text: "Add".into(),
                 on_click: Some(FunctionId(7)),
+                text_style: None,
             },
         ],
         root: NodeId(0),

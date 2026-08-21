@@ -189,6 +189,7 @@ impl<'a> Lowerer<'a> {
             children: vec![],
             text: None,
             on_click: None,
+            text_style: None,
         });
         id
     }
