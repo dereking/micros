@@ -4,6 +4,7 @@ fn main() {
         return;
     }
     println!("cargo:rerun-if-changed=../../native");
+    println!("cargo:rerun-if-changed=../../assets/fonts/lvgl");
     let manifest = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let dependency_cache = manifest.join("../../target/native-deps");
     let destination = cmake::Config::new("../../native")

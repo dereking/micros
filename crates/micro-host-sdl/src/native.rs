@@ -70,8 +70,56 @@ struct NativeFontKey {
     weight: FontWeight,
 }
 
-// Task 5 will populate this table when generated LVGL font assets are linked.
-const AVAILABLE_NATIVE_FONTS: &[(NativeFontKey, NativeFontHandle)] = &[];
+unsafe extern "C" {
+    static micro_ui_sans_12: c_void;
+    static micro_ui_sans_14: c_void;
+    static micro_ui_sans_18: c_void;
+    static micro_ui_sans_24: c_void;
+    static micro_ui_sans_32: c_void;
+}
+
+const AVAILABLE_NATIVE_FONTS: &[(NativeFontKey, NativeFontHandle)] = &[
+    (
+        NativeFontKey {
+            family: FontFamily::UiSans,
+            size_px: 12,
+            weight: FontWeight::Regular,
+        },
+        NativeFontHandle(&raw const micro_ui_sans_12),
+    ),
+    (
+        NativeFontKey {
+            family: FontFamily::UiSans,
+            size_px: 14,
+            weight: FontWeight::Regular,
+        },
+        NativeFontHandle(&raw const micro_ui_sans_14),
+    ),
+    (
+        NativeFontKey {
+            family: FontFamily::UiSans,
+            size_px: 18,
+            weight: FontWeight::Regular,
+        },
+        NativeFontHandle(&raw const micro_ui_sans_18),
+    ),
+    (
+        NativeFontKey {
+            family: FontFamily::UiSans,
+            size_px: 24,
+            weight: FontWeight::Regular,
+        },
+        NativeFontHandle(&raw const micro_ui_sans_24),
+    ),
+    (
+        NativeFontKey {
+            family: FontFamily::UiSans,
+            size_px: 32,
+            weight: FontWeight::Regular,
+        },
+        NativeFontHandle(&raw const micro_ui_sans_32),
+    ),
+];
 
 fn select_native_text_style(
     style: Option<&TextStyle>,
@@ -173,6 +221,10 @@ impl Drop for NativeBridge {
 }
 
 impl NativeUi for NativeBridge {
+    fn report_diagnostic(&mut self, node: NodeId, message: &str) {
+        eprintln!("micro-ui node {}: {message}", node.0);
+    }
+
     fn create_column(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
         native_result(
             unsafe { micro_native_create_column(self.raw.as_ptr(), node.0, parent_id(parent)) },
@@ -284,12 +336,12 @@ mod tests {
     }
 
     #[test]
-    fn rejects_styles_until_matching_native_font_assets_are_available() {
-        let style = TextStyle::ui_sans(18, FontWeight::Medium, 24).unwrap();
-        assert_eq!(
-            select_native_text_style(Some(&style), AVAILABLE_NATIVE_FONTS),
-            Err("native font unavailable: UiSans 18px Medium".into())
-        );
+    fn exposes_every_generated_regular_font() {
+        for size in [12, 14, 18, 24, 32] {
+            let style = TextStyle::ui_sans(size, FontWeight::Regular, size).unwrap();
+            let selected = select_native_text_style(Some(&style), AVAILABLE_NATIVE_FONTS).unwrap();
+            assert!(!selected.font_handle.0.is_null());
+        }
     }
 
     #[test]
@@ -299,11 +351,11 @@ mod tests {
             NativeFontKey {
                 family: FontFamily::UiSans,
                 size_px: 18,
-                weight: FontWeight::Medium,
+                weight: FontWeight::Regular,
             },
             NativeFontHandle(&raw const TEST_FONT as *const c_void),
         )];
-        let style = TextStyle::ui_sans(18, FontWeight::Medium, 24).unwrap();
+        let style = TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap();
         let mut applied = None;
         call_with_native_text_style(Some(&style), &TEST_FONTS, "create label", |selected| {
             applied = Some(selected);

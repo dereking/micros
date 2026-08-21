@@ -1,6 +1,6 @@
 # Adapted from the official esp-rs/esp-idf-template CMake component pattern:
 # https://github.com/esp-rs/esp-idf-template/tree/08115a069d167a5ee37363e84f168a565f17bbca/cmake/components
-set(RUST_DEPS "pthread" "newlib")
+set(RUST_DEPS "pthread" "newlib" "lvgl__lvgl" "espressif__esp_lvgl_port")
 
 idf_component_register(
   SRCS "placeholder.c"

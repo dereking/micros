@@ -317,8 +317,6 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
                 out.push(style.size_px);
                 out.push(match style.weight {
                     FontWeight::Regular => 0,
-                    FontWeight::Medium => 1,
-                    FontWeight::Bold => 2,
                 });
                 out.push(style.line_height_px);
             }
@@ -389,8 +387,6 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
                 let size_px = reader.u8()?;
                 let weight = match reader.u8()? {
                     0 => FontWeight::Regular,
-                    1 => FontWeight::Medium,
-                    2 => FontWeight::Bold,
                     tag => {
                         return Err(DecodeError::InvalidTag {
                             section: "font weight",

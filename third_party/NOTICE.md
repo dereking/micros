@@ -33,3 +33,15 @@ Official resources:
 - Waveshare resource index: <https://docs.waveshare.com/ESP32-S3-Touch-LCD-7/Resources-And-Documents>
 - Spotpear documentation: <https://spotpear.com/wiki/ESP32-S3N8R8-7inch-LCD-Display-TouchScreen-800x480-LVGL-CAN-Sensor-RS485.html>
 - Schematic V1.2: <https://files.waveshare.net/wiki/ESP32-S3-Touch-LCD-7/ESP32-S3-Touch-LCD-7-Sch.pdf>
+
+## Noto Sans CJK SC
+
+The `MicroUiSans` web and LVGL subsets are generated from
+`NotoSansCJKsc-Regular.otf` version 2.004 at the pinned upstream URL and
+SHA-256 recorded in `assets/fonts/noto-sans-sc.json`. The original 15.6 MiB
+font stays in the ignored `work/fonts/` generation cache; only the required
+subsets and their source metadata are retained.
+
+Noto Sans CJK is Copyright 2014-2021 Adobe and is distributed under the SIL
+Open Font License 1.1. The license is retained at
+`assets/fonts/OFL-1.1.txt`.

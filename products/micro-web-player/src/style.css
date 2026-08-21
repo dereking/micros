@@ -1,3 +1,4 @@
+@font-face { font-family: "MicroUiSans"; src: url("/fonts/micro-ui-sans-common.woff2") format("woff2"); font-style: normal; font-weight: 400; font-display: block; }
 :root { color: #e9eadf; background: #111a19; font-family: "DM Mono", monospace; font-synthesis: none; }
 * { box-sizing: border-box; }
 body { min-width: 320px; min-height: 100vh; margin: 0; background: radial-gradient(circle at 7% 12%, #2d5045 0, transparent 30rem), radial-gradient(circle at 91% 87%, #a64e2f33 0, transparent 34rem), #111a19; }
@@ -40,8 +41,8 @@ h1 { max-width: 7ch; margin: 0; font-size: clamp(2.3rem, 6vw, 5.2rem); line-heig
 .app-screen { display: grid; place-items: center; }
 .app-back { position: absolute; z-index: 2; top: 12px; left: 12px; border: 1px solid #648472; border-radius: 99px; padding: 6px 9px; background: #f5f8efdd; color: #173128; cursor: pointer; font-size: 9px; }
 .micro-column { display: flex; align-items: center; flex-direction: column; gap: 16px; }
-.micro-text { font: 700 24px/32px Fraunces, serif; letter-spacing: -.05em; }
-.micro-button { min-width: 128px; padding: 13px 22px; border: 0; border-radius: 5px; background: #1e7256; box-shadow: 0 8px 16px #1e725644; color: #fff; cursor: pointer; font: 700 14px/18px "DM Mono", monospace; }
+.micro-text { font: 400 24px/32px "MicroUiSans", sans-serif; }
+.micro-button { min-width: 128px; padding: 13px 22px; border: 0; border-radius: 5px; background: #1e7256; box-shadow: 0 8px 16px #1e725644; color: #fff; cursor: pointer; font: 400 14px/18px "MicroUiSans", sans-serif; }
 .monitor { align-self: stretch; display: flex; min-width: 0; flex-direction: column; border: 1px solid #d6ddc744; border-radius: .6rem; background: #17221fca; padding: 1.2rem; }
 .monitor-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .monitor-heading strong { color: #a7cf84; font-size: .58rem; white-space: nowrap; }

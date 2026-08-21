@@ -287,6 +287,9 @@ int micro_esp_ui_create_button(uint32_t node, uint32_t parent,
                                uintptr_t font_handle, uint32_t line_height_px);
 int micro_esp_ui_set_label_text(uint32_t node, const uint8_t *text, size_t len);
 int micro_esp_ui_destroy_app_root(void);
+/* Returns 1 with a handler, 0 when empty, and a negative bridge error. */
+int micro_esp_ui_take_activation(uint32_t *handler_id);
+void micro_esp_ui_report_diagnostic(uint32_t node, const uint8_t *message, size_t len);
 
 #ifdef __cplusplus
 }

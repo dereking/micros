@@ -30,11 +30,17 @@ unsafe extern "C" {
     ) -> c_int;
     fn micro_esp_ui_set_label_text(node: u32, text: *const u8, len: usize) -> c_int;
     fn micro_esp_ui_destroy_app_root() -> c_int;
+    fn micro_esp_ui_take_activation(handler_id: *mut u32) -> c_int;
+    fn micro_esp_ui_report_diagnostic(node: u32, message: *const u8, len: usize);
 }
 
 struct EspNativeUi;
 
 impl NativeUi for EspNativeUi {
+    fn report_diagnostic(&mut self, node: NodeId, message: &str) {
+        unsafe { micro_esp_ui_report_diagnostic(node.0, message.as_ptr(), message.len()) };
+    }
+
     fn create_column(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
         native_result(unsafe { micro_esp_ui_create_column(node.0, parent_id(parent)) })
     }
@@ -256,7 +262,29 @@ pub unsafe extern "C" fn micro_runtime_tick(
         write_diagnostic(error, error_length, "runtime handle is null");
         return MicroErrorCode::InvalidArgument as c_int;
     }
-    match unsafe { (&mut *runtime.cast::<RuntimeHost<EspNativeUi>>()).tick() } {
+    let runtime = unsafe { &mut *runtime.cast::<RuntimeHost<EspNativeUi>>() };
+    loop {
+        let mut handler = 0;
+        match unsafe { micro_esp_ui_take_activation(&raw mut handler) } {
+            1 => {
+                if let Err(runtime_error) = runtime.activate(FunctionId(handler)) {
+                    return report(runtime_error, error, error_length);
+                }
+            }
+            0 => break,
+            code => {
+                return report(
+                    HostError {
+                        code: MicroErrorCode::Ui,
+                        diagnostic: format!("ESP activation queue failed with code {code}"),
+                    },
+                    error,
+                    error_length,
+                );
+            }
+        }
+    }
+    match runtime.tick() {
         Ok(_) => MicroErrorCode::Ok as c_int,
         Err(runtime_error) => report(runtime_error, error, error_length),
     }

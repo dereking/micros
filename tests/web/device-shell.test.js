@@ -1,7 +1,26 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { createDeviceShell, mapTouch } from "../../products/micro-web-player/src/device-shell.js";
+
+test("web player serves the generated MicroUiSans Regular face", async () => {
+  const css = await readFile(
+    new URL("../../products/micro-web-player/src/style.css", import.meta.url),
+    "utf8",
+  );
+  const font = await readFile(
+    new URL(
+      "../../products/micro-web-player/public/fonts/micro-ui-sans-common.woff2",
+      import.meta.url,
+    ),
+  );
+
+  assert.match(css, /@font-face\s*{[^}]*font-family:\s*"MicroUiSans";/s);
+  assert.match(css, /src:\s*url\("\/fonts\/micro-ui-sans-common\.woff2"\) format\("woff2"\);/);
+  assert.match(css, /font-weight:\s*400;/);
+  assert.ok(font.length > 0);
+});
 
 test("Counter starts after the reducer allocates its session", async () => {
   const calls = [];

@@ -1,9 +1,10 @@
 //! Platform-neutral Web renderer behind a narrow DOM bridge.
 
 use micro_core::{MicroUiTree, RenderError, RenderPatch, RenderPort};
-use micro_ir::{FunctionId, NodeId, TextStyle, UiKind};
+use micro_ir::{FunctionId, NodeId, TextStyle, UiKind, sanitize_ui_text};
 
 pub trait WebDom {
+    fn report_diagnostic(&mut self, node: NodeId, message: &str);
     fn create_column(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String>;
     fn create_text(
         &mut self,
@@ -42,6 +43,15 @@ impl<D> WebRenderer<D> {
 }
 
 impl<D: WebDom> WebRenderer<D> {
+    fn checked_text(&mut self, node: NodeId, text: &str) -> String {
+        let (text, replaced) = sanitize_ui_text(text);
+        if replaced {
+            self.dom
+                .report_diagnostic(node, "unsupported glyph replaced with U+FFFD");
+        }
+        text.into_owned()
+    }
+
     fn create_node(
         &mut self,
         tree: &MicroUiTree,
@@ -55,20 +65,17 @@ impl<D: WebDom> WebRenderer<D> {
         match node.kind {
             UiKind::Column => self.dom.create_column(node.id, parent),
             UiKind::Text => {
+                let text = self.checked_text(node.id, &node.text);
                 self.dom
-                    .create_text(node.id, parent, &node.text, node.text_style.as_ref())
+                    .create_text(node.id, parent, &text, node.text_style.as_ref())
             }
             UiKind::Button => {
                 let handler = node
                     .on_click
                     .ok_or_else(|| RenderError(format!("button {} has no handler", node.id.0)))?;
-                self.dom.create_button(
-                    node.id,
-                    parent,
-                    &node.text,
-                    handler,
-                    node.text_style.as_ref(),
-                )
+                let text = self.checked_text(node.id, &node.text);
+                self.dom
+                    .create_button(node.id, parent, &text, handler, node.text_style.as_ref())
             }
         }
         .map_err(RenderError)?;
@@ -88,7 +95,8 @@ impl<D: WebDom> RenderPort for WebRenderer<D> {
     fn apply(&mut self, patches: &[RenderPatch]) -> Result<(), RenderError> {
         for patch in patches {
             let RenderPatch::SetText { node, text } = patch;
-            self.dom.set_text(*node, text).map_err(RenderError)?;
+            let text = self.checked_text(*node, text);
+            self.dom.set_text(*node, &text).map_err(RenderError)?;
         }
         Ok(())
     }

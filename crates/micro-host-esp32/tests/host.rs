@@ -24,6 +24,8 @@ struct FakeNativeUi {
 }
 
 impl NativeUi for FakeNativeUi {
+    fn report_diagnostic(&mut self, _node: NodeId, _message: &str) {}
+
     fn create_column(&mut self, node: NodeId, _parent: Option<NodeId>) -> Result<(), String> {
         self.nodes.insert(node, String::new());
         Ok(())
@@ -100,6 +102,8 @@ struct FailingNativeUi {
 }
 
 impl NativeUi for FailingNativeUi {
+    fn report_diagnostic(&mut self, _node: NodeId, _message: &str) {}
+
     fn create_column(&mut self, _node: NodeId, _parent: Option<NodeId>) -> Result<(), String> {
         self.root_created.set(true);
         Ok(())

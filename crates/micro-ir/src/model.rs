@@ -85,8 +85,6 @@ pub enum FontFamily {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FontWeight {
     Regular,
-    Medium,
-    Bold,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

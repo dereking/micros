@@ -27,7 +27,113 @@ pub(crate) struct NativeTextStyle {
     pub(crate) line_height_px: u32,
 }
 
-pub(crate) const AVAILABLE_NATIVE_FONTS: &[(NativeFontKey, NativeFontHandle)] = &[];
+#[cfg(target_os = "espidf")]
+unsafe extern "C" {
+    static micro_ui_sans_12: c_void;
+    static micro_ui_sans_14: c_void;
+    static micro_ui_sans_18: c_void;
+    static micro_ui_sans_24: c_void;
+    static micro_ui_sans_32: c_void;
+}
+
+#[cfg(target_os = "espidf")]
+pub(crate) const AVAILABLE_NATIVE_FONTS: &[(NativeFontKey, NativeFontHandle)] = &[
+    (
+        NativeFontKey {
+            family: FontFamily::UiSans,
+            size_px: 12,
+            weight: FontWeight::Regular,
+        },
+        NativeFontHandle(&raw const micro_ui_sans_12),
+    ),
+    (
+        NativeFontKey {
+            family: FontFamily::UiSans,
+            size_px: 14,
+            weight: FontWeight::Regular,
+        },
+        NativeFontHandle(&raw const micro_ui_sans_14),
+    ),
+    (
+        NativeFontKey {
+            family: FontFamily::UiSans,
+            size_px: 18,
+            weight: FontWeight::Regular,
+        },
+        NativeFontHandle(&raw const micro_ui_sans_18),
+    ),
+    (
+        NativeFontKey {
+            family: FontFamily::UiSans,
+            size_px: 24,
+            weight: FontWeight::Regular,
+        },
+        NativeFontHandle(&raw const micro_ui_sans_24),
+    ),
+    (
+        NativeFontKey {
+            family: FontFamily::UiSans,
+            size_px: 32,
+            weight: FontWeight::Regular,
+        },
+        NativeFontHandle(&raw const micro_ui_sans_32),
+    ),
+];
+
+#[cfg(test)]
+static TEST_FONT_12: u8 = 0;
+#[cfg(test)]
+static TEST_FONT_14: u8 = 0;
+#[cfg(test)]
+static TEST_FONT_18: u8 = 0;
+#[cfg(test)]
+static TEST_FONT_24: u8 = 0;
+#[cfg(test)]
+static TEST_FONT_32: u8 = 0;
+
+#[cfg(test)]
+pub(crate) const AVAILABLE_NATIVE_FONTS: &[(NativeFontKey, NativeFontHandle)] = &[
+    (
+        NativeFontKey {
+            family: FontFamily::UiSans,
+            size_px: 12,
+            weight: FontWeight::Regular,
+        },
+        NativeFontHandle(&raw const TEST_FONT_12 as *const c_void),
+    ),
+    (
+        NativeFontKey {
+            family: FontFamily::UiSans,
+            size_px: 14,
+            weight: FontWeight::Regular,
+        },
+        NativeFontHandle(&raw const TEST_FONT_14 as *const c_void),
+    ),
+    (
+        NativeFontKey {
+            family: FontFamily::UiSans,
+            size_px: 18,
+            weight: FontWeight::Regular,
+        },
+        NativeFontHandle(&raw const TEST_FONT_18 as *const c_void),
+    ),
+    (
+        NativeFontKey {
+            family: FontFamily::UiSans,
+            size_px: 24,
+            weight: FontWeight::Regular,
+        },
+        NativeFontHandle(&raw const TEST_FONT_24 as *const c_void),
+    ),
+    (
+        NativeFontKey {
+            family: FontFamily::UiSans,
+            size_px: 32,
+            weight: FontWeight::Regular,
+        },
+        NativeFontHandle(&raw const TEST_FONT_32 as *const c_void),
+    ),
+];
 
 fn select_native_text_style(
     style: Option<&TextStyle>,
@@ -84,11 +190,11 @@ mod tests {
             NativeFontKey {
                 family: FontFamily::UiSans,
                 size_px: 24,
-                weight: FontWeight::Bold,
+                weight: FontWeight::Regular,
             },
             NativeFontHandle(&raw const TEST_FONT as *const c_void),
         )];
-        let style = TextStyle::ui_sans(24, FontWeight::Bold, 32).unwrap();
+        let style = TextStyle::ui_sans(24, FontWeight::Regular, 32).unwrap();
         let mut applied = None;
         call_with_native_text_style(Some(&style), &TEST_FONTS, |selected| {
             applied = Some(selected);
@@ -105,11 +211,15 @@ mod tests {
     }
 
     #[test]
-    fn rejects_styles_while_esp_font_catalog_is_empty() {
-        let style = TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap();
-        assert_eq!(
-            call_with_native_text_style(Some(&style), AVAILABLE_NATIVE_FONTS, |_| 0),
-            Err("ESP native font unavailable: UiSans 18px Regular".into())
-        );
+    fn exposes_every_generated_regular_font() {
+        for size in [12, 14, 18, 24, 32] {
+            let style = TextStyle::ui_sans(size, FontWeight::Regular, size).unwrap();
+            let selected =
+                call_with_native_text_style(Some(&style), AVAILABLE_NATIVE_FONTS, |selected| {
+                    selected
+                })
+                .unwrap();
+            assert!(!selected.font_handle.0.is_null());
+        }
     }
 }

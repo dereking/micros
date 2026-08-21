@@ -20,6 +20,7 @@ serde_json.workspace = true
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = [
   "Document",
+  "console",
   "Element",
   "Event",
   "EventTarget",

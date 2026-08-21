@@ -285,8 +285,13 @@ impl<'a> Lowerer<'a> {
         })?;
         let weight = match weight {
             "regular" => FontWeight::Regular,
-            "medium" => FontWeight::Medium,
-            "bold" => FontWeight::Bold,
+            "medium" | "bold" => {
+                return Err(self.error(
+                    fields["weight"].span(),
+                    "MTS014",
+                    format!("font weight `{weight}` has no generated uiSans asset; use `regular`"),
+                ));
+            }
             _ => {
                 return Err(self.error(
                     fields["weight"].span(),

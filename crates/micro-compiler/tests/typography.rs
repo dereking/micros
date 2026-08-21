@@ -2,17 +2,17 @@ use micro_compiler::compile_source;
 use micro_ir::{FontFamily, FontWeight, TextSource, TextStyle, UiKind};
 
 fn style() -> TextStyle {
-    TextStyle::new(FontFamily::UiSans, 18, FontWeight::Medium, 24).unwrap()
+    TextStyle::new(FontFamily::UiSans, 18, FontWeight::Regular, 24).unwrap()
 }
 
 #[test]
 fn lowers_exact_text_and_button_styles() {
     let source = r#"
 ui.mount(ui.column([
-  ui.text("Welcome", { font: "uiSans", size: 18, weight: "medium", lineHeight: 24 }),
+  ui.text("Welcome", { font: "uiSans", size: 18, weight: "regular", lineHeight: 24 }),
   ui.button("Confirm", {
     onClick: () => {},
-    textStyle: { font: "uiSans", size: 18, weight: "medium", lineHeight: 24 },
+    textStyle: { font: "uiSans", size: 18, weight: "regular", lineHeight: 24 },
   }),
 ]));
 "#;
@@ -91,7 +91,23 @@ fn rejects_unknown_top_level_button_option() {
 }
 
 #[test]
-fn accepts_ascii_bootstrap_chinese_and_dynamic_bindings() {
+fn rejects_weights_without_generated_assets() {
+    for weight in ["medium", "bold"] {
+        let source = format!(
+            r#"ui.mount(ui.text("A", {{ font: "uiSans", size: 18, weight: "{weight}", lineHeight: 24 }}));"#
+        );
+        let errors = compile_source("weight.ts", &source).unwrap_err();
+
+        assert_eq!(errors[0].code, "MTS014");
+        assert_eq!(
+            errors[0].message,
+            format!("font weight `{weight}` has no generated uiSans asset; use `regular`")
+        );
+    }
+}
+
+#[test]
+fn accepts_ascii_common_chinese_and_dynamic_bindings() {
     let image = compile_source(
         "glyphs.ts",
         r#"
@@ -100,6 +116,7 @@ ui.mount(ui.column([
   ui.text("ASCII ~ 123"),
   ui.text("欢迎"),
   ui.button("确认", { onClick: () => {} }),
+  ui.text("龚"),
   ui.text(bind(() => value.value)),
 ]));
 "#,

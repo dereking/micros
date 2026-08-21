@@ -1,0 +1,21 @@
+{
+  "family": "Noto Sans CJK SC",
+  "postscript_name": "NotoSansCJKsc-Regular",
+  "weight": 400,
+  "version": "2.004",
+  "license": "SIL Open Font License 1.1",
+  "license_url": "https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/LICENSE",
+  "license_file": "assets/fonts/OFL-1.1.txt",
+  "license_sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+  "source_url": "https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf",
+  "source_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+  "glyph_manifest": "assets/fonts/ui-sans-common.txt",
+  "generator_lock": "assets/fonts/lv-font-conv-lock.json",
+  "lvgl_bpp": 2,
+  "sizes_px": [12, 14, 18, 24, 32],
+  "generation_tools": {
+    "fonttools": "4.59.1",
+    "brotli": "1.1.0",
+    "lv_font_conv": "1.5.3"
+  }
+}

@@ -88,7 +88,7 @@ In `model.rs`, define:
 
 ```rust
 pub enum FontFamily { UiSans }
-pub enum FontWeight { Regular, Medium, Bold }
+pub enum FontWeight { Regular }
 pub struct TextStyle { pub family: FontFamily, pub size_px: u8, pub weight: FontWeight, pub line_height_px: u8 }
 ```
 
@@ -115,7 +115,7 @@ Create compiler tests for valid calls:
 
 ```ts
 ui.text("欢迎", { font: "uiSans", size: 18, weight: "regular", lineHeight: 24 });
-ui.button("确认", { onClick: () => {}, textStyle: { font: "uiSans", size: 14, weight: "medium", lineHeight: 18 } });
+ui.button("确认", { onClick: () => {}, textStyle: { font: "uiSans", size: 14, weight: "regular", lineHeight: 18 } });
 ```
 
 Require the lowered node's `text_style`. Add rejection fixtures for unknown font, non-literal style values, size `17`, `lineHeight: 14` with `size: 18`, and literal Chinese text absent from `ui-sans-common.txt` with a stable `MTS` diagnostic code.
@@ -177,15 +177,16 @@ Commit with `feat: render shared text styles on Web and LVGL`.
 ### Task 5: Generate, package, and budget the common CJK font assets
 
 **Files:**
-- Create: `third_party/fonts/NotoSansSC-LICENSE.txt`
-- Create: `assets/fonts/NotoSansSC-Regular.otf`
-- Create: `scripts/generate-ui-fonts.sh`
-- Create: `assets/fonts/web/micro-ui-sans.woff2`
-- Create: `firmware/micro-os-esp32/components/micro_bsp_lcd7/fonts/micro_ui_sans_12.c`
-- Create: `firmware/micro-os-esp32/components/micro_bsp_lcd7/fonts/micro_ui_sans_14.c`
-- Create: `firmware/micro-os-esp32/components/micro_bsp_lcd7/fonts/micro_ui_sans_18.c`
-- Create: `firmware/micro-os-esp32/components/micro_bsp_lcd7/fonts/micro_ui_sans_24.c`
-- Create: `firmware/micro-os-esp32/components/micro_bsp_lcd7/fonts/micro_ui_sans_32.c`
+- Create: `assets/fonts/OFL-1.1.txt`
+- Create: `assets/fonts/noto-sans-sc.json`
+- Create: `assets/fonts/lv-font-conv-lock.json`
+- Create: `scripts/generate-font-assets.py`
+- Create: `products/micro-web-player/public/fonts/micro-ui-sans-common.woff2`
+- Create: `assets/fonts/lvgl/micro_ui_sans_12.c`
+- Create: `assets/fonts/lvgl/micro_ui_sans_14.c`
+- Create: `assets/fonts/lvgl/micro_ui_sans_18.c`
+- Create: `assets/fonts/lvgl/micro_ui_sans_24.c`
+- Create: `assets/fonts/lvgl/micro_ui_sans_32.c`
 - Modify: `firmware/micro-os-esp32/components/micro_bsp_lcd7/CMakeLists.txt`
 - Modify: `firmware/micro-os-esp32/components/micro_bsp_lcd7/include/micro_bsp_lcd7.h`
 - Modify: `firmware/micro-os-esp32/partitions_8m.csv`
@@ -205,10 +206,10 @@ Expected: fail because no generated font sources, WOFF2 resource, or font budget
 
 - [ ] **Step 3: Add reproducible same-source generation and CMake packaging**
 
-Pin the Noto Sans SC source file SHA-256 in `scripts/generate-ui-fonts.sh`. The script derives the GB2312 level-1 manifest with deterministic Unicode order, invokes the pinned `lv_font_conv` for each size at 4 bpp, produces the WOFF2 from the same source/glyph list, and fails when any generated file differs from its tracked output. CMake compiles the LVGL C fonts into `micro_bsp_lcd7`; the Web stylesheet declares:
+Pin the Noto Sans CJK SC source file SHA-256, OFL text, FontTools/Brotli versions, and `lv_font_conv` dependency lock in `scripts/generate-font-assets.py` and `assets/fonts/noto-sans-sc.json`. The script derives the exact printable-ASCII, Chinese-punctuation, U+FFFD, and 3,755 GB2312 level-1 Han manifest in deterministic order. Because the pinned upstream font does not encode U+FFFD, generation deterministically aliases U+FFFD to its U+25A1 square outline before subsetting. It invokes pinned `lv_font_conv` for each size at the user-approved 2bpp, produces the WOFF2 from the same derived source/glyph list, and fails when any generated file differs from its tracked output. The full 4bpp set measured `0x2b1db0`, exceeding the `0x240000` budget by `0x71db0`; the same five sizes and glyphs at 2bpp measure `0x1946dc`. CMake compiles the LVGL C fonts into `micro_bsp_lcd7`; the Web stylesheet declares:
 
 ```css
-@font-face { font-family: "MicroUiSans"; src: url("/fonts/micro-ui-sans.woff2") format("woff2"); font-display: block; }
+@font-face { font-family: "MicroUiSans"; src: url("/fonts/micro-ui-sans-common.woff2") format("woff2"); font-display: block; }
 ```
 
 If the exact payload crosses the Task 5 budget, the test stays red and the implementation stops for a user decision; no silent subset reduction or partition expansion is permitted.

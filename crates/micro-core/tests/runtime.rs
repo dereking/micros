@@ -160,7 +160,7 @@ fn creates_once_and_patches_counter_text() {
 #[test]
 fn preserves_text_style_while_patching_only_text() {
     let mut image = counter_image();
-    let style = TextStyle::ui_sans(24, FontWeight::Bold, 32).unwrap();
+    let style = TextStyle::ui_sans(24, FontWeight::Regular, 32).unwrap();
     image.nodes[1].text_style = Some(style);
     let mut runtime = Runtime::new(image, RecordingRenderer::default(), 10_000).unwrap();
 

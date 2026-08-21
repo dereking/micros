@@ -19,9 +19,13 @@ enum Call {
         Option<TextStyle>,
     ),
     SetText(NodeId, String),
+    Diagnostic(NodeId, String),
 }
 
 impl WebDom for FakeDom {
+    fn report_diagnostic(&mut self, node: NodeId, message: &str) {
+        self.operations.push(Call::Diagnostic(node, message.into()));
+    }
     fn create_column(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
         self.operations.push(Call::Column(node, parent));
         Ok(())
@@ -64,9 +68,66 @@ impl WebDom for FakeDom {
 }
 
 #[test]
+fn replaces_missing_runtime_glyph_and_reports_it() {
+    let mut renderer = WebRenderer::new(FakeDom::default());
+    renderer.create_tree(&tree_with_text("hello 🦄")).unwrap();
+    renderer
+        .apply(&[RenderPatch::SetText {
+            node: NodeId(1),
+            text: "next 🦄".into(),
+        }])
+        .unwrap();
+    assert!(renderer.dom().operations.contains(&Call::Text(
+        NodeId(1),
+        Some(NodeId(0)),
+        "hello �".into(),
+        None
+    )));
+    assert!(
+        renderer
+            .dom()
+            .operations
+            .contains(&Call::SetText(NodeId(1), "next �".into()))
+    );
+    assert_eq!(
+        renderer
+            .dom()
+            .operations
+            .iter()
+            .filter(|call| matches!(call, Call::Diagnostic(NodeId(1), _)))
+            .count(),
+        2
+    );
+}
+
+fn tree_with_text(text: &str) -> MicroUiTree {
+    MicroUiTree {
+        root: NodeId(0),
+        nodes: vec![
+            MicroUiNode {
+                id: NodeId(0),
+                kind: UiKind::Column,
+                children: vec![NodeId(1)],
+                text: String::new(),
+                on_click: None,
+                text_style: None,
+            },
+            MicroUiNode {
+                id: NodeId(1),
+                kind: UiKind::Text,
+                children: vec![],
+                text: text.into(),
+                on_click: None,
+                text_style: None,
+            },
+        ],
+    }
+}
+
+#[test]
 fn maps_tree_preorder_and_applies_text_patch() {
-    let label_style = TextStyle::ui_sans(24, FontWeight::Bold, 32).unwrap();
-    let button_style = TextStyle::ui_sans(18, FontWeight::Medium, 24).unwrap();
+    let label_style = TextStyle::ui_sans(24, FontWeight::Regular, 32).unwrap();
+    let button_style = TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap();
     let tree = MicroUiTree {
         root: NodeId(0),
         nodes: vec![

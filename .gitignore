@@ -60,6 +60,10 @@ playwright-report/
 work/vendor/
 work/toolchains/
 
+# Local font sources and pinned generation tools
+work/fonts/
+work/tools/
+
 # ESP-IDF generated and machine-local state
 firmware/micro-os-esp32/build/
 firmware/micro-os-esp32/managed_components/

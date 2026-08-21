@@ -68,7 +68,7 @@ impl DomBridge {
     }
 
     fn apply_text_style(element: &Element, style: Option<&TextStyle>) -> Result<(), String> {
-        let Some(style) = inline_text_style(style) else {
+        let Some(style) = inline_text_style(style)? else {
             return Ok(());
         };
         element
@@ -78,6 +78,10 @@ impl DomBridge {
 }
 
 impl WebDom for DomBridge {
+    fn report_diagnostic(&mut self, node: NodeId, message: &str) {
+        web_sys::console::warn_1(&format!("micro-ui node {}: {message}", node.0).into());
+    }
+
     fn create_column(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
         let element = self.create_element("div", node, "micro-column")?;
         self.append(node, parent, element)

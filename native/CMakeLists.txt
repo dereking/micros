@@ -27,7 +27,16 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(SDL3 lvgl)
 
-add_library(micro_native SHARED src/micro_native.c)
+set(MICRO_UI_FONT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../assets/fonts/lvgl")
+set(MICRO_UI_FONT_SOURCES
+  "${MICRO_UI_FONT_DIR}/micro_ui_sans_12.c"
+  "${MICRO_UI_FONT_DIR}/micro_ui_sans_14.c"
+  "${MICRO_UI_FONT_DIR}/micro_ui_sans_18.c"
+  "${MICRO_UI_FONT_DIR}/micro_ui_sans_24.c"
+  "${MICRO_UI_FONT_DIR}/micro_ui_sans_32.c"
+)
+
+add_library(micro_native SHARED src/micro_native.c ${MICRO_UI_FONT_SOURCES})
 target_include_directories(micro_native PUBLIC include)
 target_link_libraries(micro_native PRIVATE SDL3::SDL3-static lvgl)
 set_target_properties(micro_native PROPERTIES

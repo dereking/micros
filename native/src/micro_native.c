@@ -27,6 +27,7 @@ struct micro_native {
     bool pointer_pressed;
     bool quit;
     lv_obj_t *objects[MICRO_MAX_NODES];
+    lv_obj_t *text_targets[MICRO_MAX_NODES];
     micro_click_context_t clicks[MICRO_MAX_NODES];
     uint32_t activations[MICRO_EVENT_CAPACITY];
     unsigned activation_read;
@@ -162,6 +163,7 @@ int micro_native_destroy_app_root(micro_native_t *native) {
     }
     lv_obj_clean(lv_display_get_screen_active(native->display));
     memset(native->objects, 0, sizeof(native->objects));
+    memset(native->text_targets, 0, sizeof(native->text_targets));
     return 1;
 }
 
@@ -256,6 +258,7 @@ int micro_native_create_label(micro_native_t *native, uint32_t node_id, uint32_t
     lv_label_set_text(label, text);
     apply_text_style(label, font_handle, line_height_px);
     native->objects[node_id] = label;
+    native->text_targets[node_id] = label;
     return 1;
 }
 
@@ -272,11 +275,12 @@ int micro_native_create_button(micro_native_t *native, uint32_t node_id, uint32_
     native->clicks[node_id].handler_id = handler_id;
     lv_obj_add_event_cb(button, click_callback, LV_EVENT_CLICKED, &native->clicks[node_id]);
     native->objects[node_id] = button;
+    native->text_targets[node_id] = label;
     return 1;
 }
 
 int micro_native_set_label_text(micro_native_t *native, uint32_t node_id, const char *text) {
-    if (node_id >= MICRO_MAX_NODES || native->objects[node_id] == NULL) return 0;
-    lv_label_set_text(native->objects[node_id], text);
+    if (node_id >= MICRO_MAX_NODES || native->text_targets[node_id] == NULL) return 0;
+    lv_label_set_text(native->text_targets[node_id], text);
     return 1;
 }

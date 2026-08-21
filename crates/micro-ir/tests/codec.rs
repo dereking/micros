@@ -45,7 +45,7 @@ fn round_trips_a_valid_image() {
 fn round_trips_an_exact_text_style() {
     let mut image = fixture();
     image.nodes[0].text_style =
-        Some(TextStyle::new(FontFamily::UiSans, 18, FontWeight::Medium, 24).unwrap());
+        Some(TextStyle::new(FontFamily::UiSans, 18, FontWeight::Regular, 24).unwrap());
 
     let decoded = decode(&encode(&image).unwrap()).unwrap();
 
@@ -64,7 +64,7 @@ fn text_style_rejects_unsupported_sizes() {
 #[test]
 fn text_style_rejects_line_height_below_size() {
     assert_eq!(
-        TextStyle::ui_sans(18, FontWeight::Bold, 17),
+        TextStyle::ui_sans(18, FontWeight::Regular, 17),
         Err(TextStyleError::LineHeightBelowSize {
             size_px: 18,
             line_height_px: 17,
@@ -112,7 +112,7 @@ fn rejects_a_bad_text_style_tag() {
 #[test]
 fn rejects_an_unsupported_serialized_text_size() {
     let mut image = fixture();
-    image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Medium, 24).unwrap());
+    image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
     let mut bytes = encode(&image).unwrap();
     let size_px = bytes.len() - 7;
     bytes[size_px] = 16;
@@ -127,9 +127,26 @@ fn rejects_an_unsupported_serialized_text_size() {
 }
 
 #[test]
+fn rejects_non_regular_serialized_font_weight() {
+    let mut image = fixture();
+    image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
+    let mut bytes = encode(&image).unwrap();
+    let weight = bytes.len() - 6;
+    bytes[weight] = 1;
+    refresh_checksum(&mut bytes);
+    assert_eq!(
+        decode(&bytes),
+        Err(DecodeError::InvalidTag {
+            section: "font weight",
+            tag: 1
+        })
+    );
+}
+
+#[test]
 fn rejects_a_serialized_line_height_below_text_size() {
     let mut image = fixture();
-    image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Bold, 24).unwrap());
+    image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
     let mut bytes = encode(&image).unwrap();
     let line_height_px = bytes.len() - 5;
     bytes[line_height_px] = 17;

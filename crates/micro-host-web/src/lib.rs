@@ -8,20 +8,20 @@ pub use activation::ActivationQueue;
 pub use system::{SystemIntent, SystemShell, SystemSnapshot};
 
 #[cfg(any(target_arch = "wasm32", test))]
-fn inline_text_style(style: Option<&TextStyle>) -> Option<String> {
-    let style = style?;
+fn inline_text_style(style: Option<&TextStyle>) -> Result<Option<String>, String> {
+    let Some(style) = style else {
+        return Ok(None);
+    };
     let family = match style.family {
         FontFamily::UiSans => "MicroUiSans",
     };
     let weight = match style.weight {
         FontWeight::Regular => 400,
-        FontWeight::Medium => 500,
-        FontWeight::Bold => 700,
     };
-    Some(format!(
+    Ok(Some(format!(
         "font-family: {family}; font-size: {}px; font-weight: {weight}; line-height: {}px;",
         style.size_px, style.line_height_px
-    ))
+    )))
 }
 
 #[cfg(test)]
@@ -31,25 +31,20 @@ mod text_style_tests {
     use super::inline_text_style;
 
     #[test]
-    fn maps_text_styles_to_browser_css() {
-        for (weight, css_weight) in [
-            (FontWeight::Regular, 400),
-            (FontWeight::Medium, 500),
-            (FontWeight::Bold, 700),
-        ] {
-            let style = TextStyle::ui_sans(18, weight, 24).unwrap();
-            assert_eq!(
-                inline_text_style(Some(&style)),
-                Some(format!(
-                    "font-family: MicroUiSans; font-size: 18px; font-weight: {css_weight}; line-height: 24px;"
-                ))
-            );
-        }
+    fn maps_generated_regular_style_to_browser_css() {
+        let style = TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap();
+        assert_eq!(
+            inline_text_style(Some(&style)),
+            Ok(Some(
+                "font-family: MicroUiSans; font-size: 18px; font-weight: 400; line-height: 24px;"
+                    .into()
+            ))
+        );
     }
 
     #[test]
     fn leaves_default_browser_style_unset_without_text_style() {
-        assert_eq!(inline_text_style(None), None);
+        assert_eq!(inline_text_style(None), Ok(None));
     }
 }
 
