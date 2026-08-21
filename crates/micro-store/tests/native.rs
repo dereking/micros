@@ -51,7 +51,9 @@ fn read_missing_app_is_not_found() {
 #[test]
 fn uninstall_removes_blob_and_manifest_entry() {
     let (_dir, mut store) = fresh_store();
-    store.install(counter_meta(), b"MBC1-app-bytes").expect("install");
+    store
+        .install(counter_meta(), b"MBC1-app-bytes")
+        .expect("install");
     store.uninstall("counter").expect("uninstall");
 
     assert!(store.list().expect("list").is_empty());
@@ -69,7 +71,9 @@ fn app_store_persists_across_instances() {
     let dir = tempfile::tempdir().expect("tempdir");
     {
         let mut store = NativeStore::new(dir.path());
-        store.install(counter_meta(), b"MBC1-app-bytes").expect("install");
+        store
+            .install(counter_meta(), b"MBC1-app-bytes")
+            .expect("install");
     }
     let store = NativeStore::new(dir.path());
     assert_eq!(store.list().expect("list").len(), 1);
@@ -149,19 +153,13 @@ fn invalid_identifiers_are_rejected() {
         store.read("../evil"),
         Err(StoreError::Unsupported(_))
     ));
-    assert!(matches!(
-        store.open("a/b"),
-        Err(StoreError::Unsupported(_))
-    ));
+    assert!(matches!(store.open("a/b"), Err(StoreError::Unsupported(_))));
 }
 
 #[test]
 fn empty_identifier_is_rejected() {
     let (_dir, store) = fresh_store();
-    assert!(matches!(
-        store.open(""),
-        Err(StoreError::Unsupported(_))
-    ));
+    assert!(matches!(store.open(""), Err(StoreError::Unsupported(_))));
 }
 
 #[test]

@@ -133,14 +133,16 @@ struct NativeScopedKv {
 
 impl NativeScopedKv {
     fn kv_path(&self) -> PathBuf {
-        self.root.join(KV_DIR).join(format!("{}.json", self.namespace))
+        self.root
+            .join(KV_DIR)
+            .join(format!("{}.json", self.namespace))
     }
 
     fn load(&self) -> Result<BTreeMap<String, KvValue>, StoreError> {
         match fs::read(self.kv_path()) {
             Ok(bytes) => {
-                let raw: serde_json::Map<String, serde_json::Value> = serde_json::from_slice(&bytes)
-                    .map_err(|error| {
+                let raw: serde_json::Map<String, serde_json::Value> =
+                    serde_json::from_slice(&bytes).map_err(|error| {
                         StoreError::Corrupt(format!("{}.json: {error}", self.namespace))
                     })?;
                 let mut out = BTreeMap::new();
@@ -167,8 +169,8 @@ impl NativeScopedKv {
             .iter()
             .map(|(key, value)| (key.clone(), value.to_json()))
             .collect();
-        let bytes = serde_json::to_vec_pretty(&json)
-            .map_err(|error| StoreError::Io(error.to_string()))?;
+        let bytes =
+            serde_json::to_vec_pretty(&json).map_err(|error| StoreError::Io(error.to_string()))?;
         atomic_write(&self.kv_path(), &bytes)
     }
 }

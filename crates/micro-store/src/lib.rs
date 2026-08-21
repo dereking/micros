@@ -68,19 +68,29 @@ impl KvValue {
 /// The App blob store: installed Apps plus their index.
 pub trait AppStore {
     fn list(&self) -> Result<Vec<AppMeta>, StoreError>;
+
+    /// `id` must match `[A-Za-z0-9][A-Za-z0-9_.-]*`; otherwise returns `StoreError::Unsupported`.
     fn read(&self, id: &str) -> Result<Vec<u8>, StoreError>;
+
+    /// `meta.id` must match `[A-Za-z0-9][A-Za-z0-9_.-]*`; otherwise returns `StoreError::Unsupported`.
     fn install(&mut self, meta: AppMeta, bytes: &[u8]) -> Result<(), StoreError>;
+
+    /// `id` must match `[A-Za-z0-9][A-Za-z0-9_.-]*`; otherwise returns `StoreError::Unsupported`.
     fn uninstall(&mut self, id: &str) -> Result<(), StoreError>;
 }
 
 /// A key-value handle bound to one App namespace.
 pub trait ScopedKv {
     fn get(&self, key: &str) -> Result<Option<KvValue>, StoreError>;
+
+    /// Non-finite numbers (`NaN`, `Infinity`) are rejected with `StoreError::Unsupported`.
     fn set(&mut self, key: &str, value: &KvValue) -> Result<(), StoreError>;
+
     fn remove(&mut self, key: &str) -> Result<(), StoreError>;
 }
 
 /// The KV store: opens per-App namespaces.
 pub trait KvStore {
+    /// `namespace` must match `[A-Za-z0-9][A-Za-z0-9_.-]*`; otherwise returns `StoreError::Unsupported`.
     fn open(&self, namespace: &str) -> Result<Box<dyn ScopedKv>, StoreError>;
 }
