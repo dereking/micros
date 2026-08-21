@@ -22,10 +22,6 @@ impl NativeStore {
         self.root.join(APP_DIR)
     }
 
-    fn kv_dir(&self) -> PathBuf {
-        self.root.join(KV_DIR)
-    }
-
     fn manifest_path(&self) -> PathBuf {
         self.apps_dir().join(MANIFEST_FILE)
     }
