@@ -1,6 +1,46 @@
 mod activation;
+mod system;
 
 pub use activation::ActivationQueue;
+pub use system::{SystemIntent, SystemShell, SystemSnapshot};
+
+#[cfg(target_arch = "wasm32")]
+mod wasm_system {
+    use wasm_bindgen::prelude::*;
+
+    use crate::{SystemIntent, SystemShell};
+
+    #[wasm_bindgen]
+    pub struct MicroWebSystem {
+        shell: SystemShell,
+    }
+
+    #[wasm_bindgen]
+    impl MicroWebSystem {
+        #[wasm_bindgen(constructor)]
+        #[must_use]
+        pub fn new() -> Self {
+            Self {
+                shell: SystemShell::configured_boot(),
+            }
+        }
+
+        pub fn dispatch(&mut self, intent: &str) -> Result<String, JsValue> {
+            let intent = SystemIntent::parse(intent)
+                .ok_or_else(|| JsValue::from_str("WEB_SYSTEM: unknown intent"))?;
+            serde_json::to_string(&self.shell.dispatch(intent))
+                .map_err(|error| JsValue::from_str(&format!("WEB_SYSTEM: {error}")))
+        }
+
+        pub fn snapshot(&self) -> Result<String, JsValue> {
+            serde_json::to_string(&self.shell.snapshot())
+                .map_err(|error| JsValue::from_str(&format!("WEB_SYSTEM: {error}")))
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub use wasm_system::MicroWebSystem;
 
 #[cfg(target_arch = "wasm32")]
 mod dom;
