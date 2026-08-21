@@ -62,14 +62,27 @@ fn text_style_rejects_unsupported_sizes() {
 }
 
 #[test]
-fn text_style_rejects_line_height_below_size() {
-    assert_eq!(
-        TextStyle::ui_sans(18, FontWeight::Regular, 17),
-        Err(TextStyleError::LineHeightBelowSize {
-            size_px: 18,
-            line_height_px: 17,
-        })
-    );
+fn text_style_accepts_only_generated_size_and_line_height_pairs() {
+    for (size_px, line_height_px) in [(12, 14), (14, 18), (18, 24), (24, 32), (32, 40)] {
+        assert!(TextStyle::ui_sans(size_px, FontWeight::Regular, line_height_px).is_ok());
+    }
+    for (size_px, line_height_px) in [(12, 12), (14, 14), (18, 18), (24, 24), (32, 32), (18, 25)] {
+        assert_eq!(
+            TextStyle::ui_sans(size_px, FontWeight::Regular, line_height_px),
+            Err(TextStyleError::UnsupportedLineHeight {
+                size_px,
+                line_height_px,
+                supported_line_height_px: match size_px {
+                    12 => 14,
+                    14 => 18,
+                    18 => 24,
+                    24 => 32,
+                    32 => 40,
+                    _ => unreachable!(),
+                },
+            })
+        );
+    }
 }
 
 #[test]
@@ -144,7 +157,7 @@ fn rejects_non_regular_serialized_font_weight() {
 }
 
 #[test]
-fn rejects_a_serialized_line_height_below_text_size() {
+fn rejects_an_unsupported_serialized_line_height_pair() {
     let mut image = fixture();
     image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
     let mut bytes = encode(&image).unwrap();
@@ -155,7 +168,7 @@ fn rejects_a_serialized_line_height_below_text_size() {
     assert_eq!(
         decode(&bytes),
         Err(DecodeError::InvalidImage(
-            "text line height 17px is below text size 18px".into()
+            "unsupported 17px line height for 18px text; use 24px".into()
         ))
     );
 }

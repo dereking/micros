@@ -33,6 +33,7 @@ LVGL_SIZES_PATH = LVGL_DIRECTORY / "micro_ui_sans_sizes.json"
 LV_FONT_CONV_LOCK = FONT_DIRECTORY / "lv-font-conv-lock.json"
 INSTALLED_LV_FONT_CONV_LOCK = REPOSITORY_ROOT / "work/tools/lv-font-conv/node_modules/.package-lock.json"
 FONT_SIZES = (12, 14, 18, 24, 32)
+FONT_METRICS = {12: 14, 14: 18, 18: 24, 24: 32, 32: 40}
 LVGL_BPP = 2
 CHINESE_PUNCTUATION = tuple(
     "·—‘’“”…、。〈〉《》「」『』【】〔〕！（），．：；？"
@@ -173,7 +174,7 @@ def run(command: list[str], *, environment: dict[str, str] | None = None) -> Non
     subprocess.run(command, check=True, env=environment)
 
 
-def normalize_lvgl_c(contents: bytes, payload_bytes: int) -> bytes:
+def normalize_lvgl_c(contents: bytes, payload_bytes: int, line_height_px: int) -> bytes:
     text = contents.decode().replace("\r\n", "\n")
     text, replacements = re.subn(
         r"^ \* Opts: .*\n",
@@ -187,6 +188,14 @@ def normalize_lvgl_c(contents: bytes, payload_bytes: int) -> bytes:
     symbol = re.search(r"^const lv_font_t (micro_ui_sans_\d+) =", text, re.MULTILINE)
     if symbol is None:
         raise RuntimeError("lv_font_conv output did not contain its expected public font symbol")
+    text, line_height_replacements = re.subn(
+        r"(\.line_height = )\d+(,)",
+        rf"\g<1>{line_height_px}\g<2>",
+        text,
+        count=1,
+    )
+    if line_height_replacements != 1:
+        raise RuntimeError("lv_font_conv output did not contain one font line height")
     text = text.replace(
         f"const lv_font_t {symbol.group(1)} =",
         f"MICRO_UI_SANS_EXPORT const lv_font_t {symbol.group(1)} =",
@@ -311,6 +320,12 @@ def generate_lvgl_font(
 def generate_fonts(check: bool) -> None:
     generate_manifest(check=check)
     metadata = load_metadata()
+    if (
+        metadata.get("lvgl_bpp") != LVGL_BPP
+        or metadata.get("sizes_px") != list(FONT_SIZES)
+        or metadata.get("line_heights_px") != [FONT_METRICS[size] for size in FONT_SIZES]
+    ):
+        raise SystemExit("font metadata differs from generated LVGL metrics")
     environment = verify_tools(metadata)
     glyphs = "".join(manifest_glyphs())
     work_parent = REPOSITORY_ROOT / "work/fonts"
@@ -334,11 +349,13 @@ def generate_fonts(check: bool) -> None:
             if not lvgl_font_contains(c_font.read_text(), ord("\ufffd")):
                 raise RuntimeError(f"generated {size}px LVGL font lacks U+FFFD")
             payload_bytes = bin_font.stat().st_size
-            contents = normalize_lvgl_c(c_font.read_bytes(), payload_bytes)
+            line_height_px = FONT_METRICS[size]
+            contents = normalize_lvgl_c(c_font.read_bytes(), payload_bytes, line_height_px)
             generated_c[size] = contents
             fonts.append(
                 {
                     "size_px": size,
+                    "line_height_px": line_height_px,
                     "path": f"assets/fonts/lvgl/micro_ui_sans_{size}.c",
                     "payload_bytes": payload_bytes,
                     "sha256": hashlib.sha256(contents).hexdigest(),

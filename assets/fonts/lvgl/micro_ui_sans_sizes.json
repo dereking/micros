@@ -4,33 +4,38 @@
   "fonts": [
     {
       "size_px": 12,
+      "line_height_px": 14,
       "path": "assets/fonts/lvgl/micro_ui_sans_12.c",
       "payload_bytes": 161896,
       "sha256": "043e8f5cd9993be90b0140ff7a938c98e2a500f265bdb470e0ef6449c62301f8"
     },
     {
       "size_px": 14,
+      "line_height_px": 18,
       "path": "assets/fonts/lvgl/micro_ui_sans_14.c",
       "payload_bytes": 197316,
-      "sha256": "d238a4ecaf3f03296093c7e79cba64432147694cf9b07d8e8cb378e057357e2e"
+      "sha256": "07f4cec5641c14e62831c203360a961a0d462d14e5fa4cb593533d19215ff6c3"
     },
     {
       "size_px": 18,
+      "line_height_px": 24,
       "path": "assets/fonts/lvgl/micro_ui_sans_18.c",
       "payload_bytes": 278816,
-      "sha256": "c646aa4e1819efae2806febc291b2007c1f81036623859c46c09ebf96f79e0db"
+      "sha256": "b63ba820509c5c592c52602b569281e83ec9c63e8f02a04cca9125d47ebc6b78"
     },
     {
       "size_px": 24,
+      "line_height_px": 32,
       "path": "assets/fonts/lvgl/micro_ui_sans_24.c",
       "payload_bytes": 418968,
-      "sha256": "e94c2889aef9b375551b3c664defe6256a2725cf4f974a8265335d3d288ed5f2"
+      "sha256": "ca801d2c21936924916973510e5003c800a453a0ba2e2170163b10e70d084f29"
     },
     {
       "size_px": 32,
+      "line_height_px": 40,
       "path": "assets/fonts/lvgl/micro_ui_sans_32.c",
       "payload_bytes": 599544,
-      "sha256": "a6a74e79335c15b4be95b7724f196e13776d4f92205892e3d1e3dcd849340f6f"
+      "sha256": "856095564be05091421a38723b3ec833bcd5b0ad4fe5c097322baab6d4ce2eae"
     }
   ],
   "total_payload_bytes": 1656540,

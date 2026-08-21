@@ -10,7 +10,7 @@ pub use system::{SystemIntent, SystemShell, SystemSnapshot};
 #[cfg(any(target_arch = "wasm32", test))]
 fn inline_text_style(style: Option<&TextStyle>) -> Result<Option<String>, String> {
     let Some(style) = style else {
-        return Ok(None);
+        return Err("Web text style must be normalized before DOM rendering".into());
     };
     let family = match style.family {
         FontFamily::UiSans => "MicroUiSans",
@@ -31,20 +31,30 @@ mod text_style_tests {
     use super::inline_text_style;
 
     #[test]
-    fn maps_generated_regular_style_to_browser_css() {
-        let style = TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap();
-        assert_eq!(
-            inline_text_style(Some(&style)),
-            Ok(Some(
-                "font-family: MicroUiSans; font-size: 18px; font-weight: 400; line-height: 24px;"
-                    .into()
-            ))
-        );
+    fn maps_every_generated_metric_pair_to_browser_css() {
+        let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for (size_px, line_height_px) in TextStyle::UI_SANS_METRICS {
+            let style = TextStyle::ui_sans(size_px, FontWeight::Regular, line_height_px).unwrap();
+            assert_eq!(
+                inline_text_style(Some(&style)),
+                Ok(Some(format!(
+                    "font-family: MicroUiSans; font-size: {size_px}px; font-weight: 400; line-height: {line_height_px}px;"
+                )))
+            );
+            let generated = std::fs::read_to_string(
+                repository.join(format!("assets/fonts/lvgl/micro_ui_sans_{size_px}.c")),
+            )
+            .unwrap();
+            assert!(generated.contains(&format!(".line_height = {line_height_px},")));
+        }
     }
 
     #[test]
-    fn leaves_default_browser_style_unset_without_text_style() {
-        assert_eq!(inline_text_style(None), Ok(None));
+    fn rejects_an_unnormalized_browser_style() {
+        assert_eq!(
+            inline_text_style(None),
+            Err("Web text style must be normalized before DOM rendering".into())
+        );
     }
 }
 

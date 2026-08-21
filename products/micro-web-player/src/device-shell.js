@@ -19,6 +19,11 @@ export function mapTouch(event, bounds) {
   };
 }
 
+export function fitDeviceCanvas(canvas, bounds) {
+  const scale = Math.min(bounds.width / BOARD_MONITOR.width, bounds.height / BOARD_MONITOR.height);
+  canvas.style.transform = `scale(${Math.max(0, scale)})`;
+}
+
 export function createDeviceShell({ system, startRuntime, stopRuntime, render }) {
   let current = readSnapshot(system);
 

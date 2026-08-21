@@ -1,6 +1,6 @@
 use micro_compiler::compile_source;
 use micro_core::{Event, MicroUiTree, RenderError, RenderPatch, RenderPort, Runtime};
-use micro_ir::{NodeId, UiKind};
+use micro_ir::{NodeId, TextStyle, UiKind};
 
 #[derive(Default)]
 struct RecordingRenderer {
@@ -38,6 +38,8 @@ fn compiles_loads_and_clicks_the_real_counter() {
         .unwrap();
     let handler = button.on_click.unwrap();
     assert_eq!(text.text, "Count: 0");
+    assert_eq!(text.text_style, Some(TextStyle::DEFAULT_TEXT));
+    assert_eq!(button.text_style, Some(TextStyle::DEFAULT_BUTTON));
 
     runtime.enqueue(Event::Activate(handler));
     runtime.tick().unwrap();

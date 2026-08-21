@@ -92,7 +92,7 @@ pub enum FontWeight { Regular }
 pub struct TextStyle { pub family: FontFamily, pub size_px: u8, pub weight: FontWeight, pub line_height_px: u8 }
 ```
 
-`TextStyle::new` accepts only size 12, 14, 18, 24, or 32 and requires `line_height_px >= size_px`. Add `pub text_style: Option<TextStyle>` to `UiNodeSpec` and `MicroUiNode`. Encode the optional style after each node's existing click metadata. Bump `VERSION` from 1 to 2; v1 input must deterministically return `DecodeError::UnsupportedVersion(1)` rather than being misdecoded.
+`TextStyle::new` accepts only the generated size/line-height pairs 12/14, 14/18, 18/24, 24/32, and 32/40. Add `pub text_style: Option<TextStyle>` to `UiNodeSpec` and `MicroUiNode`. Encode the optional style after each node's existing click metadata. Bump `VERSION` from 1 to 2; v1 input must deterministically return `DecodeError::UnsupportedVersion(1)` rather than being misdecoded. New compiler output normalizes omitted Text and Button styles to 24/32 and 14/18 respectively; Core and both renderer adapters enforce the same defaults before host calls.
 
 - [ ] **Step 4: Verify green and commit**
 
@@ -166,7 +166,7 @@ Expected: trait signatures cannot accept the style argument.
 
 - [ ] **Step 3: Extend renderer ports and concrete hosts**
 
-Add `style: Option<&TextStyle>` to `create_text`/`create_label` and `create_button` in the Web and LVGL narrow traits. During tree creation pass `node.text_style.as_ref()`; do not add a text-style render patch. In the browser host set `font-family: "MicroUiSans"`, `font-size: "{size_px}px"`, `font-weight`, and `line-height: "{line_height_px}px"` on created DOM nodes. In the LVGL native bridge select the corresponding generated `lv_font_t` and apply it with `lv_obj_set_style_text_font`; apply text line spacing from the same style.
+Add `style: Option<&TextStyle>` to `create_text`/`create_label` and `create_button` in the Web and LVGL narrow traits. During tree creation resolve the widget default and pass `Some(&style)`; do not add a text-style render patch. Concrete hosts reject `None` so a platform-default font cannot silently reappear. In the browser host set `font-family: "MicroUiSans"`, `font-size: "{size_px}px"`, `font-weight`, and `line-height: "{line_height_px}px"` on created DOM nodes, with `white-space: pre-wrap`. In the LVGL native bridge select the corresponding generated `lv_font_t`; generated intrinsic line heights exactly equal the supported logical line heights.
 
 - [ ] **Step 4: Verify green and commit**
 
@@ -196,7 +196,7 @@ Commit with `feat: render shared text styles on Web and LVGL`.
 
 - [ ] **Step 1: Write the asset and budget contract test**
 
-`tests/esp32_font_budget.sh` must verify all five generated LVGL source files and the WOFF2 file exist, their declared font sizes are exactly 12/14/18/24/32, `ui-sans-common.txt` and the generator output match, the total generated LVGL font payload is at most `0x240000` bytes, and the compiled ESP app (which already contains those C font objects) fits the exact `factory` partition length from `partitions_8m.csv` with at least `0x40000` bytes free.
+`tests/esp32_font_budget.sh` must verify all five generated LVGL source files and the WOFF2 file exist, their declared metrics are exactly 12/14, 14/18, 18/24, 24/32, and 32/40, `ui-sans-common.txt` and the generator output match, the total generated LVGL font payload is at most `0x240000` bytes, and the compiled ESP app (which already contains those C font objects) fits the exact `factory` partition length from `partitions_8m.csv` with at least `0x40000` bytes free.
 
 - [ ] **Step 2: Verify RED**
 

@@ -25,6 +25,9 @@ python3 scripts/generate-font-assets.py fonts --check
 ```
 
 The LVGL assets use 2bpp (four grayscale levels) and RLE compression. The
+generated 12, 14, 18, 24, and 32px fonts declare intrinsic line heights of
+14, 18, 24, 32, and 40px respectively, matching the closed SDK/CSS metric
+pairs. The
 upstream font does not encode U+FFFD, so the deterministic generator aliases
 U+FFFD to that same pinned font's U+25A1 square outline before subsetting.
 The declared payload is measured from `lv_font_conv`'s packed binary output for

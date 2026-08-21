@@ -13,6 +13,7 @@
   "generator_lock": "assets/fonts/lv-font-conv-lock.json",
   "lvgl_bpp": 2,
   "sizes_px": [12, 14, 18, 24, 32],
+  "line_heights_px": [14, 18, 24, 32, 40],
   "generation_tools": {
     "fonttools": "4.59.1",
     "brotli": "1.1.0",

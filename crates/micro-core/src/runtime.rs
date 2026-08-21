@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use micro_ir::{
-    AppImage, FunctionId, FunctionKind, NodeId, StateId, TextSource, ValidationError, validate,
+    AppImage, FunctionId, FunctionKind, NodeId, StateId, TextSource, TextStyle, ValidationError,
+    validate,
 };
 use micro_vm::{Value, Vm, VmError};
 
@@ -198,7 +199,9 @@ impl<R: RenderPort> Runtime<R> {
                 children: node.children.clone(),
                 text,
                 on_click: node.on_click,
-                text_style: node.text_style,
+                text_style: node
+                    .text_style
+                    .or_else(|| TextStyle::default_for(node.kind)),
             });
         }
         Ok(MicroUiTree {

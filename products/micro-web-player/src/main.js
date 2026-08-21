@@ -1,10 +1,11 @@
 import init, { MicroWebRuntime, MicroWebSystem } from "./generated/micro_web.js";
-import { BOARD_MONITOR, createDeviceShell, mapTouch } from "./device-shell.js";
+import { BOARD_MONITOR, createDeviceShell, fitDeviceCanvas, mapTouch } from "./device-shell.js";
 import { createRuntimeLoop } from "./runtime-loop.js";
 import "./style.css";
 
 let runtime; let runtimeLoop; let shell;
 const device = document.querySelector("[data-device-screen]");
+const deviceCanvas = document.querySelector("[data-device-canvas]");
 const systemScreen = document.querySelector("#system-screen");
 const appShell = document.querySelector("#app-shell");
 const appScreen = document.querySelector("#app-screen");
@@ -16,6 +17,10 @@ async function start() {
   document.querySelector(".app-back").addEventListener("click", () => shell.intent("back"));
   device.addEventListener("pointermove", updateTouch);
   device.addEventListener("pointerdown", updateTouch);
+  const resizeObserver = new ResizeObserver(() => fitDeviceCanvas(deviceCanvas, device.getBoundingClientRect()));
+  resizeObserver.observe(device);
+  fitDeviceCanvas(deviceCanvas, device.getBoundingClientRect());
+  window.addEventListener("pagehide", () => resizeObserver.disconnect(), { once: true });
   render(shell.snapshot());
 }
 async function startRuntime() {

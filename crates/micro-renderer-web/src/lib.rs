@@ -66,16 +66,17 @@ impl<D: WebDom> WebRenderer<D> {
             UiKind::Column => self.dom.create_column(node.id, parent),
             UiKind::Text => {
                 let text = self.checked_text(node.id, &node.text);
-                self.dom
-                    .create_text(node.id, parent, &text, node.text_style.as_ref())
+                let style = node.text_style.unwrap_or(TextStyle::DEFAULT_TEXT);
+                self.dom.create_text(node.id, parent, &text, Some(&style))
             }
             UiKind::Button => {
                 let handler = node
                     .on_click
                     .ok_or_else(|| RenderError(format!("button {} has no handler", node.id.0)))?;
                 let text = self.checked_text(node.id, &node.text);
+                let style = node.text_style.unwrap_or(TextStyle::DEFAULT_BUTTON);
                 self.dom
-                    .create_button(node.id, parent, &text, handler, node.text_style.as_ref())
+                    .create_button(node.id, parent, &text, handler, Some(&style))
             }
         }
         .map_err(RenderError)?;

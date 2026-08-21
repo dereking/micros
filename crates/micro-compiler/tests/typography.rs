@@ -34,14 +34,31 @@ ui.mount(ui.column([
 }
 
 #[test]
-fn omitting_text_style_preserves_none() {
+fn omitting_text_style_lowers_shared_text_and_button_defaults() {
     let image = compile_source(
         "unstyled.ts",
-        r#"ui.mount(ui.button("Confirm", { onClick: () => {} }));"#,
+        r#"ui.mount(ui.column([ui.text("欢迎"), ui.button("Confirm", { onClick: () => {} })]));"#,
     )
     .unwrap();
 
-    assert_eq!(image.nodes[0].text_style, None);
+    let text = image
+        .nodes
+        .iter()
+        .find(|node| node.kind == UiKind::Text)
+        .unwrap();
+    let button = image
+        .nodes
+        .iter()
+        .find(|node| node.kind == UiKind::Button)
+        .unwrap();
+    assert_eq!(
+        text.text_style,
+        Some(TextStyle::ui_sans(24, FontWeight::Regular, 32).unwrap())
+    );
+    assert_eq!(
+        button.text_style,
+        Some(TextStyle::ui_sans(14, FontWeight::Regular, 18).unwrap())
+    );
 }
 
 #[test]
@@ -58,6 +75,10 @@ fn rejects_invalid_style_literals_with_stable_diagnostic() {
         (
             "height.ts",
             r#"ui.mount(ui.text("A", { font: "uiSans", size: 18, weight: "regular", lineHeight: 17 }));"#,
+        ),
+        (
+            "unsupported-pair.ts",
+            r#"ui.mount(ui.text("A", { font: "uiSans", size: 18, weight: "regular", lineHeight: 25 }));"#,
         ),
         (
             "extra.ts",

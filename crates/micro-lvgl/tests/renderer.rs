@@ -137,6 +137,29 @@ fn maps_tree_preorder_and_applies_text_only_patch() {
     );
 }
 
+#[test]
+fn normalizes_unstyled_text_and_button_before_lvgl_calls() {
+    let mut tree = tree();
+    tree.nodes[1].text_style = None;
+    tree.nodes[2].text_style = None;
+    let mut renderer = LvglRenderer::new(FakeBridge::default());
+    renderer.create_tree(&tree).unwrap();
+
+    assert!(renderer.bridge().0.contains(&Call::Label(
+        NodeId(1),
+        Some(NodeId(0)),
+        "Count: 0".into(),
+        Some(TextStyle::DEFAULT_TEXT),
+    )));
+    assert!(renderer.bridge().0.contains(&Call::Button(
+        NodeId(2),
+        Some(NodeId(0)),
+        "Add".into(),
+        FunctionId(7),
+        Some(TextStyle::DEFAULT_BUTTON),
+    )));
+}
+
 struct TrackingBridge {
     root_created: bool,
     fail_label: bool,

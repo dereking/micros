@@ -126,7 +126,7 @@ fn select_native_text_style(
     available_fonts: &[(NativeFontKey, NativeFontHandle)],
 ) -> Result<NativeTextStyle, String> {
     let Some(style) = style else {
-        return Ok(NativeTextStyle::default());
+        return Err("native text style must be normalized before rendering".into());
     };
     let key = NativeFontKey {
         family: style.family,
@@ -328,19 +328,20 @@ mod tests {
     };
 
     #[test]
-    fn uses_current_lvgl_default_when_style_is_unset() {
+    fn rejects_current_lvgl_default_when_style_is_unset() {
         assert_eq!(
             select_native_text_style(None, AVAILABLE_NATIVE_FONTS),
-            Ok(NativeTextStyle::default())
+            Err("native text style must be normalized before rendering".into())
         );
     }
 
     #[test]
     fn exposes_every_generated_regular_font() {
-        for size in [12, 14, 18, 24, 32] {
-            let style = TextStyle::ui_sans(size, FontWeight::Regular, size).unwrap();
+        for (size, line_height) in TextStyle::UI_SANS_METRICS {
+            let style = TextStyle::ui_sans(size, FontWeight::Regular, line_height).unwrap();
             let selected = select_native_text_style(Some(&style), AVAILABLE_NATIVE_FONTS).unwrap();
             assert!(!selected.font_handle.0.is_null());
+            assert_eq!(selected.line_height_px, u32::from(line_height));
         }
     }
 

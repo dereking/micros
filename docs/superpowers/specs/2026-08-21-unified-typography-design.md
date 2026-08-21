@@ -13,7 +13,9 @@ ui.text("欢迎", { font: "uiSans", size: 18, weight: "regular", lineHeight: 24 
 ui.button("确认", { onClick: () => {}, textStyle: { font: "uiSans", size: 18, weight: "regular", lineHeight: 24 } });
 ```
 
-`font` is initially the single `uiSans` family and `regular` is the only public weight. `size` and `lineHeight` are required integer logical pixels when a style is supplied; supported sizes are 12, 14, 18, 24, and 32. The compiler lowers the style into the versioned UI IR/MBC. All platforms use the device profile's logical 800×480 coordinates, not browser-relative CSS units. A device profile for a different physical resolution must define one documented integral scale factor for the entire logical canvas.
+`font` is initially the single `uiSans` family and `regular` is the only public weight. `size` and `lineHeight` are required integer logical pixels when a style is supplied. The closed supported pairs are 12/14, 14/18, 18/24, 24/32, and 32/40; accepting arbitrary line heights would claim metrics that the generated LVGL fonts cannot provide. Omitting a style normalizes to 24/32 for Text and 14/18 for Button before any renderer or native host sees the node. The compiler also writes these defaults into new MBC v2 output, while runtime normalization preserves the same result for older hand-built node values.
+
+All platforms use the device profile's logical 800×480 coordinates, not browser-relative CSS units. The Web simulator retains a fluid outer device frame but renders system and App content inside a fixed 800×480 inner canvas, uniformly scaled with a resize observer. Pointer input maps the outer visual bounds back to 800×480. A device profile for a different physical resolution must define one documented scale factor for the entire logical canvas.
 
 ## Font resources
 
@@ -24,11 +26,11 @@ Noto Sans SC, pinned to one checked-in upstream release and its SIL Open Font Li
 
 The base glyph set contains printable ASCII, common Chinese punctuation, U+FFFD, and exactly the 3,755 GB2312 level-1 Han characters in Unicode order. All five 2bpp LVGL assets are embedded in the ESP application so no network or system font is required. A measured 4bpp build required `0x2b1db0` bytes, exceeding the `0x240000` font budget by `0x71db0`; the approved 2bpp build requires `0x1946dc` bytes while preserving every glyph and size. The compiler validates literal text against the selected target font manifest and reports missing glyphs. Runtime-bound text replaces an unsupported character with U+FFFD and emits a host diagnostic rather than silently failing.
 
-The shared source font gives equivalent glyph selection and metrics. Raster anti-aliasing may differ slightly between browser and LVGL; pixel-identical raster output is explicitly out of scope for this phase.
+The shared source font gives equivalent glyph selection and metrics. Each generated LVGL font's intrinsic `line_height` is rewritten deterministically to its declared supported line height, so LVGL and CSS use the same five line boxes. DOM text and buttons use `white-space: pre-wrap` so newlines and repeated spaces survive rendering. Raster anti-aliasing may differ slightly between browser and LVGL; pixel-identical raster output is explicitly out of scope for this phase.
 
 ## Renderer behavior
 
-`MicroUiNode` stores its immutable text style. Text patches update text only and preserve the assigned style. LVGL and DOM renderer traits gain style application at node creation. The browser maps logical pixel values directly within the fixed device viewport and loads the generated Web resource. LVGL selects the matching generated LVGL font.
+`MicroUiNode` stores its immutable text style. Text patches update text only and preserve the assigned style. LVGL and DOM renderers resolve any absent style to the shared widget default before calling a host; concrete hosts reject an unnormalized missing style rather than falling back to a platform font. The browser maps logical pixel values inside the fixed inner canvas and loads the generated Web resource. LVGL selects the matching generated LVGL font.
 
 ## Simulator layering repair
 

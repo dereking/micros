@@ -98,7 +98,11 @@ pub struct TextStyle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextStyleError {
     UnsupportedSize(u8),
-    LineHeightBelowSize { size_px: u8, line_height_px: u8 },
+    UnsupportedLineHeight {
+        size_px: u8,
+        line_height_px: u8,
+        supported_line_height_px: u8,
+    },
 }
 
 impl fmt::Display for TextStyleError {
@@ -107,12 +111,13 @@ impl fmt::Display for TextStyleError {
             Self::UnsupportedSize(size_px) => {
                 write!(f, "unsupported text size {size_px}px")
             }
-            Self::LineHeightBelowSize {
+            Self::UnsupportedLineHeight {
                 size_px,
                 line_height_px,
+                supported_line_height_px,
             } => write!(
                 f,
-                "text line height {line_height_px}px is below text size {size_px}px"
+                "unsupported {line_height_px}px line height for {size_px}px text; use {supported_line_height_px}px"
             ),
         }
     }
@@ -121,19 +126,38 @@ impl fmt::Display for TextStyleError {
 impl std::error::Error for TextStyleError {}
 
 impl TextStyle {
+    pub const UI_SANS_METRICS: [(u8, u8); 5] = [(12, 14), (14, 18), (18, 24), (24, 32), (32, 40)];
+    pub const DEFAULT_TEXT: Self = Self {
+        family: FontFamily::UiSans,
+        size_px: 24,
+        weight: FontWeight::Regular,
+        line_height_px: 32,
+    };
+    pub const DEFAULT_BUTTON: Self = Self {
+        family: FontFamily::UiSans,
+        size_px: 14,
+        weight: FontWeight::Regular,
+        line_height_px: 18,
+    };
+
     pub fn new(
         family: FontFamily,
         size_px: u8,
         weight: FontWeight,
         line_height_px: u8,
     ) -> Result<Self, TextStyleError> {
-        if !matches!(size_px, 12 | 14 | 18 | 24 | 32) {
+        let Some((_, supported_line_height_px)) = Self::UI_SANS_METRICS
+            .iter()
+            .copied()
+            .find(|(supported_size_px, _)| *supported_size_px == size_px)
+        else {
             return Err(TextStyleError::UnsupportedSize(size_px));
-        }
-        if line_height_px < size_px {
-            return Err(TextStyleError::LineHeightBelowSize {
+        };
+        if line_height_px != supported_line_height_px {
+            return Err(TextStyleError::UnsupportedLineHeight {
                 size_px,
                 line_height_px,
+                supported_line_height_px,
             });
         }
         Ok(Self {
@@ -150,6 +174,14 @@ impl TextStyle {
         line_height_px: u8,
     ) -> Result<Self, TextStyleError> {
         Self::new(FontFamily::UiSans, size_px, weight, line_height_px)
+    }
+
+    pub const fn default_for(kind: UiKind) -> Option<Self> {
+        match kind {
+            UiKind::Column => None,
+            UiKind::Text => Some(Self::DEFAULT_TEXT),
+            UiKind::Button => Some(Self::DEFAULT_BUTTON),
+        }
     }
 
     fn validate(self) -> Result<(), TextStyleError> {

@@ -144,6 +144,14 @@ fn creates_once_and_patches_counter_text() {
     let mut runtime = Runtime::new(counter_image(), RecordingRenderer::default(), 10_000).unwrap();
     assert_eq!(runtime.renderer().created.len(), 1);
     assert_eq!(runtime.renderer().created[0].nodes[1].text, "Count: 0");
+    assert_eq!(
+        runtime.renderer().created[0].nodes[1].text_style,
+        Some(TextStyle::ui_sans(24, FontWeight::Regular, 32).unwrap())
+    );
+    assert_eq!(
+        runtime.renderer().created[0].nodes[2].text_style,
+        Some(TextStyle::ui_sans(14, FontWeight::Regular, 18).unwrap())
+    );
 
     runtime.enqueue(Event::Activate(FunctionId(1)));
     runtime.tick().unwrap();

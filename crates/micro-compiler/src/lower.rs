@@ -161,11 +161,13 @@ impl<'a> Lowerer<'a> {
                     TextSource::Constant(self.intern(constant))
                 };
                 self.nodes[id.0 as usize].text = Some(source);
-                self.nodes[id.0 as usize].text_style = call
-                    .args
-                    .get(1)
-                    .map(|argument| self.lower_text_style(&argument.expr))
-                    .transpose()?;
+                self.nodes[id.0 as usize].text_style = Some(
+                    call.args
+                        .get(1)
+                        .map(|argument| self.lower_text_style(&argument.expr))
+                        .transpose()?
+                        .unwrap_or(TextStyle::DEFAULT_TEXT),
+                );
                 Ok(id)
             }
             Some("ui.button") => {
@@ -185,7 +187,8 @@ impl<'a> Lowerer<'a> {
                 self.nodes[id.0 as usize].text = Some(TextSource::Constant(self.intern(label)));
                 let (arrow, text_style) = self.lower_button_options(&call.args[1].expr)?;
                 self.nodes[id.0 as usize].on_click = Some(self.add_function(arrow, false)?);
-                self.nodes[id.0 as usize].text_style = text_style;
+                self.nodes[id.0 as usize].text_style =
+                    Some(text_style.unwrap_or(TextStyle::DEFAULT_BUTTON));
                 Ok(id)
             }
             _ => Err(self.error(call.span, "MTS012", "unsupported UI call")),

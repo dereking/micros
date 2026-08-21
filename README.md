@@ -68,6 +68,11 @@ The browser simulator executes the shared Runtime and Micro OS reducer, but
 does not emulate ESP-IDF, RGB timing, GT911 electrical I2C, PSRAM allocation,
 Wi-Fi radio, or physical hardware success.
 
+The device screen remains a responsive outer frame, while its contents render
+on one fixed 800×480 logical canvas and scale uniformly to fit. Device UI
+measurements therefore stay in logical pixels; pointer coordinates are mapped
+back into the same 800×480 coordinate space.
+
 Run the real-browser acceptance test with:
 
 ```bash
@@ -115,12 +120,14 @@ npm run test:web
 | `micro-compiler` | SWC parsing, subset diagnostics, lowering and `microc` CLI | None |
 | `micro-lvgl` | Maps a `MicroUiTree` and `RenderPatch` to a narrow native UI trait | None at test time |
 | `micro-host-sdl` | macOS event/timer loop and bridge ownership | LVGL + SDL3 with `native` feature |
+| `micro-host-esp32` | ESP Runtime ownership, LVGL bridge, and C ABI | ESP-IDF component build |
 | `micro-renderer-web` | Maps the same tree and patches to a narrow DOM trait | None at test time |
 | `micro-host-web` | WebAssembly boundary, browser DOM bridge and activation queue | `web-sys` on `wasm32` |
 | `micro-web-player` | Minimal browser product consuming MBC and the generated Wasm package | Browser DOM |
 | `native` | CMake FetchContent and the C ABI bridge | LVGL 9.5.0 + SDL 3.4.10 |
 
-The Core never imports LVGL, SDL3, macOS, or browser types. A future ESP32-S3 host can load the same MBC and implement the renderer/host boundary independently.
+The Core never imports LVGL, SDL3, ESP-IDF, macOS, or browser types. SDL,
+ESP32-S3, and Web hosts load the same MBC through renderer-specific bridges.
 
 ## Runtime flow
 
@@ -145,15 +152,33 @@ The MVP supports:
 - template literals
 - blocks, `if`/`else`, `while`, and arrow handlers/bindings
 - `state`, `bind`, `ui.mount`, `ui.column`, `ui.text`, and `ui.button`
-- `{ onClick: () => ... }` button options
+- `{ onClick: () => ..., textStyle?: ... }` button options
 
 The compiler rejects unsupported syntax with `path:line:column`, a stable `MTS...` code, and a message. Rejected features include JSX, classes, general functions, async/Promise, exceptions, runtime imports, arbitrary objects/arrays, spread, destructuring, computed properties, browser/Node globals and dynamic UI creation.
 
 Editor declarations live in `sdk/index.d.ts`; they document the accepted surface but are not executed.
 
-## MBC v1
+### Typography
 
-MBC begins with `MBC1`, a version, payload length and CRC-32. Its payload contains constants, state declarations, bytecode functions and a static UI specification. The codec is deterministic and rejects truncated or malformed data without panicking.
+`ui.text` accepts an optional style argument, and `ui.button` accepts an
+optional `textStyle` option. The only public family/weight is
+`font: "uiSans"` with `weight: "regular"`. The supported fixed metric pairs
+are `12/14`, `14/18`, `18/24`, `24/32`, and `32/40` logical pixels, written as
+`size/lineHeight`. Omitting a style resolves to `24/32` for Text and `14/18`
+for Button on every renderer.
+
+The embedded and browser assets cover printable ASCII, common Chinese
+punctuation, U+FFFD, and all 3,755 GB2312 level-1 Han characters. Unsupported
+literal glyphs are rejected by the compiler. Unsupported glyphs produced by a
+runtime binding are replaced with U+FFFD and emit a host diagnostic.
+
+## MBC v2
+
+MBC begins with `MBC1`, a version, payload length and CRC-32. Version 2 stores
+the optional immutable text style for every UI node in addition to constants,
+state declarations, bytecode functions, and the static UI specification. The
+codec is deterministic, rejects v1 and unknown versions explicitly, and
+rejects truncated or malformed data without panicking.
 
 MBC is generated output. Edit the TypeScript source and rebuild rather than editing `app.mbc`.
 
@@ -188,6 +213,6 @@ The workspace tests cover:
 
 ## MVP limitations
 
-The UI tree is static after initialization. The available widgets are Column, Text and Button, with reactive text patches and minimal built-in styling. The desktop host has one fixed-size macOS window, and the Web Player is the shared runtime foundation rather than the full Studio. Async effects, network APIs, persistence, packages, dynamic lists, source-level debugging, signing, ESP32-S3 hosting and production distribution are deferred.
+The UI tree is static after initialization. The available widgets are Column, Text and Button, with reactive text patches and minimal built-in styling. The desktop host has one fixed-size macOS window, and the Web Player is the shared runtime foundation rather than the full Studio. Async App effects, App network APIs, App persistence, packages, dynamic lists, source-level debugging, signing, and production distribution are deferred.
 
 The approved architecture and step-by-step implementation record are under `docs/superpowers/`.

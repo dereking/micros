@@ -19,6 +19,7 @@ use micro_os_core::{
 #[derive(Default)]
 struct FakeNativeUi {
     nodes: BTreeMap<NodeId, String>,
+    styles: BTreeMap<NodeId, TextStyle>,
     activations: Vec<FunctionId>,
     destroyed: usize,
 }
@@ -36,9 +37,11 @@ impl NativeUi for FakeNativeUi {
         node: NodeId,
         _parent: Option<NodeId>,
         text: &str,
-        _style: Option<&TextStyle>,
+        style: Option<&TextStyle>,
     ) -> Result<(), String> {
         self.nodes.insert(node, text.to_owned());
+        self.styles
+            .insert(node, *style.expect("label style normalized"));
         Ok(())
     }
 
@@ -48,9 +51,11 @@ impl NativeUi for FakeNativeUi {
         _parent: Option<NodeId>,
         text: &str,
         handler: FunctionId,
-        _style: Option<&TextStyle>,
+        style: Option<&TextStyle>,
     ) -> Result<(), String> {
         self.nodes.insert(node, text.to_owned());
+        self.styles
+            .insert(node, *style.expect("button style normalized"));
         self.activations.push(handler);
         Ok(())
     }
@@ -179,6 +184,18 @@ fn ffi_region_lengths_reject_isize_and_element_size_overflow_before_slicing() {
 #[test]
 fn activations_are_fifo_and_two_clicks_render_count_two() {
     let mut host = RuntimeHost::new(&counter_bytes(), FakeNativeUi::default(), 10_000).unwrap();
+    assert!(
+        host.bridge()
+            .styles
+            .values()
+            .any(|style| *style == TextStyle::DEFAULT_TEXT)
+    );
+    assert!(
+        host.bridge()
+            .styles
+            .values()
+            .any(|style| *style == TextStyle::DEFAULT_BUTTON)
+    );
     let handler = host.bridge().activations[0];
 
     host.activate(handler).unwrap();

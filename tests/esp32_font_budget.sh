@@ -27,20 +27,22 @@ if metadata.get("source_sha256")!="2c76254f6fc379fddfce0a7e84fb5385bb135d3e39929
 if metadata.get("license_sha256")!=hashlib.sha256(license_path.read_bytes()).hexdigest() or "SIL OPEN FONT LICENSE Version 1.1" not in license_path.read_text(): fail("tracked OFL-1.1 license/hash differs")
 if metadata.get("license_file")!=license_path.relative_to(root).as_posix(): fail("metadata license path differs")
 if metadata.get("glyph_manifest")!="assets/fonts/ui-sans-common.txt" or metadata.get("generator_lock")!="assets/fonts/lv-font-conv-lock.json": fail("metadata asset paths differ")
-if metadata.get("lvgl_bpp")!=2 or metadata.get("sizes_px")!=[12,14,18,24,32]: fail("metadata must declare five 2bpp fonts")
+if metadata.get("lvgl_bpp")!=2 or metadata.get("sizes_px")!=[12,14,18,24,32] or metadata.get("line_heights_px")!=[14,18,24,32,40]: fail("metadata must declare five 2bpp font metric pairs")
 if metadata.get("generation_tools")!={"fonttools":"4.59.1","brotli":"1.1.0","lv_font_conv":"1.5.3"}: fail("generator versions differ from pins")
 package=json.loads(lock_path.read_text()).get("packages",{}).get("node_modules/lv_font_conv",{})
 if package.get("version")!="1.5.3" or package.get("integrity")!="sha512-0xJQThBOw2iptFccSXrKDIUTQAwr/2zhKjCI1lATIRgZo8uvYRTmenKafW9yTw6G0y5AyW00tqGpUtYuTuBIbQ==": fail("lv_font_conv lock pin/integrity differs")
 declared=json.loads(sizes_path.read_text()); fonts=declared.get("fonts")
 if declared.get("source_sha256")!=metadata["source_sha256"] or declared.get("bpp")!=2: fail("font declaration source/bpp differs")
-if not isinstance(fonts,list) or [f.get("size_px") for f in fonts]!=[12,14,18,24,32]: fail("font declaration sizes differ")
+expected_metrics=[(12,14),(14,18),(18,24),(24,32),(32,40)]
+if not isinstance(fonts,list) or [(f.get("size_px"),f.get("line_height_px")) for f in fonts]!=expected_metrics: fail("font declaration metrics differ")
 total=0
 for font in fonts:
     path=root/font.get("path","")
     if not path.is_file(): fail(f"missing {path}")
     data=path.read_bytes(); payload=font.get("payload_bytes")
     if hashlib.sha256(data).hexdigest()!=font.get("sha256"): fail(f"asset hash differs for {path.relative_to(root)}")
-    if not isinstance(payload,int) or f"MICRO_UI_SANS_PAYLOAD_BYTES {payload}".encode() not in data or b" * Bpp: 2" not in data: fail(f"asset declaration differs for {path.relative_to(root)}")
+    line_height=font["line_height_px"]
+    if not isinstance(payload,int) or f"MICRO_UI_SANS_PAYLOAD_BYTES {payload}".encode() not in data or b" * Bpp: 2" not in data or f".line_height = {line_height},".encode() not in data: fail(f"asset declaration differs for {path.relative_to(root)}")
     total+=payload
 if declared.get("total_payload_bytes")!=total or total>font_limit: fail(f"LVGL payload {total:#x} exceeds {font_limit:#x} or declaration differs")
 newest_asset=max((root/f["path"]).stat().st_mtime_ns for f in fonts)

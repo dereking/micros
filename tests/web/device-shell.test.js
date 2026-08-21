@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { createDeviceShell, mapTouch } from "../../products/micro-web-player/src/device-shell.js";
+import {
+  createDeviceShell,
+  fitDeviceCanvas,
+  mapTouch,
+} from "../../products/micro-web-player/src/device-shell.js";
 
 test("web player serves the generated MicroUiSans Regular face", async () => {
   const css = await readFile(
@@ -19,6 +23,9 @@ test("web player serves the generated MicroUiSans Regular face", async () => {
   assert.match(css, /@font-face\s*{[^}]*font-family:\s*"MicroUiSans";/s);
   assert.match(css, /src:\s*url\("\/fonts\/micro-ui-sans-common\.woff2"\) format\("woff2"\);/);
   assert.match(css, /font-weight:\s*400;/);
+  assert.match(css, /\.micro-text[^}]*white-space:\s*pre-wrap;/s);
+  assert.match(css, /\.micro-button[^}]*white-space:\s*pre-wrap;/s);
+  assert.match(css, /\.device-canvas[^}]*width:\s*800px;[^}]*height:\s*480px;/s);
   assert.ok(font.length > 0);
 });
 
@@ -70,4 +77,13 @@ test("pointer coordinates map into the 800 by 480 screen", () => {
     ),
     { x: 799, y: 0 },
   );
+});
+
+test("fixed logical canvas scales uniformly into the responsive device bounds", () => {
+  const canvas = { style: {} };
+  fitDeviceCanvas(canvas, { width: 400, height: 240 });
+  assert.equal(canvas.style.transform, "scale(0.5)");
+
+  fitDeviceCanvas(canvas, { width: 300, height: 300 });
+  assert.equal(canvas.style.transform, "scale(0.375)");
 });

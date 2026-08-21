@@ -46,15 +46,29 @@ test("Counter exclusively fills the device canvas with fixed logical typography"
   const dimensions = await appShell.evaluate((element) => {
     const app = element.getBoundingClientRect();
     const device = document.querySelector("[data-device-screen]");
+    const canvas = document.querySelector("[data-device-canvas]");
+    const visualCanvas = canvas?.getBoundingClientRect();
     return {
+      appLogicalWidth: element.offsetWidth,
+      appLogicalHeight: element.offsetHeight,
+      canvasLogicalWidth: canvas?.offsetWidth,
+      canvasLogicalHeight: canvas?.offsetHeight,
       appWidth: app.width,
       appHeight: app.height,
-      deviceWidth: device?.clientWidth,
-      deviceHeight: device?.clientHeight,
+      deviceWidth: device?.getBoundingClientRect().width,
+      deviceHeight: device?.getBoundingClientRect().height,
+      canvasWidth: visualCanvas?.width,
+      canvasHeight: visualCanvas?.height,
     };
   });
+  expect(dimensions.appLogicalWidth).toBe(800);
+  expect(dimensions.appLogicalHeight).toBe(480);
+  expect(dimensions.canvasLogicalWidth).toBe(800);
+  expect(dimensions.canvasLogicalHeight).toBe(480);
   expect(dimensions.appWidth).toBeCloseTo(dimensions.deviceWidth, 0);
   expect(dimensions.appHeight).toBeCloseTo(dimensions.deviceHeight, 0);
+  expect(dimensions.canvasWidth).toBeCloseTo(dimensions.deviceWidth, 0);
+  expect(dimensions.canvasHeight).toBeCloseTo(dimensions.deviceHeight, 0);
 
   await page.getByRole("button", { name: "Back" }).click();
   await expect(page.locator(".launcher-copy h2")).toHaveCSS("font-size", "18px");
@@ -73,7 +87,7 @@ test("simulator monitor reflects reducer-backed settings and touch", async ({ pa
   await expect(page.locator('[data-monitor="state"]')).toHaveText("SafeMode");
 });
 
-test("settings scroll within the fixed device viewport", async ({ page }) => {
+test("settings retain the 480px logical viewport when the outer frame shrinks", async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 900 });
   await page.goto("/");
   await page.getByRole("button", { name: "Settings" }).click();
@@ -84,8 +98,12 @@ test("settings scroll within the fixed device viewport", async ({ page }) => {
   const dimensions = await screen.evaluate((element) => ({
     clientHeight: element.clientHeight,
     scrollHeight: element.scrollHeight,
+    visualHeight: element.getBoundingClientRect().height,
+    outerHeight: document.querySelector("[data-device-screen]")?.getBoundingClientRect().height,
   }));
-  expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.clientHeight);
+  expect(dimensions.clientHeight).toBe(480);
+  expect(dimensions.scrollHeight).toBeGreaterThanOrEqual(dimensions.clientHeight);
+  expect(dimensions.visualHeight).toBeCloseTo(dimensions.outerHeight, 0);
 
   await page.getByRole("button", { name: "Safe Mode reboot" }).scrollIntoViewIfNeeded();
   await expect(page.getByRole("button", { name: "Safe Mode reboot" })).toBeVisible();

@@ -12,12 +12,12 @@ interface UiNode {
   readonly __node: unique symbol;
 }
 
-interface UiTextStyle {
-  font: "uiSans";
-  size: 12 | 14 | 18 | 24 | 32;
-  weight: "regular";
-  lineHeight: number;
-}
+type UiTextStyle =
+  | { font: "uiSans"; size: 12; weight: "regular"; lineHeight: 14 }
+  | { font: "uiSans"; size: 14; weight: "regular"; lineHeight: 18 }
+  | { font: "uiSans"; size: 18; weight: "regular"; lineHeight: 24 }
+  | { font: "uiSans"; size: 24; weight: "regular"; lineHeight: 32 }
+  | { font: "uiSans"; size: 32; weight: "regular"; lineHeight: 40 };
 
 declare function state<T extends Scalar>(initial: T): State<T>;
 declare function bind<T extends Scalar>(read: () => T): Binding<T>;

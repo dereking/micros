@@ -81,7 +81,7 @@ fn replaces_missing_runtime_glyph_and_reports_it() {
         NodeId(1),
         Some(NodeId(0)),
         "hello �".into(),
-        None
+        Some(TextStyle::ui_sans(24, FontWeight::Regular, 32).unwrap())
     )));
     assert!(
         renderer
@@ -190,4 +190,34 @@ fn maps_tree_preorder_and_applies_text_patch() {
         renderer.dom().operations.last(),
         Some(&Call::SetText(NodeId(1), "Count: 1".into()))
     );
+}
+
+#[test]
+fn normalizes_unstyled_text_and_button_before_dom_calls() {
+    let mut tree = tree_with_text("欢迎");
+    tree.nodes[0].children.push(NodeId(2));
+    tree.nodes.push(MicroUiNode {
+        id: NodeId(2),
+        kind: UiKind::Button,
+        children: vec![],
+        text: "确认".into(),
+        on_click: Some(FunctionId(7)),
+        text_style: None,
+    });
+    let mut renderer = WebRenderer::new(FakeDom::default());
+    renderer.create_tree(&tree).unwrap();
+
+    assert!(renderer.dom().operations.contains(&Call::Text(
+        NodeId(1),
+        Some(NodeId(0)),
+        "欢迎".into(),
+        Some(TextStyle::DEFAULT_TEXT),
+    )));
+    assert!(renderer.dom().operations.contains(&Call::Button(
+        NodeId(2),
+        Some(NodeId(0)),
+        "确认".into(),
+        FunctionId(7),
+        Some(TextStyle::DEFAULT_BUTTON),
+    )));
 }
