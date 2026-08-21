@@ -23,6 +23,10 @@ and must not become a vendored implementation. If upstream code is later copied
 or adapted, preserve its applicable license and attribution in the committed
 source and update this notice.
 
+`firmware/micro-os-esp32/components/micro_bsp_lcd7/` adapts the board-specific
+RGB timing and CH422G/GT911 reset sequence from the CC0-1.0 reference while
+using ESP-IDF 5.5 and LVGL 9 APIs. Its CC0 notice is retained in that component.
+
 Official resources:
 
 - Waveshare documentation: <https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-7>

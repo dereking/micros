@@ -1,0 +1,6 @@
+Creative Commons Zero v1.0 Universal
+
+The files in this component that carry the SPDX identifier CC0-1.0 are
+dedicated to the public domain under the Creative Commons Zero 1.0 Universal
+Public Domain Dedication. The full legal text is available at:
+https://creativecommons.org/publicdomain/zero/1.0/legalcode
