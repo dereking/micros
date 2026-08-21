@@ -82,6 +82,14 @@ static lv_obj_t *parent_object(micro_native_t *native, uint32_t parent_id) {
     return native->objects[parent_id];
 }
 
+static void apply_text_style(lv_obj_t *object, uintptr_t font_handle, uint32_t line_height_px) {
+    if (font_handle == 0U) return;
+    const lv_font_t *font = (const lv_font_t *)font_handle;
+    lv_obj_set_style_text_font(object, font, LV_PART_MAIN);
+    int32_t line_space = (int32_t)line_height_px - lv_font_get_line_height(font);
+    lv_obj_set_style_text_line_space(object, line_space, LV_PART_MAIN);
+}
+
 micro_native_t *micro_native_create(int width, int height, int hidden, char *error, size_t error_length) {
     if (width <= 0 || height <= 0) {
         copy_error(error, error_length, "invalid window dimensions");
@@ -240,23 +248,25 @@ int micro_native_create_column(micro_native_t *native, uint32_t node_id, uint32_
     return 1;
 }
 
-int micro_native_create_label(micro_native_t *native, uint32_t node_id, uint32_t parent_id, const char *text) {
+int micro_native_create_label(micro_native_t *native, uint32_t node_id, uint32_t parent_id, const char *text, uintptr_t font_handle, uint32_t line_height_px) {
     if (node_id >= MICRO_MAX_NODES) return 0;
     lv_obj_t *parent = parent_object(native, parent_id);
     if (parent == NULL) return 0;
     lv_obj_t *label = lv_label_create(parent);
     lv_label_set_text(label, text);
+    apply_text_style(label, font_handle, line_height_px);
     native->objects[node_id] = label;
     return 1;
 }
 
-int micro_native_create_button(micro_native_t *native, uint32_t node_id, uint32_t parent_id, const char *text, uint32_t handler_id) {
+int micro_native_create_button(micro_native_t *native, uint32_t node_id, uint32_t parent_id, const char *text, uint32_t handler_id, uintptr_t font_handle, uint32_t line_height_px) {
     if (node_id >= MICRO_MAX_NODES) return 0;
     lv_obj_t *parent = parent_object(native, parent_id);
     if (parent == NULL) return 0;
     lv_obj_t *button = lv_button_create(parent);
     lv_obj_t *label = lv_label_create(button);
     lv_label_set_text(label, text);
+    apply_text_style(label, font_handle, line_height_px);
     lv_obj_center(label);
     native->clicks[node_id].native = native;
     native->clicks[node_id].handler_id = handler_id;

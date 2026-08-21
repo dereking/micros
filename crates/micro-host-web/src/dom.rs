@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
-use micro_ir::{FunctionId, NodeId};
+use micro_ir::{FunctionId, NodeId, TextStyle};
 use micro_renderer_web::WebDom;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{Document, Element, Event};
 
-use crate::ActivationQueue;
+use crate::{ActivationQueue, inline_text_style};
 
 pub struct DomBridge {
     document: Document,
@@ -66,6 +66,15 @@ impl DomBridge {
         self.elements.insert(node.0, element);
         Ok(())
     }
+
+    fn apply_text_style(element: &Element, style: Option<&TextStyle>) -> Result<(), String> {
+        let Some(style) = inline_text_style(style) else {
+            return Ok(());
+        };
+        element
+            .set_attribute("style", &style)
+            .map_err(|error| format!("set text style: {error:?}"))
+    }
 }
 
 impl WebDom for DomBridge {
@@ -79,9 +88,11 @@ impl WebDom for DomBridge {
         node: NodeId,
         parent: Option<NodeId>,
         text: &str,
+        style: Option<&TextStyle>,
     ) -> Result<(), String> {
         let element = self.create_element("span", node, "micro-text")?;
         element.set_text_content(Some(text));
+        Self::apply_text_style(&element, style)?;
         self.append(node, parent, element)
     }
 
@@ -91,12 +102,14 @@ impl WebDom for DomBridge {
         parent: Option<NodeId>,
         text: &str,
         handler: FunctionId,
+        style: Option<&TextStyle>,
     ) -> Result<(), String> {
         let element = self.create_element("button", node, "micro-button")?;
         element
             .set_attribute("type", "button")
             .map_err(|error| format!("set button type: {error:?}"))?;
         element.set_text_content(Some(text));
+        Self::apply_text_style(&element, style)?;
 
         let activations = self.activations.clone();
         let callback = Closure::wrap(Box::new(move |_event: Event| {

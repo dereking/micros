@@ -1,7 +1,7 @@
 //! Platform-neutral Web renderer behind a narrow DOM bridge.
 
 use micro_core::{MicroUiTree, RenderError, RenderPatch, RenderPort};
-use micro_ir::{FunctionId, NodeId, UiKind};
+use micro_ir::{FunctionId, NodeId, TextStyle, UiKind};
 
 pub trait WebDom {
     fn create_column(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String>;
@@ -10,6 +10,7 @@ pub trait WebDom {
         node: NodeId,
         parent: Option<NodeId>,
         text: &str,
+        style: Option<&TextStyle>,
     ) -> Result<(), String>;
     fn create_button(
         &mut self,
@@ -17,6 +18,7 @@ pub trait WebDom {
         parent: Option<NodeId>,
         text: &str,
         handler: FunctionId,
+        style: Option<&TextStyle>,
     ) -> Result<(), String>;
     fn set_text(&mut self, node: NodeId, text: &str) -> Result<(), String>;
 }
@@ -52,12 +54,21 @@ impl<D: WebDom> WebRenderer<D> {
             .ok_or_else(|| RenderError(format!("node {} is missing", node_id.0)))?;
         match node.kind {
             UiKind::Column => self.dom.create_column(node.id, parent),
-            UiKind::Text => self.dom.create_text(node.id, parent, &node.text),
+            UiKind::Text => {
+                self.dom
+                    .create_text(node.id, parent, &node.text, node.text_style.as_ref())
+            }
             UiKind::Button => {
                 let handler = node
                     .on_click
                     .ok_or_else(|| RenderError(format!("button {} has no handler", node.id.0)))?;
-                self.dom.create_button(node.id, parent, &node.text, handler)
+                self.dom.create_button(
+                    node.id,
+                    parent,
+                    &node.text,
+                    handler,
+                    node.text_style.as_ref(),
+                )
             }
         }
         .map_err(RenderError)?;

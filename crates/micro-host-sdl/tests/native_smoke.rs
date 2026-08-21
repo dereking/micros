@@ -9,7 +9,7 @@ fn native_pointer_click_activates_button() {
     let mut bridge = NativeBridge::create(320, 240, true).unwrap();
     bridge.create_column(NodeId(0), None).unwrap();
     bridge
-        .create_button(NodeId(1), Some(NodeId(0)), "Add", FunctionId(7))
+        .create_button(NodeId(1), Some(NodeId(0)), "Add", FunctionId(7), None)
         .unwrap();
     let _ = bridge.timer();
     bridge.queue_click(NodeId(1)).unwrap();

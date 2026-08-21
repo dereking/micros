@@ -37,24 +37,30 @@ int micro_esp_ui_create_column(uint32_t node, uint32_t parent)
 }
 
 int micro_esp_ui_create_label(uint32_t node, uint32_t parent,
-                              const uint8_t *text, size_t len)
+                              const uint8_t *text, size_t len,
+                              uintptr_t font_handle, uint32_t line_height_px)
 {
     (void)node;
     (void)parent;
     (void)text;
     (void)len;
+    (void)font_handle;
+    (void)line_height_px;
     return 0;
 }
 
 int micro_esp_ui_create_button(uint32_t node, uint32_t parent,
                                const uint8_t *text, size_t len,
-                               uint32_t handler)
+                               uint32_t handler, uintptr_t font_handle,
+                               uint32_t line_height_px)
 {
     (void)node;
     (void)parent;
     (void)text;
     (void)len;
     (void)handler;
+    (void)font_handle;
+    (void)line_height_px;
     return 0;
 }
 

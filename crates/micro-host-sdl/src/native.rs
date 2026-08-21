@@ -1,7 +1,7 @@
 use std::ffi::{CString, c_char, c_int, c_uint, c_void};
 use std::ptr::NonNull;
 
-use micro_ir::{FunctionId, NodeId};
+use micro_ir::{FontFamily, FontWeight, FunctionId, NodeId, TextStyle};
 use micro_lvgl::NativeUi;
 
 unsafe extern "C" {
@@ -24,6 +24,8 @@ unsafe extern "C" {
         node: c_uint,
         parent: c_uint,
         text: *const c_char,
+        font_handle: usize,
+        line_height_px: c_uint,
     ) -> c_int;
     fn micro_native_create_button(
         native: *mut c_void,
@@ -31,6 +33,8 @@ unsafe extern "C" {
         parent: c_uint,
         text: *const c_char,
         handler: c_uint,
+        font_handle: usize,
+        line_height_px: c_uint,
     ) -> c_int;
     fn micro_native_set_label_text(native: *mut c_void, node: c_uint, text: *const c_char)
     -> c_int;
@@ -39,6 +43,72 @@ unsafe extern "C" {
 
 pub struct NativeBridge {
     raw: NonNull<c_void>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NativeFontHandle(*const c_void);
+
+impl Default for NativeFontHandle {
+    fn default() -> Self {
+        Self(std::ptr::null())
+    }
+}
+
+// SAFETY: Catalog handles point only to immutable, platform-owned static font assets.
+unsafe impl Sync for NativeFontHandle {}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct NativeTextStyle {
+    font_handle: NativeFontHandle,
+    line_height_px: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NativeFontKey {
+    family: FontFamily,
+    size_px: u8,
+    weight: FontWeight,
+}
+
+// Task 5 will populate this table when generated LVGL font assets are linked.
+const AVAILABLE_NATIVE_FONTS: &[(NativeFontKey, NativeFontHandle)] = &[];
+
+fn select_native_text_style(
+    style: Option<&TextStyle>,
+    available_fonts: &[(NativeFontKey, NativeFontHandle)],
+) -> Result<NativeTextStyle, String> {
+    let Some(style) = style else {
+        return Ok(NativeTextStyle::default());
+    };
+    let key = NativeFontKey {
+        family: style.family,
+        size_px: style.size_px,
+        weight: style.weight,
+    };
+    available_fonts
+        .iter()
+        .find_map(|(candidate, font_handle)| {
+            (*candidate == key).then_some(NativeTextStyle {
+                font_handle: *font_handle,
+                line_height_px: u32::from(style.line_height_px),
+            })
+        })
+        .ok_or_else(|| {
+            format!(
+                "native font unavailable: {:?} {}px {:?}",
+                style.family, style.size_px, style.weight
+            )
+        })
+}
+
+fn call_with_native_text_style(
+    style: Option<&TextStyle>,
+    available_fonts: &[(NativeFontKey, NativeFontHandle)],
+    operation: &str,
+    create: impl FnOnce(NativeTextStyle) -> c_int,
+) -> Result<(), String> {
+    let selected = select_native_text_style(style, available_fonts)?;
+    native_result(create(selected), operation)
 }
 
 impl NativeBridge {
@@ -115,18 +185,23 @@ impl NativeUi for NativeBridge {
         node: NodeId,
         parent: Option<NodeId>,
         text: &str,
+        style: Option<&TextStyle>,
     ) -> Result<(), String> {
         let text = c_string(text)?;
-        native_result(
-            unsafe {
+        call_with_native_text_style(
+            style,
+            AVAILABLE_NATIVE_FONTS,
+            "create label",
+            |selected| unsafe {
                 micro_native_create_label(
                     self.raw.as_ptr(),
                     node.0,
                     parent_id(parent),
                     text.as_ptr(),
+                    selected.font_handle.0 as usize,
+                    selected.line_height_px,
                 )
             },
-            "create label",
         )
     }
 
@@ -136,19 +211,24 @@ impl NativeUi for NativeBridge {
         parent: Option<NodeId>,
         text: &str,
         handler: FunctionId,
+        style: Option<&TextStyle>,
     ) -> Result<(), String> {
         let text = c_string(text)?;
-        native_result(
-            unsafe {
+        call_with_native_text_style(
+            style,
+            AVAILABLE_NATIVE_FONTS,
+            "create button",
+            |selected| unsafe {
                 micro_native_create_button(
                     self.raw.as_ptr(),
                     node.0,
                     parent_id(parent),
                     text.as_ptr(),
                     handler.0,
+                    selected.font_handle.0 as usize,
+                    selected.line_height_px,
                 )
             },
-            "create button",
         )
     }
 
@@ -181,5 +261,61 @@ fn native_result(result: c_int, operation: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("native operation failed: {operation}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::c_void;
+
+    use micro_ir::{FontFamily, FontWeight, TextStyle};
+
+    use super::{
+        AVAILABLE_NATIVE_FONTS, NativeFontHandle, NativeFontKey, NativeTextStyle,
+        call_with_native_text_style, select_native_text_style,
+    };
+
+    #[test]
+    fn uses_current_lvgl_default_when_style_is_unset() {
+        assert_eq!(
+            select_native_text_style(None, AVAILABLE_NATIVE_FONTS),
+            Ok(NativeTextStyle::default())
+        );
+    }
+
+    #[test]
+    fn rejects_styles_until_matching_native_font_assets_are_available() {
+        let style = TextStyle::ui_sans(18, FontWeight::Medium, 24).unwrap();
+        assert_eq!(
+            select_native_text_style(Some(&style), AVAILABLE_NATIVE_FONTS),
+            Err("native font unavailable: UiSans 18px Medium".into())
+        );
+    }
+
+    #[test]
+    fn forwards_selected_font_handle_and_line_height_to_native_call() {
+        static TEST_FONT: u8 = 0;
+        const TEST_FONTS: [(NativeFontKey, NativeFontHandle); 1] = [(
+            NativeFontKey {
+                family: FontFamily::UiSans,
+                size_px: 18,
+                weight: FontWeight::Medium,
+            },
+            NativeFontHandle(&raw const TEST_FONT as *const c_void),
+        )];
+        let style = TextStyle::ui_sans(18, FontWeight::Medium, 24).unwrap();
+        let mut applied = None;
+        call_with_native_text_style(Some(&style), &TEST_FONTS, "create label", |selected| {
+            applied = Some(selected);
+            1
+        })
+        .unwrap();
+        assert_eq!(
+            applied,
+            Some(NativeTextStyle {
+                font_handle: NativeFontHandle(&raw const TEST_FONT as *const c_void),
+                line_height_px: 24,
+            })
+        );
     }
 }

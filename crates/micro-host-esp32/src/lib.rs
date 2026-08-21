@@ -3,6 +3,8 @@
 mod bridge;
 #[cfg(target_os = "espidf")]
 mod ffi;
+#[cfg(any(target_os = "espidf", test))]
+mod native_text_style;
 
 use std::fmt;
 
@@ -170,7 +172,6 @@ impl<B: NativeUi> RuntimeHost<B> {
         if !self.stopped {
             self.runtime
                 .renderer_mut()
-                .bridge_mut()
                 .destroy_app_root()
                 .map_err(|diagnostic| HostError {
                     code: MicroErrorCode::Ui,

@@ -1,4 +1,6 @@
+use std::cell::Cell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use micro_compiler::compile_source;
 use micro_host_esp32::{
@@ -7,7 +9,7 @@ use micro_host_esp32::{
     RuntimeHost, decode_action_batch, encode_action_batch, validate_region_length,
     write_diagnostic,
 };
-use micro_ir::{FunctionId, NodeId, encode};
+use micro_ir::{FunctionId, NodeId, TextStyle, encode};
 use micro_lvgl::NativeUi;
 use micro_os_core::{
     Action, AppId, AppSessionId, Backlight, ConfirmationId, Event as OsEvent, FailureReason,
@@ -32,6 +34,7 @@ impl NativeUi for FakeNativeUi {
         node: NodeId,
         _parent: Option<NodeId>,
         text: &str,
+        _style: Option<&TextStyle>,
     ) -> Result<(), String> {
         self.nodes.insert(node, text.to_owned());
         Ok(())
@@ -43,6 +46,7 @@ impl NativeUi for FakeNativeUi {
         _parent: Option<NodeId>,
         text: &str,
         handler: FunctionId,
+        _style: Option<&TextStyle>,
     ) -> Result<(), String> {
         self.nodes.insert(node, text.to_owned());
         self.activations.push(handler);
@@ -88,6 +92,66 @@ fn diagnostic_truncation_preserves_utf8_boundaries_and_always_terminates() {
 fn owned_mbc_constructor_accepts_the_single_owned_copy() {
     let host = RuntimeHost::from_owned_mbc(counter_bytes(), FakeNativeUi::default(), 10_000);
     assert!(host.is_ok());
+}
+
+struct FailingNativeUi {
+    root_created: Rc<Cell<bool>>,
+    destroyed: Rc<Cell<usize>>,
+}
+
+impl NativeUi for FailingNativeUi {
+    fn create_column(&mut self, _node: NodeId, _parent: Option<NodeId>) -> Result<(), String> {
+        self.root_created.set(true);
+        Ok(())
+    }
+
+    fn create_label(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _text: &str,
+        _style: Option<&TextStyle>,
+    ) -> Result<(), String> {
+        Err("injected ESP label failure".into())
+    }
+
+    fn create_button(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _text: &str,
+        _handler: FunctionId,
+        _style: Option<&TextStyle>,
+    ) -> Result<(), String> {
+        unreachable!()
+    }
+
+    fn set_label_text(&mut self, _node: NodeId, _text: &str) -> Result<(), String> {
+        unreachable!()
+    }
+
+    fn destroy_app_root(&mut self) -> Result<(), String> {
+        assert!(self.root_created.get());
+        self.destroyed.set(self.destroyed.get() + 1);
+        Ok(())
+    }
+}
+
+#[test]
+fn failed_runtime_creation_cleans_up_partially_constructed_esp_root() {
+    let root_created = Rc::new(Cell::new(false));
+    let destroyed = Rc::new(Cell::new(0));
+    let result = RuntimeHost::new(
+        &counter_bytes(),
+        FailingNativeUi {
+            root_created: Rc::clone(&root_created),
+            destroyed: Rc::clone(&destroyed),
+        },
+        10_000,
+    );
+    assert!(result.is_err());
+    assert!(root_created.get());
+    assert_eq!(destroyed.get(), 1);
 }
 
 #[test]

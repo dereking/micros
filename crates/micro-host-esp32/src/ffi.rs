@@ -3,20 +3,30 @@
 use std::ffi::{c_char, c_int, c_void};
 use std::ptr;
 
-use micro_ir::{FunctionId, NodeId};
+use micro_ir::{FunctionId, NodeId, TextStyle};
 use micro_lvgl::NativeUi;
 
+use crate::native_text_style::{AVAILABLE_NATIVE_FONTS, call_with_native_text_style};
 use crate::{HostError, MicroAction, MicroErrorCode, MicroEvent, MicroState, OsHost, RuntimeHost};
 
 unsafe extern "C" {
     fn micro_esp_ui_create_column(node: u32, parent: u32) -> c_int;
-    fn micro_esp_ui_create_label(node: u32, parent: u32, text: *const u8, len: usize) -> c_int;
+    fn micro_esp_ui_create_label(
+        node: u32,
+        parent: u32,
+        text: *const u8,
+        len: usize,
+        font_handle: usize,
+        line_height_px: u32,
+    ) -> c_int;
     fn micro_esp_ui_create_button(
         node: u32,
         parent: u32,
         text: *const u8,
         len: usize,
         handler: u32,
+        font_handle: usize,
+        line_height_px: u32,
     ) -> c_int;
     fn micro_esp_ui_set_label_text(node: u32, text: *const u8, len: usize) -> c_int;
     fn micro_esp_ui_destroy_app_root() -> c_int;
@@ -34,10 +44,20 @@ impl NativeUi for EspNativeUi {
         node: NodeId,
         parent: Option<NodeId>,
         text: &str,
+        style: Option<&TextStyle>,
     ) -> Result<(), String> {
-        native_result(unsafe {
-            micro_esp_ui_create_label(node.0, parent_id(parent), text.as_ptr(), text.len())
-        })
+        let result =
+            call_with_native_text_style(style, AVAILABLE_NATIVE_FONTS, |selected| unsafe {
+                micro_esp_ui_create_label(
+                    node.0,
+                    parent_id(parent),
+                    text.as_ptr(),
+                    text.len(),
+                    selected.font_handle.0 as usize,
+                    selected.line_height_px,
+                )
+            })?;
+        native_result(result)
     }
 
     fn create_button(
@@ -46,16 +66,21 @@ impl NativeUi for EspNativeUi {
         parent: Option<NodeId>,
         text: &str,
         handler: FunctionId,
+        style: Option<&TextStyle>,
     ) -> Result<(), String> {
-        native_result(unsafe {
-            micro_esp_ui_create_button(
-                node.0,
-                parent_id(parent),
-                text.as_ptr(),
-                text.len(),
-                handler.0,
-            )
-        })
+        let result =
+            call_with_native_text_style(style, AVAILABLE_NATIVE_FONTS, |selected| unsafe {
+                micro_esp_ui_create_button(
+                    node.0,
+                    parent_id(parent),
+                    text.as_ptr(),
+                    text.len(),
+                    handler.0,
+                    selected.font_handle.0 as usize,
+                    selected.line_height_px,
+                )
+            })?;
+        native_result(result)
     }
 
     fn set_label_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
