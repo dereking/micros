@@ -219,7 +219,11 @@ fn describe_state(state: &State) -> String {
         State::AppStarting { app, session } => format!("AppStarting({app:?}, {})", session.0),
         State::AppRunning { app, session } => format!("AppRunning({app:?}, {})", session.0),
         State::AppStopping { app, session, .. } => format!("AppStopping({app:?}, {})", session.0),
-        State::AppError { app, session, reason } => {
+        State::AppError {
+            app,
+            session,
+            reason,
+        } => {
             format!("AppError({app:?}, {}, {reason:?})", session.0)
         }
         state => format!("{state:?}"),

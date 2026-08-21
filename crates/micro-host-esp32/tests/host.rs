@@ -2,15 +2,16 @@ use std::collections::BTreeMap;
 
 use micro_compiler::compile_source;
 use micro_host_esp32::{
-    MicroAction, MicroActionKind, MicroAppId, MicroErrorCode, MicroEvent, MicroEventKind,
-    MicroFailureReason, MicroResult, MicroState, MicroWifiFailure, OsHost, RuntimeHost,
-    decode_action_batch, encode_action_batch, validate_region_length, write_diagnostic,
+    MicroAction, MicroActionKind, MicroAppId, MicroBacklight, MicroErrorCode, MicroEvent,
+    MicroEventKind, MicroFailureReason, MicroResult, MicroState, MicroWifiFailure, OsHost,
+    RuntimeHost, decode_action_batch, encode_action_batch, validate_region_length,
+    write_diagnostic,
 };
 use micro_ir::{FunctionId, NodeId, encode};
 use micro_lvgl::NativeUi;
 use micro_os_core::{
-    Action, AppId, AppSessionId, ConfirmationId, Event as OsEvent, FailureReason, WifiFailure,
-    WifiOperationId,
+    Action, AppId, AppSessionId, Backlight, ConfirmationId, Event as OsEvent, FailureReason,
+    WifiFailure, WifiOperationId,
 };
 
 #[derive(Default)]
@@ -182,6 +183,7 @@ fn every_core_event_variant_round_trips_without_losing_payload() {
         OsEvent::NetworkConfigLoaded { configured: true },
         OsEvent::SetupSkipped,
         OsEvent::OpenSettings,
+        OsEvent::SetBacklight(Backlight::Medium),
         OsEvent::BackPressed,
         OsEvent::HomePressed,
         OsEvent::OpenApp(AppId::Counter),
@@ -270,6 +272,9 @@ fn assert_unused_fields_are_rejected(wire: MicroEvent) {
         MicroEventKind::OpenApp => [
             false, false, false, true, false, false, false, false, false, false,
         ],
+        MicroEventKind::SetBacklight => [
+            false, false, false, false, true, false, false, false, false, false,
+        ],
         MicroEventKind::AppStarted | MicroEventKind::AppStopped => [
             false, false, false, false, false, false, false, true, false, false,
         ],
@@ -332,6 +337,7 @@ fn every_core_action_variant_and_composite_round_trips_without_losing_payload() 
         Action::ShowFirstRunSetup,
         Action::ShowLauncher,
         Action::ShowSettings,
+        Action::ApplyBacklight(Backlight::Low),
         Action::StartWifiScan {
             operation: WifiOperationId(1),
         },
@@ -420,6 +426,7 @@ fn c_abi_types_use_c_representation_and_fixed_layouts() {
     assert_eq!(std::mem::size_of::<MicroWifiFailure>(), 4);
     assert_eq!(std::mem::size_of::<MicroResult>(), 4);
     assert_eq!(std::mem::size_of::<MicroAppId>(), 4);
+    assert_eq!(std::mem::size_of::<MicroBacklight>(), 4);
     assert_eq!(std::mem::size_of::<MicroEvent>(), 56);
     assert_eq!(std::mem::size_of::<MicroAction>(), 56);
 }
@@ -475,6 +482,16 @@ fn all_c_abi_discriminants_are_stable_and_exhaustive() {
     );
     assert_eq!(
         [
+            MicroBacklight::Unused as u32,
+            MicroBacklight::Off as u32,
+            MicroBacklight::Low as u32,
+            MicroBacklight::Medium as u32,
+            MicroBacklight::High as u32,
+        ],
+        [0, 1, 2, 3, 4]
+    );
+    assert_eq!(
+        [
             MicroState::EarlyBoot as u32,
             MicroState::SafeMode as u32,
             MicroState::StorageReady as u32,
@@ -519,10 +536,11 @@ fn all_c_abi_discriminants_are_stable_and_exhaustive() {
             MicroActionKind::ConfirmFactoryReset as u32,
             MicroActionKind::FactoryReset as u32,
             MicroActionKind::Reboot as u32,
+            MicroActionKind::ApplyBacklight as u32,
         ],
         [
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-            24, 25
+            24, 25, 26
         ]
     );
     assert_eq!(
@@ -558,10 +576,11 @@ fn all_c_abi_discriminants_are_stable_and_exhaustive() {
             MicroEventKind::FactoryResetConfirmed as u32,
             MicroEventKind::FactoryResetCompleted as u32,
             MicroEventKind::RebootRequested as u32,
+            MicroEventKind::SetBacklight as u32,
         ],
         [
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-            24, 25, 26, 27, 28, 29, 30
+            24, 25, 26, 27, 28, 29, 30, 31
         ]
     );
 }

@@ -1,24 +1,18 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Micro Web Player</title>
-  </head>
+  <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>Micro ESP32-S3 Simulator</title></head>
   <body>
-    <main class="player-shell">
-      <header class="player-header">
-        <p class="eyebrow">Micro Web Player</p>
-        <h1>One App. Every Runtime.</h1>
-        <p class="subtitle">The Counter MBC is executing in the shared Rust Runtime through WebAssembly.</p>
-      </header>
-      <section class="device-frame" aria-label="Micro device simulator">
-        <div class="device-camera" aria-hidden="true"></div>
-        <div id="micro-device" class="device-screen"></div>
+    <main class="simulator-shell">
+      <header class="simulator-header"><p class="eyebrow">Micro platform / browser runtime</p><h1>ESP32-S3<br />field console</h1><p>One app binary. Shared Rust Runtime. Simulated board observability.</p></header>
+      <section class="device-rig" aria-label="ESP32-S3 Touch-LCD-7 simulator">
+        <div class="device-rail"><span>MICRO OS</span><span>800 × 480</span></div>
+        <div class="device-frame"><div class="device-mark"><span></span>ESP32-S3 TOUCH LCD 7</div>
+          <div id="micro-device" data-device-screen class="device-screen"><div id="system-screen" class="system-screen" aria-live="polite"></div><section id="app-shell" class="app-shell" hidden><button class="app-back" type="button" aria-label="Back">← Back</button><div id="app-screen" class="app-screen"></div></section></div>
+          <div class="device-controls"><i></i><span>GT911 / RGB565</span><i></i></div>
+        </div>
       </section>
-      <p class="runtime-status"><span></span> WebAssembly runtime connected</p>
+      <aside class="monitor" aria-label="Simulated board monitor"><div class="monitor-heading"><p class="eyebrow">Simulated board monitor</p><strong><span></span> Runtime connected</strong></div><dl class="monitor-grid"><div><dt>DISPLAY</dt><dd data-monitor="display"></dd></div><div><dt>MEMORY</dt><dd data-monitor="memory"></dd></div><div><dt>TOUCH</dt><dd data-monitor="touch"></dd></div><div><dt>BACKLIGHT</dt><dd data-monitor="backlight"></dd></div><div><dt>WI-FI</dt><dd data-monitor="wifi"></dd></div><div><dt>OS STATE</dt><dd data-monitor="state"></dd></div><div><dt>QUEUE / BUDGET</dt><dd data-monitor="runtime"></dd></div><div><dt>CH422G</dt><dd data-monitor="expander"></dd></div></dl><div class="action-log-panel"><div><span>REDUCER ACTION LOG</span><small data-monitor="last-action"></small></div><ol data-action-log></ol></div><p class="simulated-note">Visual system model only — no physical GPIO, I²C, radio, PSRAM, or RGB timing is emulated.</p></aside>
       <pre data-runtime-error hidden></pre>
-    </main>
-    <script type="module" src="/src/main.js"></script>
+    </main><script type="module" src="/src/main.js"></script>
   </body>
 </html>

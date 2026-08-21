@@ -1,6 +1,6 @@
 use micro_os_core::{
-    Action, AppId, AppSessionId, ConfirmationId, Event, FailureReason, State, WifiFailure,
-    WifiOperationId,
+    Action, AppId, AppSessionId, Backlight, ConfirmationId, Event, FailureReason, State,
+    WifiFailure, WifiOperationId,
 };
 
 #[repr(C)]
@@ -73,6 +73,16 @@ pub enum MicroAppId {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MicroBacklight {
+    Unused = 0,
+    Off = 1,
+    Low = 2,
+    Medium = 3,
+    High = 4,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MicroEventKind {
     BootSampled = 0,
     StorageInitialized = 1,
@@ -105,6 +115,7 @@ pub enum MicroEventKind {
     FactoryResetConfirmed = 28,
     FactoryResetCompleted = 29,
     RebootRequested = 30,
+    SetBacklight = 31,
 }
 
 #[repr(C)]
@@ -152,6 +163,7 @@ pub enum MicroActionKind {
     ConfirmFactoryReset = 23,
     FactoryReset = 24,
     Reboot = 25,
+    ApplyBacklight = 26,
 }
 
 #[repr(C)]
@@ -162,7 +174,7 @@ pub struct MicroAction {
     pub failure: MicroFailureReason,
     pub app: MicroAppId,
     pub after_secs: u32,
-    pub reserved_0: u32,
+    pub backlight: MicroBacklight,
     pub reserved_1: u32,
     pub reserved_2: u32,
     pub session_id: u64,
@@ -179,7 +191,7 @@ impl MicroAction {
             failure: MicroFailureReason::Unused,
             app: MicroAppId::Unused,
             after_secs: 0,
-            reserved_0: 0,
+            backlight: MicroBacklight::Unused,
             reserved_1: 0,
             reserved_2: 0,
             session_id: 0,
@@ -250,6 +262,25 @@ fn app_from_wire(app: MicroAppId) -> Result<AppId, MicroErrorCode> {
     }
 }
 
+fn backlight_to_wire(backlight: &Backlight) -> MicroBacklight {
+    match backlight {
+        Backlight::Off => MicroBacklight::Off,
+        Backlight::Low => MicroBacklight::Low,
+        Backlight::Medium => MicroBacklight::Medium,
+        Backlight::High => MicroBacklight::High,
+    }
+}
+
+fn backlight_from_wire(backlight: MicroBacklight) -> Result<Backlight, MicroErrorCode> {
+    match backlight {
+        MicroBacklight::Off => Ok(Backlight::Off),
+        MicroBacklight::Low => Ok(Backlight::Low),
+        MicroBacklight::Medium => Ok(Backlight::Medium),
+        MicroBacklight::High => Ok(Backlight::High),
+        MicroBacklight::Unused => Err(MicroErrorCode::InvalidArgument),
+    }
+}
+
 impl MicroEvent {
     fn empty(kind: MicroEventKind) -> Self {
         Self {
@@ -278,6 +309,7 @@ impl MicroEvent {
             Event::NetworkConfigLoaded { .. } => MicroEventKind::NetworkConfigLoaded,
             Event::SetupSkipped => MicroEventKind::SetupSkipped,
             Event::OpenSettings => MicroEventKind::OpenSettings,
+            Event::SetBacklight(_) => MicroEventKind::SetBacklight,
             Event::BackPressed => MicroEventKind::BackPressed,
             Event::HomePressed => MicroEventKind::HomePressed,
             Event::OpenApp(_) => MicroEventKind::OpenApp,
@@ -309,6 +341,7 @@ impl MicroEvent {
             | Event::DisplayInitialized(result)
             | Event::SystemUiInitialized(result) => set_result(&mut wire, result),
             Event::NetworkConfigLoaded { configured } => wire.flag = u32::from(*configured),
+            Event::SetBacklight(backlight) => wire.flag = backlight_to_wire(backlight) as u32,
             Event::OpenApp(app) => wire.app = app_to_wire(app),
             Event::AppStarted { session } | Event::AppStopped { session } => {
                 wire.session_id = session.0
@@ -379,6 +412,9 @@ impl MicroEvent {
             },
             MicroEventKind::SetupSkipped => Event::SetupSkipped,
             MicroEventKind::OpenSettings => Event::OpenSettings,
+            MicroEventKind::SetBacklight => {
+                Event::SetBacklight(backlight_from_wire(backlight_kind_from_raw(self.flag)?)?)
+            }
             MicroEventKind::BackPressed => Event::BackPressed,
             MicroEventKind::HomePressed => Event::HomePressed,
             MicroEventKind::OpenApp => Event::OpenApp(app_from_wire(self.app)?),
@@ -449,6 +485,7 @@ impl MicroEvent {
                 [true, true, false, false, false, false, false, false]
             }
             MicroEventKind::OpenApp => [false, false, false, true, false, false, false, false],
+            MicroEventKind::SetBacklight => [false, false, false, false, true, false, false, false],
             MicroEventKind::AppStarted | MicroEventKind::AppStopped => {
                 [false, false, false, false, false, true, false, false]
             }
@@ -569,6 +606,7 @@ fn event_kind_from_raw(value: u32) -> Result<MicroEventKind, MicroErrorCode> {
         28 => MicroEventKind::FactoryResetConfirmed,
         29 => MicroEventKind::FactoryResetCompleted,
         30 => MicroEventKind::RebootRequested,
+        31 => MicroEventKind::SetBacklight,
         _ => return Err(MicroErrorCode::InvalidArgument),
     })
 }
@@ -610,6 +648,17 @@ fn app_kind_from_raw(value: u32) -> Result<MicroAppId, MicroErrorCode> {
     match value {
         0 => Ok(MicroAppId::Unused),
         1 => Ok(MicroAppId::Counter),
+        _ => Err(MicroErrorCode::InvalidArgument),
+    }
+}
+
+fn backlight_kind_from_raw(value: u32) -> Result<MicroBacklight, MicroErrorCode> {
+    match value {
+        0 => Ok(MicroBacklight::Unused),
+        1 => Ok(MicroBacklight::Off),
+        2 => Ok(MicroBacklight::Low),
+        3 => Ok(MicroBacklight::Medium),
+        4 => Ok(MicroBacklight::High),
         _ => Err(MicroErrorCode::InvalidArgument),
     }
 }
@@ -715,6 +764,7 @@ fn encode_action(action: &Action, output: &mut Vec<MicroAction>) {
         Action::ShowFirstRunSetup => MicroActionKind::ShowFirstRunSetup,
         Action::ShowLauncher => MicroActionKind::ShowLauncher,
         Action::ShowSettings => MicroActionKind::ShowSettings,
+        Action::ApplyBacklight(_) => MicroActionKind::ApplyBacklight,
         Action::StartWifiScan { .. } => MicroActionKind::StartWifiScan,
         Action::ConnectWifi { .. } => MicroActionKind::ConnectWifi,
         Action::ConnectSavedWifi { .. } => MicroActionKind::ConnectSavedWifi,
@@ -735,6 +785,7 @@ fn encode_action(action: &Action, output: &mut Vec<MicroAction>) {
             wire.child_count = u32::try_from(actions.len()).unwrap_or(u32::MAX)
         }
         Action::EnterSafeMode(reason) => wire.failure = failure_to_wire(reason),
+        Action::ApplyBacklight(backlight) => wire.backlight = backlight_to_wire(backlight),
         Action::StartWifiScan { operation }
         | Action::ConnectWifi { operation }
         | Action::ConnectSavedWifi { operation }
@@ -821,6 +872,9 @@ fn decode_action(actions: &[MicroAction], cursor: &mut usize) -> Result<Action, 
         MicroActionKind::ShowFirstRunSetup => Action::ShowFirstRunSetup,
         MicroActionKind::ShowLauncher => Action::ShowLauncher,
         MicroActionKind::ShowSettings => Action::ShowSettings,
+        MicroActionKind::ApplyBacklight => {
+            Action::ApplyBacklight(backlight_from_wire(wire.backlight)?)
+        }
         MicroActionKind::StartWifiScan => Action::StartWifiScan {
             operation: WifiOperationId(wire.operation_id),
         },

@@ -2,7 +2,10 @@ use micro_host_web::{SystemIntent, SystemShell};
 
 #[test]
 fn system_intent_parser_has_a_closed_public_surface() {
-    assert_eq!(SystemIntent::parse("open-counter"), Some(SystemIntent::OpenCounter));
+    assert_eq!(
+        SystemIntent::parse("open-counter"),
+        Some(SystemIntent::OpenCounter)
+    );
     assert_eq!(SystemIntent::parse("erase-everything"), None);
 }
 
@@ -14,10 +17,12 @@ fn configured_boot_reaches_connected_launcher_and_records_actions() {
     assert_eq!(snapshot.screen, "Launcher");
     assert_eq!(snapshot.wifi, "Connected");
     assert_eq!(snapshot.backlight, "High");
-    assert!(snapshot
-        .actions
-        .iter()
-        .any(|action| action.contains("ConnectSavedWifi")));
+    assert!(
+        snapshot
+            .actions
+            .iter()
+            .any(|action| action.contains("ConnectSavedWifi"))
+    );
 }
 
 #[test]

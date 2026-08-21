@@ -57,6 +57,17 @@ npm run dev:web
 
 Open the printed local URL. The page loads the same Counter MBC, executes `micro-ir`, `micro-vm`, and `micro-core` inside WebAssembly, and renders the Micro UI Tree through the DOM. DOM click callbacks enqueue the same `Event::Activate` handler IDs used by the native host.
 
+The Web Player is also an interactive **ESP32-S3 Touch-LCD-7 simulator**. It
+renders an 800×480 landscape device with the checked RGB565/16 MHz, GT911,
+CH422G, 8 MiB Flash, and 8 MiB PSRAM profile. Launcher and Settings use the
+shared `micro-os-core` reducer; Counter still executes the compiled MBC through
+the shared Runtime. Use Counter → Add → Back, then Settings to inspect
+reducer-backed backlight, Wi-Fi, and Safe Mode flows.
+
+The browser simulator executes the shared Runtime and Micro OS reducer, but
+does not emulate ESP-IDF, RGB timing, GT911 electrical I2C, PSRAM allocation,
+Wi-Fi radio, or physical hardware success.
+
 Run the real-browser acceptance test with:
 
 ```bash

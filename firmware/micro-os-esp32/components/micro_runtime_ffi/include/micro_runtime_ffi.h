@@ -85,6 +85,14 @@ typedef enum micro_app_id {
     MICRO_APP_COUNTER = 1,
 } micro_app_id_t;
 
+typedef enum micro_backlight {
+    MICRO_BACKLIGHT_UNUSED = 0,
+    MICRO_BACKLIGHT_OFF = 1,
+    MICRO_BACKLIGHT_LOW = 2,
+    MICRO_BACKLIGHT_MEDIUM = 3,
+    MICRO_BACKLIGHT_HIGH = 4,
+} micro_backlight_t;
+
 typedef enum micro_event_kind {
     MICRO_EVENT_BOOT_SAMPLED = 0,
     MICRO_EVENT_STORAGE_INITIALIZED = 1,
@@ -117,6 +125,7 @@ typedef enum micro_event_kind {
     MICRO_EVENT_FACTORY_RESET_CONFIRMED = 28,
     MICRO_EVENT_FACTORY_RESET_COMPLETED = 29,
     MICRO_EVENT_REBOOT_REQUESTED = 30,
+    MICRO_EVENT_SET_BACKLIGHT = 31,
 } micro_event_kind_t;
 
 typedef struct micro_event {
@@ -160,6 +169,7 @@ typedef enum micro_action_kind {
     MICRO_ACTION_CONFIRM_FACTORY_RESET = 23,
     MICRO_ACTION_FACTORY_RESET = 24,
     MICRO_ACTION_REBOOT = 25,
+    MICRO_ACTION_APPLY_BACKLIGHT = 26,
 } micro_action_kind_t;
 
 typedef struct micro_action {
@@ -168,7 +178,7 @@ typedef struct micro_action {
     micro_failure_reason_t failure;
     micro_app_id_t app;
     uint32_t after_secs;
-    uint32_t reserved_0;
+    micro_backlight_t backlight;
     uint32_t reserved_1;
     uint32_t reserved_2;
     uint64_t session_id;
@@ -189,6 +199,7 @@ _Static_assert(sizeof(micro_result_t) == 4, "micro_result_t must be 32-bit");
 _Static_assert(sizeof(micro_failure_reason_t) == 4, "micro_failure_reason_t must be 32-bit");
 _Static_assert(sizeof(micro_wifi_failure_t) == 4, "micro_wifi_failure_t must be 32-bit");
 _Static_assert(sizeof(micro_app_id_t) == 4, "micro_app_id_t must be 32-bit");
+_Static_assert(sizeof(micro_backlight_t) == 4, "micro_backlight_t must be 32-bit");
 _Static_assert(sizeof(micro_event_kind_t) == 4, "micro_event_kind_t must be 32-bit");
 _Static_assert(sizeof(micro_action_kind_t) == 4, "micro_action_kind_t must be 32-bit");
 _Static_assert(sizeof(micro_event_t) == 56, "micro_event_t layout drifted");
@@ -217,6 +228,9 @@ _Static_assert(MICRO_WIFI_FAILURE_UNUSED == 0 && MICRO_WIFI_FAILURE_AUTHENTICATI
                MICRO_WIFI_FAILURE_INTERNAL == 4, "micro_wifi_failure_t discriminants drifted");
 _Static_assert(MICRO_APP_UNUSED == 0 && MICRO_APP_COUNTER == 1,
                "micro_app_id_t discriminants drifted");
+_Static_assert(MICRO_BACKLIGHT_UNUSED == 0 && MICRO_BACKLIGHT_OFF == 1 &&
+               MICRO_BACKLIGHT_LOW == 2 && MICRO_BACKLIGHT_MEDIUM == 3 &&
+               MICRO_BACKLIGHT_HIGH == 4, "micro_backlight_t discriminants drifted");
 _Static_assert(MICRO_EVENT_BOOT_SAMPLED == 0 && MICRO_EVENT_STORAGE_INITIALIZED == 1 &&
                MICRO_EVENT_PROFILE_VALIDATED == 2 && MICRO_EVENT_DISPLAY_INITIALIZED == 3 &&
                MICRO_EVENT_SYSTEM_UI_INITIALIZED == 4 && MICRO_EVENT_NETWORK_CONFIG_LOADED == 5 &&
@@ -232,7 +246,8 @@ _Static_assert(MICRO_EVENT_BOOT_SAMPLED == 0 && MICRO_EVENT_STORAGE_INITIALIZED 
                MICRO_EVENT_CLEAR_NETWORK_REQUESTED == 24 && MICRO_EVENT_CLEAR_NETWORK_CONFIRMED == 25 &&
                MICRO_EVENT_CLEAR_NETWORK_COMPLETED == 26 && MICRO_EVENT_FACTORY_RESET_REQUESTED == 27 &&
                MICRO_EVENT_FACTORY_RESET_CONFIRMED == 28 && MICRO_EVENT_FACTORY_RESET_COMPLETED == 29 &&
-               MICRO_EVENT_REBOOT_REQUESTED == 30, "micro_event_kind_t discriminants drifted");
+               MICRO_EVENT_REBOOT_REQUESTED == 30 && MICRO_EVENT_SET_BACKLIGHT == 31,
+               "micro_event_kind_t discriminants drifted");
 _Static_assert(MICRO_ACTION_NONE == 0 && MICRO_ACTION_REJECTED == 1 &&
                MICRO_ACTION_ACTIONS == 2 && MICRO_ACTION_ENTER_SAFE_MODE == 3 &&
                MICRO_ACTION_INITIALIZE_STORAGE == 4 && MICRO_ACTION_VALIDATE_PROFILE == 5 &&
@@ -245,7 +260,8 @@ _Static_assert(MICRO_ACTION_NONE == 0 && MICRO_ACTION_REJECTED == 1 &&
                MICRO_ACTION_START_APP == 18 && MICRO_ACTION_STOP_APP == 19 &&
                MICRO_ACTION_SHOW_APP_ERROR == 20 && MICRO_ACTION_CONFIRM_CLEAR_NETWORK == 21 &&
                MICRO_ACTION_CLEAR_NETWORK == 22 && MICRO_ACTION_CONFIRM_FACTORY_RESET == 23 &&
-               MICRO_ACTION_FACTORY_RESET == 24 && MICRO_ACTION_REBOOT == 25,
+               MICRO_ACTION_FACTORY_RESET == 24 && MICRO_ACTION_REBOOT == 25 &&
+               MICRO_ACTION_APPLY_BACKLIGHT == 26,
                "micro_action_kind_t discriminants drifted");
 
 micro_runtime_t *micro_runtime_create(const uint8_t *mbc, size_t len,

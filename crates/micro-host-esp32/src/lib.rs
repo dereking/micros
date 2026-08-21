@@ -11,8 +11,8 @@ use micro_ir::{DecodeError, FunctionId, decode};
 use micro_lvgl::{LvglRenderer, NativeUi};
 
 pub use bridge::{
-    DispatchError, MicroAction, MicroActionKind, MicroAppId, MicroErrorCode, MicroEvent,
-    MicroEventKind, MicroFailureReason, MicroResult, MicroState, MicroWifiFailure,
+    DispatchError, MicroAction, MicroActionKind, MicroAppId, MicroBacklight, MicroErrorCode,
+    MicroEvent, MicroEventKind, MicroFailureReason, MicroResult, MicroState, MicroWifiFailure,
     decode_action_batch, encode_action_batch,
 };
 
