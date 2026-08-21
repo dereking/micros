@@ -131,3 +131,64 @@ fn kv_persists_across_open() {
     let kv = store.open("counter").expect("open");
     assert_eq!(kv.get("count"), Ok(Some(KvValue::Number(42.0))));
 }
+
+#[test]
+fn invalid_identifiers_are_rejected() {
+    let (_dir, mut store) = fresh_store();
+
+    let evil = AppMeta {
+        id: "../evil".to_owned(),
+        name: "Evil".to_owned(),
+        version: 1,
+    };
+    assert!(matches!(
+        store.install(evil, b"bytes"),
+        Err(StoreError::Unsupported(_))
+    ));
+    assert!(matches!(
+        store.read("../evil"),
+        Err(StoreError::Unsupported(_))
+    ));
+    assert!(matches!(
+        store.open("a/b"),
+        Err(StoreError::Unsupported(_))
+    ));
+}
+
+#[test]
+fn empty_identifier_is_rejected() {
+    let (_dir, store) = fresh_store();
+    assert!(matches!(
+        store.open(""),
+        Err(StoreError::Unsupported(_))
+    ));
+}
+
+#[test]
+fn non_finite_kv_number_is_rejected() {
+    let (_dir, store) = fresh_store();
+    let mut kv = store.open("ns").expect("open");
+    assert!(matches!(
+        kv.set("nan", &KvValue::Number(f64::NAN)),
+        Err(StoreError::Unsupported(_))
+    ));
+}
+
+#[test]
+fn corrupt_manifest_is_reported_corrupt() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::create_dir_all(dir.path().join("apps")).expect("mkdir");
+    fs::write(dir.path().join("apps/manifest.json"), b"not json").expect("write");
+    let store = NativeStore::new(dir.path());
+    assert!(matches!(store.list(), Err(StoreError::Corrupt(_))));
+}
+
+#[test]
+fn corrupt_kv_file_is_reported_corrupt() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::create_dir_all(dir.path().join("kv")).expect("mkdir");
+    fs::write(dir.path().join("kv/counter.json"), b"not json").expect("write");
+    let store = NativeStore::new(dir.path());
+    let kv = store.open("counter").expect("open");
+    assert!(matches!(kv.get("k"), Err(StoreError::Corrupt(_))));
+}

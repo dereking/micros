@@ -26,6 +26,23 @@ impl NativeStore {
         self.apps_dir().join(MANIFEST_FILE)
     }
 
+    /// Rejects identifiers that could escape the store directory or that NVS
+    /// could not host, matching the `[A-Za-z0-9][A-Za-z0-9_.-]*` shape.
+    fn validate_ident(name: &str) -> Result<(), StoreError> {
+        let mut chars = name.chars();
+        let first_ok = chars.next().is_some_and(|c| c.is_ascii_alphanumeric());
+        if !first_ok
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        {
+            return Err(StoreError::Unsupported(format!(
+                "invalid identifier `{name}`"
+            )));
+        }
+        Ok(())
+    }
+
     fn load_manifest(&self) -> Result<Vec<AppMeta>, StoreError> {
         match fs::read(self.manifest_path()) {
             Ok(bytes) => serde_json::from_slice(&bytes)
@@ -60,6 +77,7 @@ impl AppStore for NativeStore {
     }
 
     fn read(&self, id: &str) -> Result<Vec<u8>, StoreError> {
+        Self::validate_ident(id)?;
         let path = self.apps_dir().join(format!("{id}.mbc"));
         fs::read(&path).map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
@@ -71,6 +89,7 @@ impl AppStore for NativeStore {
     }
 
     fn install(&mut self, meta: AppMeta, bytes: &[u8]) -> Result<(), StoreError> {
+        Self::validate_ident(&meta.id)?;
         let blob_path = self.apps_dir().join(format!("{}.mbc", meta.id));
         atomic_write(&blob_path, bytes)?;
         let mut manifest = self.load_manifest()?;
@@ -80,6 +99,7 @@ impl AppStore for NativeStore {
     }
 
     fn uninstall(&mut self, id: &str) -> Result<(), StoreError> {
+        Self::validate_ident(id)?;
         let blob_path = self.apps_dir().join(format!("{id}.mbc"));
         let blob_removed = match fs::remove_file(&blob_path) {
             Ok(()) => true,
@@ -98,6 +118,7 @@ impl AppStore for NativeStore {
 
 impl KvStore for NativeStore {
     fn open(&self, namespace: &str) -> Result<Box<dyn ScopedKv>, StoreError> {
+        Self::validate_ident(namespace)?;
         Ok(Box::new(NativeScopedKv {
             root: self.root.clone(),
             namespace: namespace.to_owned(),
@@ -158,6 +179,13 @@ impl ScopedKv for NativeScopedKv {
     }
 
     fn set(&mut self, key: &str, value: &KvValue) -> Result<(), StoreError> {
+        if let KvValue::Number(value) = value
+            && !value.is_finite()
+        {
+            return Err(StoreError::Unsupported(
+                "non-finite numbers cannot be stored".into(),
+            ));
+        }
         let mut map = self.load()?;
         map.insert(key.to_owned(), value.clone());
         self.save(&map)
