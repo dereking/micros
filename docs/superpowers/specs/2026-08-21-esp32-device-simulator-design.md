@@ -44,10 +44,17 @@ when leaving Counter.
 
 A JavaScript system-shell controller owns `micro-os-core` only through a small
 WebAssembly bridge added to `micro-host-web`. The bridge creates `MicroOs`,
-dispatches a constrained set of existing `micro-os-core::Event` values, and
-returns a stable serializable state/action snapshot. JavaScript renders that
-snapshot; it must not duplicate reducer rules such as Wi-Fi retry, Safe Mode,
-or app-session identity.
+dispatches a constrained set of `micro-os-core::Event` values, and returns a
+stable serializable state/action snapshot. JavaScript renders that snapshot;
+it must not duplicate reducer rules such as Wi-Fi retry, Safe Mode, app-session
+identity, or backlight state.
+
+`micro-os-core` gains a `SetBacklight(Backlight)` event, a persisted logical
+backlight field with `High` as its normal boot default, and an
+`ApplyBacklight(Backlight)` action. The browser monitor renders the reducer
+field. The ESP32 host will later map `ApplyBacklight(Off|Low|Medium|High)` to
+the binary CH422G EXIO2 control supported by its current BSP; levels above Off
+therefore become enabled until dimming hardware is introduced.
 
 The simulated board data is a read-only projection of the checked Spotpear
 profile and the committed LCD7 BSP constants. It is a diagnostic display, not

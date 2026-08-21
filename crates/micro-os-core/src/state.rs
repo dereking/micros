@@ -99,6 +99,7 @@ pub enum Event {
     },
     SetupSkipped,
     OpenSettings,
+    SetBacklight(Backlight),
     BackPressed,
     HomePressed,
     OpenApp(AppId),
@@ -169,6 +170,7 @@ pub enum Action {
     ShowFirstRunSetup,
     ShowLauncher,
     ShowSettings,
+    ApplyBacklight(Backlight),
     StartWifiScan {
         operation: WifiOperationId,
     },
@@ -241,6 +243,7 @@ pub struct MicroOs {
     pending_reconnect: Option<WifiOperationId>,
     pending_reconnect_delay: Option<u32>,
     suspended_reconnect: Option<PendingReconnect>,
+    backlight: Backlight,
     reconnect_index: usize,
     next_confirmation_id: u64,
     next_wifi_operation_id: u64,
@@ -268,6 +271,7 @@ impl MicroOs {
             pending_reconnect: None,
             pending_reconnect_delay: None,
             suspended_reconnect: None,
+            backlight: Backlight::High,
             reconnect_index: 0,
             next_confirmation_id: 1,
             next_wifi_operation_id: 1,
@@ -298,6 +302,11 @@ impl MicroOs {
     #[must_use]
     pub fn network_configured(&self) -> bool {
         self.network_configured
+    }
+
+    #[must_use]
+    pub fn backlight(&self) -> &Backlight {
+        &self.backlight
     }
 
     #[must_use]
@@ -340,6 +349,7 @@ impl MicroOs {
             Event::NetworkConfigLoaded { configured } => self.network_config_loaded(configured),
             Event::SetupSkipped => self.setup_skipped(),
             Event::OpenSettings => self.open_settings(),
+            Event::SetBacklight(backlight) => self.set_backlight(backlight),
             Event::BackPressed | Event::HomePressed => self.go_home(),
             Event::OpenApp(app) => self.open_app(app),
             Event::AppStarted { session } => self.app_started(session),
@@ -498,6 +508,14 @@ impl MicroOs {
         let _ = self.cancel_pending_confirmation();
         self.state = State::Settings;
         Action::ShowSettings
+    }
+
+    fn set_backlight(&mut self, backlight: Backlight) -> Action {
+        if !matches!(&self.state, State::Launcher | State::Settings) {
+            return Action::Rejected;
+        }
+        self.backlight = backlight.clone();
+        Action::ApplyBacklight(backlight)
     }
 
     fn go_home(&mut self) -> Action {

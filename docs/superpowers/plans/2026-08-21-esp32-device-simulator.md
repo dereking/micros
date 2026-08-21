@@ -10,7 +10,53 @@
 
 ---
 
-### Task 1: Reducer-backed Web system bridge
+### Task 1: Make backlight a Micro OS capability
+
+**Files:**
+- Modify: `crates/micro-os-core/src/state.rs`
+- Modify: `crates/micro-os-core/tests/lifecycle.rs`
+
+- [ ] **Step 1: Write failing reducer tests**
+
+```rust
+#[test]
+fn backlight_is_a_reducer_owned_setting() {
+    let mut os = configured_launcher();
+    assert_eq!(os.backlight(), &Backlight::High);
+    assert_eq!(os.dispatch(Event::SetBacklight(Backlight::Off)), Action::ApplyBacklight(Backlight::Off));
+    assert_eq!(os.backlight(), &Backlight::Off);
+}
+
+#[test]
+fn safe_mode_rejects_backlight_changes() {
+    let mut os = safe_mode();
+    assert_eq!(os.dispatch(Event::SetBacklight(Backlight::Low)), Action::Rejected);
+    assert_eq!(os.backlight(), &Backlight::High);
+}
+```
+
+- [ ] **Step 2: Verify RED**
+
+Run: `cargo test -p micro-os-core --test lifecycle backlight`
+
+Expected: FAIL because `SetBacklight`, `ApplyBacklight`, and `backlight()` do not exist.
+
+- [ ] **Step 3: Implement the setting**
+
+Add `Event::SetBacklight(Backlight)`, `Action::ApplyBacklight(Backlight)`, and a `backlight: Backlight` field on `MicroOs`, initialized as `High`. Add `pub fn backlight(&self) -> &Backlight`. Handle the event only in `Launcher` and `Settings`; set the field and return `ApplyBacklight` there, while Safe Mode and all transitional states return `Rejected` without mutation.
+
+- [ ] **Step 4: Verify and commit**
+
+Run: `cargo test -p micro-os-core --test lifecycle backlight && cargo test -p micro-os-core && cargo clippy -p micro-os-core --all-targets -- -D warnings`
+
+Expected: PASS.
+
+```bash
+git add crates/micro-os-core/src/state.rs crates/micro-os-core/tests/lifecycle.rs
+git commit -m "feat: model Micro OS backlight settings"
+```
+
+### Task 2: Reducer-backed Web system bridge
 
 **Files:**
 - Modify: `crates/micro-host-web/Cargo.toml`
@@ -55,7 +101,7 @@ pub struct SystemShell { os: MicroOs, active_app: Option<AppSessionId>, active_w
 pub struct SystemSnapshot { pub screen: String, pub wifi: String, pub backlight: String, pub last_action: String, pub actions: Vec<String>, pub counter_session: Option<u64> }
 ```
 
-`configured_boot()` must dispatch the valid `BootSampled`, `StorageInitialized`, `ProfileValidated`, `DisplayInitialized`, `SystemUiInitialized`, and `NetworkConfigLoaded { configured: true }` sequence. Retain operation/session IDs from returned `StartApp`, `StartWifiScan`, and `ConnectWifi` actions. Append formatted reducer actions to a bounded 24-item log.
+`configured_boot()` must dispatch the valid `BootSampled`, `StorageInitialized`, `ProfileValidated`, `DisplayInitialized`, `SystemUiInitialized`, and `NetworkConfigLoaded { configured: true }` sequence. `ToggleBacklight` dispatches `SetBacklight(Off)` when the snapshot is High, otherwise `SetBacklight(High)`. Retain operation/session IDs from returned `StartApp`, `StartWifiScan`, and `ConnectWifi` actions. Append formatted reducer actions to a bounded 24-item log.
 
 - [ ] **Step 4: Expose this facade to Wasm**
 
@@ -85,7 +131,7 @@ git add crates/micro-host-web/Cargo.toml crates/micro-host-web/src/lib.rs crates
 git commit -m "feat: expose Micro OS state to the web host"
 ```
 
-### Task 2: JavaScript device-shell controller
+### Task 3: JavaScript device-shell controller
 
 **Files:**
 - Create: `products/micro-web-player/src/device-shell.js`
@@ -134,7 +180,7 @@ git add products/micro-web-player/src/device-shell.js tests/web/device-shell.tes
 git commit -m "feat: add ESP32 simulator shell controller"
 ```
 
-### Task 3: Device and monitor rendering
+### Task 4: Device and monitor rendering
 
 **Files:**
 - Modify: `products/micro-web-player/index.html`
@@ -181,7 +227,7 @@ git add products/micro-web-player/index.html products/micro-web-player/src/main.
 git commit -m "feat: render the ESP32-S3 web simulator"
 ```
 
-### Task 4: System and monitor acceptance
+### Task 5: System and monitor acceptance
 
 **Files:**
 - Modify: `tests/web/counter.spec.js`
@@ -223,4 +269,4 @@ git commit -m "docs: explain ESP32 simulator limits"
 
 ## Plan Self-Review
 
-Task 1 implements real reducer state/actions; Task 2 implements deterministic runtime lifecycle, board constants, and pointer mapping; Task 3 renders the 800×480 device and uses real MBC execution; Task 4 proves Counter, system, touch, and documentation behavior. File names, public intent strings, snapshot names, and test commands are consistent throughout.
+Task 1 makes backlight a real reducer-owned setting; Task 2 implements real reducer state/actions in Wasm; Task 3 implements deterministic runtime lifecycle, board constants, and pointer mapping; Task 4 renders the 800×480 device and uses real MBC execution; Task 5 proves Counter, system, touch, and documentation behavior. File names, public intent strings, snapshot names, and test commands are consistent throughout.

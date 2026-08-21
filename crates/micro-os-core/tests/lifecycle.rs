@@ -1,5 +1,5 @@
 use micro_os_core::{
-    Action, AppDestination, AppId, AppSessionId, ConfirmationId, Event, FailureReason,
+    Action, AppDestination, AppId, AppSessionId, Backlight, ConfirmationId, Event, FailureReason,
     LiveWifiState, MicroOs, PendingConfirmation, ProvisioningState, State, WifiFailure,
     WifiOperationId,
 };
@@ -93,6 +93,31 @@ fn normal_boot_is_strict_and_safe_boot_rejects_apps() {
         safe.dispatch(Event::OpenApp(AppId::Counter)),
         Action::Rejected
     );
+}
+
+#[test]
+fn backlight_is_a_reducer_owned_setting() {
+    let mut os = MicroOs::new();
+    boot_configured(&mut os);
+
+    assert_eq!(os.backlight(), &Backlight::High);
+    assert_eq!(
+        os.dispatch(Event::SetBacklight(Backlight::Off)),
+        Action::ApplyBacklight(Backlight::Off)
+    );
+    assert_eq!(os.backlight(), &Backlight::Off);
+}
+
+#[test]
+fn safe_mode_rejects_backlight_changes() {
+    let mut os = MicroOs::new();
+    os.dispatch(Event::BootSampled { safe_mode: true });
+
+    assert_eq!(
+        os.dispatch(Event::SetBacklight(Backlight::Low)),
+        Action::Rejected
+    );
+    assert_eq!(os.backlight(), &Backlight::High);
 }
 
 #[test]
