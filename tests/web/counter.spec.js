@@ -45,3 +45,12 @@ test("settings scroll within the fixed device viewport", async ({ page }) => {
   await page.getByRole("button", { name: "Safe Mode reboot" }).scrollIntoViewIfNeeded();
   await expect(page.getByRole("button", { name: "Safe Mode reboot" })).toBeVisible();
 });
+
+test("simulator display disables browser text selection without affecting the monitor", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.locator("[data-device-screen]")).toHaveCSS("user-select", "none");
+  await expect(page.locator("[data-device-screen]")).toHaveCSS("-webkit-user-select", "none");
+  await expect(page.locator(".monitor")).not.toHaveCSS("user-select", "none");
+  await expect(page.locator(".simulator-header")).not.toHaveCSS("user-select", "none");
+});
