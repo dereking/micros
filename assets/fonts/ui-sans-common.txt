@@ -1,0 +1,7 @@
+# Bootstrap-only glyph manifest for the current compiler tests and Counter sample.
+# Printable ASCII is admitted separately by the compiler and is not repeated here.
+# Task 5 replaces this scoped list with generated full-source coverage.
+欢
+迎
+确
+认

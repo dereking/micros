@@ -217,15 +217,22 @@ impl Validator<'_> {
             return;
         };
         let expected = match name.as_str() {
-            "state" | "bind" | "ui.mount" | "ui.column" | "ui.text" => 1,
-            "ui.button" => 2,
+            "state" | "bind" | "ui.mount" | "ui.column" => 1..=1,
+            "ui.text" => 1..=2,
+            "ui.button" => 2..=2,
             _ => {
                 self.unsupported(call.span, format!("call `{name}`"));
                 return;
             }
         };
-        if call.args.len() != expected || call.args.iter().any(|argument| argument.spread.is_some())
+        if !expected.contains(&call.args.len())
+            || call.args.iter().any(|argument| argument.spread.is_some())
         {
+            let expected = if expected.start() == expected.end() {
+                expected.start().to_string()
+            } else {
+                format!("{} or {}", expected.start(), expected.end())
+            };
             self.sdk_error(
                 call.span,
                 format!("`{name}` expects {expected} argument(s)"),
@@ -244,12 +251,16 @@ impl Validator<'_> {
                 ));
             }
         }
-        if name == "ui.button" {
-            self.expression(&call.args[0].expr);
-            self.button_options(&call.args[1].expr);
-        } else {
-            for argument in &call.args {
-                self.expression(&argument.expr);
+        match name.as_str() {
+            "ui.button" => {
+                self.expression(&call.args[0].expr);
+                self.button_options(&call.args[1].expr);
+            }
+            "ui.text" => self.expression(&call.args[0].expr),
+            _ => {
+                for argument in &call.args {
+                    self.expression(&argument.expr);
+                }
             }
         }
     }
@@ -275,7 +286,7 @@ impl Validator<'_> {
                 self.unsupported(property.key.span(), "computed button property");
                 continue;
             };
-            if name.sym != *"onClick" {
+            if !matches!(name.sym.as_ref(), "onClick" | "textStyle") {
                 self.errors.push(diagnostic_at(
                     self.source_map,
                     self.path,
@@ -284,7 +295,9 @@ impl Validator<'_> {
                     format!("unknown ui.button property `{}`", name.sym),
                 ));
             }
-            self.expression(&property.value);
+            if name.sym == *"onClick" {
+                self.expression(&property.value);
+            }
         }
     }
 

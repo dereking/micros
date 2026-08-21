@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
 use micro_ir::{
-    AppImage, BindingId, Constant, Function, FunctionId, FunctionKind, HandlerId, Instruction,
-    NodeId, ScalarType, StateDecl, StateId, TextSource, UiKind, UiNodeSpec, validate,
+    AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId, FunctionKind,
+    HandlerId, Instruction, NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind,
+    UiNodeSpec, validate,
 };
 use swc_common::{SourceMap, Span, Spanned, sync::Lrc};
 use swc_ecma_ast::{
@@ -154,9 +155,17 @@ impl<'a> Lowerer<'a> {
                             "ui.text expects a string or bind",
                         )
                     })?;
+                    if let Constant::String(value) = &constant {
+                        self.validate_literal_glyphs(call.args[0].span(), value)?;
+                    }
                     TextSource::Constant(self.intern(constant))
                 };
                 self.nodes[id.0 as usize].text = Some(source);
+                self.nodes[id.0 as usize].text_style = call
+                    .args
+                    .get(1)
+                    .map(|argument| self.lower_text_style(&argument.expr))
+                    .transpose()?;
                 Ok(id)
             }
             Some("ui.button") => {
@@ -170,11 +179,13 @@ impl<'a> Lowerer<'a> {
                             "button label must be a string",
                         )
                     })?;
+                if let Constant::String(value) = &label {
+                    self.validate_literal_glyphs(call.args[0].span(), value)?;
+                }
                 self.nodes[id.0 as usize].text = Some(TextSource::Constant(self.intern(label)));
-                let arrow = button_handler(&call.args[1].expr).ok_or_else(|| {
-                    self.error(call.args[1].span(), "MTS012", "onClick arrow is required")
-                })?;
+                let (arrow, text_style) = self.lower_button_options(&call.args[1].expr)?;
                 self.nodes[id.0 as usize].on_click = Some(self.add_function(arrow, false)?);
+                self.nodes[id.0 as usize].text_style = text_style;
                 Ok(id)
             }
             _ => Err(self.error(call.span, "MTS012", "unsupported UI call")),
@@ -192,6 +203,193 @@ impl<'a> Lowerer<'a> {
             text_style: None,
         });
         id
+    }
+
+    fn lower_text_style(&self, expression: &Expr) -> Result<TextStyle, Diagnostic> {
+        let Expr::Object(object) = expression else {
+            return Err(self.error(
+                expression.span(),
+                "MTS014",
+                "text style must be an object literal",
+            ));
+        };
+        let mut fields = BTreeMap::new();
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                return Err(self.error(property.span(), "MTS014", "text style cannot use spread"));
+            };
+            let Prop::KeyValue(property) = &**property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS014",
+                    "text style fields must be literal key-value pairs",
+                ));
+            };
+            let PropName::Ident(name) = &property.key else {
+                return Err(self.error(
+                    property.key.span(),
+                    "MTS014",
+                    "text style field names must be identifiers",
+                ));
+            };
+            let name = name.sym.to_string();
+            if !matches!(name.as_str(), "font" | "size" | "weight" | "lineHeight") {
+                return Err(self.error(
+                    property.key.span(),
+                    "MTS014",
+                    format!("unknown text style field `{name}`"),
+                ));
+            }
+            if fields.insert(name.clone(), &*property.value).is_some() {
+                return Err(self.error(
+                    property.key.span(),
+                    "MTS014",
+                    format!("duplicate text style field `{name}`"),
+                ));
+            }
+        }
+
+        for required in ["font", "size", "weight", "lineHeight"] {
+            if !fields.contains_key(required) {
+                return Err(self.error(
+                    object.span,
+                    "MTS014",
+                    format!("text style field `{required}` is required"),
+                ));
+            }
+        }
+
+        let font = string_literal(fields["font"]).ok_or_else(|| {
+            self.error(
+                fields["font"].span(),
+                "MTS014",
+                "text style `font` must be a string literal",
+            )
+        })?;
+        let family = match font {
+            "uiSans" => FontFamily::UiSans,
+            _ => {
+                return Err(self.error(
+                    fields["font"].span(),
+                    "MTS014",
+                    format!("unknown font `{font}`"),
+                ));
+            }
+        };
+        let weight = string_literal(fields["weight"]).ok_or_else(|| {
+            self.error(
+                fields["weight"].span(),
+                "MTS014",
+                "text style `weight` must be a string literal",
+            )
+        })?;
+        let weight = match weight {
+            "regular" => FontWeight::Regular,
+            "medium" => FontWeight::Medium,
+            "bold" => FontWeight::Bold,
+            _ => {
+                return Err(self.error(
+                    fields["weight"].span(),
+                    "MTS014",
+                    format!("unknown font weight `{weight}`"),
+                ));
+            }
+        };
+        let size_px = u8_literal(fields["size"]).ok_or_else(|| {
+            self.error(
+                fields["size"].span(),
+                "MTS014",
+                "text style `size` must be an unsigned 8-bit integer literal",
+            )
+        })?;
+        let line_height_px = u8_literal(fields["lineHeight"]).ok_or_else(|| {
+            self.error(
+                fields["lineHeight"].span(),
+                "MTS014",
+                "text style `lineHeight` must be an unsigned 8-bit integer literal",
+            )
+        })?;
+
+        TextStyle::new(family, size_px, weight, line_height_px)
+            .map_err(|error| self.error(expression.span(), "MTS014", error.to_string()))
+    }
+
+    fn lower_button_options<'b>(
+        &self,
+        expression: &'b Expr,
+    ) -> Result<(&'b ArrowExpr, Option<TextStyle>), Diagnostic> {
+        let Expr::Object(object) = expression else {
+            return Err(self.error(
+                expression.span(),
+                "MTS012",
+                "ui.button options must be an object",
+            ));
+        };
+        let mut handler = None;
+        let mut text_style = None;
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.button options cannot use spread",
+                ));
+            };
+            let Prop::KeyValue(property) = &**property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.button options must use key-value pairs",
+                ));
+            };
+            let PropName::Ident(name) = &property.key else {
+                return Err(self.error(
+                    property.key.span(),
+                    "MTS012",
+                    "ui.button option names must be identifiers",
+                ));
+            };
+            match name.sym.as_ref() {
+                "onClick" if handler.is_none() => {
+                    handler = Some(as_arrow(&property.value).ok_or_else(|| {
+                        self.error(property.value.span(), "MTS012", "onClick arrow is required")
+                    })?);
+                }
+                "textStyle" if text_style.is_none() => {
+                    text_style = Some(self.lower_text_style(&property.value)?);
+                }
+                "onClick" | "textStyle" => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS012",
+                        format!("duplicate ui.button property `{}`", name.sym),
+                    ));
+                }
+                _ => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS002",
+                        format!("unknown ui.button property `{}`", name.sym),
+                    ));
+                }
+            }
+        }
+        let handler = handler
+            .ok_or_else(|| self.error(expression.span(), "MTS012", "onClick arrow is required"))?;
+        Ok((handler, text_style))
+    }
+
+    fn validate_literal_glyphs(&self, span: Span, value: &str) -> Result<(), Diagnostic> {
+        if let Some(glyph) = value.chars().find(|glyph| !is_bootstrap_glyph(*glyph)) {
+            return Err(self.error(
+                span,
+                "MTS015",
+                format!(
+                    "text literal contains glyph `{glyph}` missing from the bootstrap font manifest"
+                ),
+            ));
+        }
+        Ok(())
     }
 
     fn add_function(&mut self, arrow: &ArrowExpr, binding: bool) -> Result<FunctionId, Diagnostic> {
@@ -528,6 +726,31 @@ fn literal_constant(expression: &Expr) -> Option<Constant> {
     }
 }
 
+fn string_literal(expression: &Expr) -> Option<&str> {
+    let Expr::Lit(Lit::Str(value)) = expression else {
+        return None;
+    };
+    value.value.as_str()
+}
+
+fn u8_literal(expression: &Expr) -> Option<u8> {
+    let Expr::Lit(Lit::Num(value)) = expression else {
+        return None;
+    };
+    (value.value.fract() == 0.0 && (0.0..=u8::MAX as f64).contains(&value.value))
+        .then_some(value.value as u8)
+}
+
+fn is_bootstrap_glyph(glyph: char) -> bool {
+    glyph == ' '
+        || glyph.is_ascii_graphic()
+        || include_str!("../../../assets/fonts/ui-sans-common.txt")
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .flat_map(str::chars)
+            .any(|manifest_glyph| manifest_glyph == glyph)
+}
+
 fn call_name_expr(expression: &Expr) -> Option<String> {
     let Expr::Call(call) = expression else {
         return None;
@@ -557,23 +780,4 @@ fn as_arrow(expression: &Expr) -> Option<&ArrowExpr> {
         Expr::Arrow(arrow) => Some(arrow),
         _ => None,
     }
-}
-fn button_handler(expression: &Expr) -> Option<&ArrowExpr> {
-    let Expr::Object(object) = expression else {
-        return None;
-    };
-    object.props.iter().find_map(|property| {
-        let PropOrSpread::Prop(property) = property else {
-            return None;
-        };
-        let Prop::KeyValue(property) = &**property else {
-            return None;
-        };
-        let PropName::Ident(name) = &property.key else {
-            return None;
-        };
-        (name.sym == *"onClick")
-            .then(|| as_arrow(&property.value))
-            .flatten()
-    })
 }
