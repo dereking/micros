@@ -12,7 +12,7 @@
     "preview:web": "vite preview products/micro-web-player --host 127.0.0.1 --port 4173",
     "demo": "npm run build:app && cargo run -p micro-host-sdl --features native -- apps/counter/dist/app.mbc",
     "test": "cargo test --workspace",
-    "test:web:unit": "node --test tests/web/runtime-loop.test.js",
+    "test:web:unit": "node --test tests/web/*.test.js",
     "test:web": "npm run test:web:unit && npm run build:web && playwright test"
   },
   "devDependencies": {
