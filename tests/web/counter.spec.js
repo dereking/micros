@@ -27,3 +27,21 @@ test("simulator monitor reflects reducer-backed settings and touch", async ({ pa
   await expect(page.getByText("Safe Mode")).toBeVisible();
   await expect(page.locator('[data-monitor="state"]')).toHaveText("SafeMode");
 });
+
+test("settings scroll within the fixed device viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 900 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+
+  const screen = page.locator("#system-screen");
+  await expect(screen).toHaveCSS("overflow-y", "auto");
+
+  const dimensions = await screen.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.clientHeight);
+
+  await page.getByRole("button", { name: "Safe Mode reboot" }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole("button", { name: "Safe Mode reboot" })).toBeVisible();
+});
