@@ -6,25 +6,46 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
     let source = include_str!("../../../apps/counter/app.ts");
     let image = compile_source("app.ts", source).unwrap();
 
-    assert_eq!(image.states.len(), 4);
-    assert!(image.states.iter().all(|slot| slot.ty == ScalarType::Number));
+    assert_eq!(image.states.len(), 5);
+    assert_eq!(
+        image
+            .states
+            .iter()
+            .filter(|slot| slot.ty == ScalarType::Number)
+            .count(),
+        4
+    );
+    assert_eq!(
+        image
+            .states
+            .iter()
+            .filter(|slot| slot.ty == ScalarType::String)
+            .count(),
+        1
+    );
 
     let bindings: Vec<_> = image
         .functions
         .iter()
         .filter(|function| matches!(function.kind, FunctionKind::Binding(_)))
         .collect();
-    assert_eq!(bindings.len(), 7);
+    assert_eq!(bindings.len(), 9);
 
     let handlers: Vec<_> = image
         .functions
         .iter()
         .filter(|function| matches!(function.kind, FunctionKind::Handler(_)))
         .collect();
-    assert_eq!(handlers.len(), 6);
+    assert_eq!(handlers.len(), 7);
 
-    // The first handler (Add) increments count (state 0) and presses (state 1).
-    let stores: Vec<_> = handlers[0]
+    // The Add button's handler increments count (state 0) and presses (state 1).
+    let add = image
+        .nodes
+        .iter()
+        .find(|node| node.kind == UiKind::Button)
+        .unwrap();
+    let add_handler = &image.functions[add.on_click.unwrap().0 as usize];
+    let stores: Vec<_> = add_handler
         .code
         .iter()
         .filter_map(|op| match op {
@@ -33,8 +54,23 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
         })
         .collect();
     assert_eq!(stores, [0, 1]);
-    // The third handler (Double) doubles count and increments presses.
-    let loads: Vec<_> = handlers[2]
+    // The Double handler doubles count and increments presses.
+    let double = image
+        .nodes
+        .iter()
+        .find(|node| {
+            matches!(node.kind, UiKind::Button)
+                && matches!(
+                    image.nodes[node.id.0 as usize].text,
+                    Some(TextSource::Constant(_))
+                )
+                && image.functions[node.on_click.unwrap().0 as usize]
+                    .code
+                    .iter()
+                    .any(|op| matches!(op, Instruction::Mul))
+        })
+        .unwrap();
+    let loads: Vec<_> = image.functions[double.on_click.unwrap().0 as usize]
         .code
         .iter()
         .filter_map(|op| match op {
@@ -46,7 +82,7 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
 
     let root = &image.nodes[image.root.0 as usize];
     assert_eq!(root.kind, UiKind::Column);
-    assert_eq!(root.children.len(), 10);
+    assert_eq!(root.children.len(), 12);
     // The first child is a styled static title.
     let title = &image.nodes[root.children[0].0 as usize];
     assert!(matches!(title.text, Some(TextSource::Constant(_))));

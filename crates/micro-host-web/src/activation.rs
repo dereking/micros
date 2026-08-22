@@ -16,3 +16,17 @@ impl ActivationQueue {
         self.0.borrow_mut().pop_front()
     }
 }
+
+/// Queue of `ui.input` onChange events: the handler id plus the new text.
+#[derive(Clone, Default)]
+pub struct InputChangeQueue(Rc<RefCell<VecDeque<(FunctionId, String)>>>);
+
+impl InputChangeQueue {
+    pub fn push(&self, handler: FunctionId, text: String) {
+        self.0.borrow_mut().push_back((handler, text));
+    }
+
+    pub fn pop(&mut self) -> Option<(FunctionId, String)> {
+        self.0.borrow_mut().pop_front()
+    }
+}

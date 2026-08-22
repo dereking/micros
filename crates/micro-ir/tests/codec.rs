@@ -13,6 +13,7 @@ fn fixture() -> AppImage {
         }],
         functions: vec![Function {
             kind: FunctionKind::Binding(BindingId(0)),
+            arg_count: 0,
             locals: 0,
             max_stack: 2,
             code: vec![
@@ -66,12 +67,14 @@ fn round_trips_progress_and_switch_values() {
         functions: vec![
             Function {
                 kind: FunctionKind::Binding(BindingId(0)),
+            arg_count: 0,
                 locals: 0,
                 max_stack: 2,
                 code: vec![Instruction::Const(0), Instruction::Return],
             },
             Function {
                 kind: FunctionKind::Handler(micro_ir::HandlerId(0)),
+            arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![Instruction::Return],
@@ -265,6 +268,7 @@ fn conditional_jump_consumes_its_condition() {
     image.constants.push(Constant::Bool(true));
     image.functions[0] = Function {
         kind: FunctionKind::Handler(micro_ir::HandlerId(0)),
+            arg_count: 0,
         locals: 0,
         max_stack: 1,
         code: vec![

@@ -29,5 +29,9 @@ declare const ui: {
   button(label: string, options: { onClick: () => void; textStyle?: UiTextStyle }): UiNode;
   progress(value: number | Binding<number>): UiNode;
   switch(value: Binding<boolean>, options?: { onToggle?: () => void }): UiNode;
+  input(
+    value: string | Binding<string>,
+    options?: { placeholder?: string; onChange?: (text: string) => void },
+  ): UiNode;
   mount(root: UiNode): void;
 };

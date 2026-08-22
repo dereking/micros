@@ -26,6 +26,7 @@ pub enum VmError {
         found: &'static str,
     },
     DivisionByZero,
+    MissingArgument,
     State(StateError),
 }
 

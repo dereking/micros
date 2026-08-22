@@ -23,7 +23,12 @@ impl<'image, 'state, S: StateAccess> Vm<'image, 'state, S> {
         Self { image, state }
     }
 
-    pub fn invoke(&mut self, function_id: FunctionId, budget: u64) -> Result<Execution, VmError> {
+    pub fn invoke(
+        &mut self,
+        function_id: FunctionId,
+        argument: Option<Value>,
+        budget: u64,
+    ) -> Result<Execution, VmError> {
         let function = self
             .image
             .functions
@@ -56,6 +61,9 @@ impl<'image, 'state, S: StateAccess> Vm<'image, 'state, S> {
                         .get(*id as usize)
                         .ok_or(VmError::InvalidReference("constant"))?;
                     stack.push(Value::from(constant));
+                }
+                Instruction::LoadArg => {
+                    stack.push(argument.clone().ok_or(VmError::MissingArgument)?);
                 }
                 Instruction::LoadLocal(id) => stack.push(
                     locals

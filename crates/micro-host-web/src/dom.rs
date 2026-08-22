@@ -6,23 +6,30 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{Document, Element, Event};
 
-use crate::{ActivationQueue, inline_text_style};
+use crate::{ActivationQueue, InputChangeQueue, inline_text_style};
 
 pub struct DomBridge {
     document: Document,
     container: Element,
     elements: BTreeMap<u32, Element>,
     activations: ActivationQueue,
+    input_changes: InputChangeQueue,
     click_handlers: Vec<Closure<dyn FnMut(Event)>>,
 }
 
 impl DomBridge {
-    pub fn new(document: Document, container: Element, activations: ActivationQueue) -> Self {
+    pub fn new(
+        document: Document,
+        container: Element,
+        activations: ActivationQueue,
+        input_changes: InputChangeQueue,
+    ) -> Self {
         Self {
             document,
             container,
             elements: BTreeMap::new(),
             activations,
+            input_changes,
             click_handlers: Vec::new(),
         }
     }
@@ -204,5 +211,55 @@ impl WebDom for DomBridge {
         element
             .set_attribute("aria-checked", if checked { "true" } else { "false" })
             .map_err(|error| format!("set switch aria: {error:?}"))
+    }
+
+    fn create_input(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        text: &str,
+        placeholder: &str,
+        handler: Option<FunctionId>,
+        style: Option<&TextStyle>,
+    ) -> Result<(), String> {
+        let element = self.create_element("input", node, "micro-input")?;
+        element
+            .set_attribute("type", "text")
+            .map_err(|error| format!("set input type: {error:?}"))?;
+        element
+            .set_attribute("value", text)
+            .map_err(|error| format!("set input value: {error:?}"))?;
+        if !placeholder.is_empty() {
+            element
+                .set_attribute("placeholder", placeholder)
+                .map_err(|error| format!("set input placeholder: {error:?}"))?;
+        }
+        if let Some(handler) = handler {
+            let input_changes = self.input_changes.clone();
+            let callback = Closure::wrap(Box::new(move |event: Event| {
+                let target = event.target();
+                if let Some(value) = target
+                    .and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok())
+                    .map(|input| input.value())
+                {
+                    input_changes.push(handler, value);
+                }
+            }) as Box<dyn FnMut(Event)>);
+            element
+                .add_event_listener_with_callback("input", callback.as_ref().unchecked_ref())
+                .map_err(|error| format!("listen for input change: {error:?}"))?;
+            self.click_handlers.push(callback);
+        }
+        self.append(node, parent, element)
+    }
+
+    fn set_input_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
+        let element = self
+            .elements
+            .get(&node.0)
+            .ok_or_else(|| format!("node {} is missing", node.0))?;
+        element
+            .set_attribute("value", text)
+            .map_err(|error| format!("set input value: {error:?}"))
     }
 }

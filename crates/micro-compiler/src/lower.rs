@@ -182,6 +182,16 @@ impl<'a> Lowerer<'a> {
                 );
                 Ok(id)
             }
+            Some("ui.input") => {
+                let id = self.reserve_node(UiKind::Input);
+                self.nodes[id.0 as usize].value =
+                    Some(self.lower_value_source(ScalarType::String, &call.args[0].expr)?);
+                if let Some(options) = call.args.get(1) {
+                    self.lower_input_options(id, &options.expr)?;
+                }
+                self.nodes[id.0 as usize].text_style = Some(TextStyle::DEFAULT_TEXT);
+                Ok(id)
+            }
             Some("ui.button") => {
                 let id = self.reserve_node(UiKind::Button);
                 let label = literal_constant(&call.args[0].expr)
@@ -336,6 +346,91 @@ impl<'a> Lowerer<'a> {
         handler.ok_or_else(|| {
             self.error(expression.span(), "MTS012", "onToggle arrow is required")
         })
+    }
+
+    fn lower_input_options(
+        &mut self,
+        node: NodeId,
+        expression: &Expr,
+    ) -> Result<(), Diagnostic> {
+        let Expr::Object(object) = expression else {
+            return Err(self.error(
+                expression.span(),
+                "MTS012",
+                "ui.input options must be an object",
+            ));
+        };
+        let mut saw_change = false;
+        let mut saw_placeholder = false;
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.input options cannot use spread",
+                ));
+            };
+            let Prop::KeyValue(property) = &**property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.input options must use key-value pairs",
+                ));
+            };
+            let PropName::Ident(name) = &property.key else {
+                return Err(self.error(
+                    property.key.span(),
+                    "MTS012",
+                    "ui.input option names must be identifiers",
+                ));
+            };
+            match name.sym.as_ref() {
+                "onChange" if !saw_change => {
+                    saw_change = true;
+                    let arrow = as_arrow(&property.value).ok_or_else(|| {
+                        self.error(property.value.span(), "MTS012", "onChange arrow is required")
+                    })?;
+                    self.nodes[node.0 as usize].on_click =
+                        Some(self.add_input_function(arrow)?);
+                }
+                "onChange" => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS012",
+                        format!("duplicate ui.input property `{}`", name.sym),
+                    ));
+                }
+                "placeholder" if !saw_placeholder => {
+                    saw_placeholder = true;
+                    let constant = literal_constant(&property.value)
+                        .filter(|constant| matches!(constant, Constant::String(_)))
+                        .ok_or_else(|| {
+                            self.error(
+                                property.value.span(),
+                                "MTS012",
+                                "placeholder must be a string",
+                            )
+                        })?;
+                    self.nodes[node.0 as usize].text =
+                        Some(TextSource::Constant(self.intern(constant)));
+                }
+                "placeholder" => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS012",
+                        format!("duplicate ui.input property `{}`", name.sym),
+                    ));
+                }
+                _ => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS002",
+                        format!("unknown ui.input property `{}`", name.sym),
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn lower_text_style(&self, expression: &Expr) -> Result<TextStyle, Diagnostic> {
@@ -546,6 +641,34 @@ impl<'a> Lowerer<'a> {
         Ok(id)
     }
 
+    /// Lower a `ui.input` `onChange` handler. The handler accepts exactly one
+    /// string argument (the new field text); the lowering binds the arrow's
+    /// first parameter name so body reads of it compile to `LoadArg`.
+    fn add_input_function(&mut self, arrow: &ArrowExpr) -> Result<FunctionId, Diagnostic> {
+        if arrow.params.len() != 1 {
+            return Err(self.error(
+                arrow.span,
+                "MTS012",
+                "onChange handler must take exactly one argument",
+            ));
+        }
+        let Pat::Ident(binding) = &arrow.params[0] else {
+            return Err(self.error(
+                arrow.params[0].span(),
+                "MTS012",
+                "onChange argument must be an identifier",
+            ));
+        };
+        let id = HandlerId(self.handler_count);
+        self.handler_count += 1;
+        let function = FunctionLowerer::new(self, FunctionKind::Handler(id))
+            .with_argument(binding.id.sym.to_string())
+            .lower_arrow(arrow)?;
+        let id = FunctionId(self.functions.len() as u32);
+        self.functions.push(function);
+        Ok(id)
+    }
+
     fn intern(&mut self, constant: Constant) -> u32 {
         if let Some(index) = self
             .constants
@@ -568,6 +691,7 @@ impl<'a> Lowerer<'a> {
 struct FunctionLowerer<'lowerer, 'source> {
     parent: &'lowerer mut Lowerer<'source>,
     kind: FunctionKind,
+    argument: Option<String>,
     locals: BTreeMap<String, (u16, ScalarType)>,
     code: Vec<Instruction>,
 }
@@ -577,9 +701,15 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
         Self {
             parent,
             kind,
+            argument: None,
             locals: BTreeMap::new(),
             code: Vec::new(),
         }
+    }
+
+    fn with_argument(mut self, name: String) -> Self {
+        self.argument = Some(name);
+        self
     }
 
     fn lower_arrow(mut self, arrow: &ArrowExpr) -> Result<Function, Diagnostic> {
@@ -607,6 +737,7 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
         }
         Ok(Function {
             kind: self.kind,
+            arg_count: u8::from(self.argument.is_some()),
             locals: self.locals.len() as u16,
             max_stack: 64,
             code: self.code,
@@ -681,6 +812,10 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                 Ok(ty)
             }
             Expr::Ident(identifier) => {
+                if self.argument.as_deref() == Some(identifier.sym.as_ref()) {
+                    self.code.push(Instruction::LoadArg);
+                    return Ok(ScalarType::String);
+                }
                 let (id, ty) = self
                     .locals
                     .get(identifier.sym.as_ref())
@@ -769,6 +904,12 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                 Ok(ty)
             }
             Expr::Ident(identifier) => {
+                if self.argument.as_deref() == Some(identifier.sym.as_ref()) {
+                    return Err(self.error(
+                        target.span(),
+                        "cannot update a function argument",
+                    ));
+                }
                 let (id, ty) = self
                     .locals
                     .get(identifier.sym.as_ref())
@@ -798,6 +939,12 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
         self.code.push(Instruction::Dup);
         match target {
             AssignTarget::Simple(SimpleAssignTarget::Ident(identifier)) => {
+                if self.argument.as_deref() == Some(identifier.sym.as_ref()) {
+                    return Err(self.error(
+                        identifier.span,
+                        "cannot assign to a function argument",
+                    ));
+                }
                 let (id, expected) = self
                     .locals
                     .get(identifier.sym.as_ref())

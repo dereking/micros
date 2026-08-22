@@ -7,7 +7,8 @@ use crate::{
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
-const VERSION: u16 = 3;
+/// MBC v4 adds `Function::arg_count` and the `UiKind::Input` variant.
+const VERSION: u16 = 4;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -224,6 +225,7 @@ fn encode_functions(functions: &[Function]) -> Result<Vec<u8>, EncodeError> {
                 out.extend_from_slice(&id.0.to_le_bytes());
             }
         }
+        out.push(function.arg_count);
         out.extend_from_slice(&function.locals.to_le_bytes());
         out.extend_from_slice(&function.max_stack.to_le_bytes());
         put_u32(&mut out, function.code.len())?;
@@ -251,6 +253,7 @@ fn decode_functions(reader: &mut Reader<'_>) -> Result<Vec<Function>, DecodeErro
                 });
             }
         };
+        let arg_count = reader.u8()?;
         let locals = reader.u16()?;
         let max_stack = reader.u16()?;
         let instruction_count = reader.u32()? as usize;
@@ -260,6 +263,7 @@ fn decode_functions(reader: &mut Reader<'_>) -> Result<Vec<Function>, DecodeErro
         }
         functions.push(Function {
             kind,
+            arg_count,
             locals,
             max_stack,
             code,
@@ -281,6 +285,7 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
             UiKind::Row => 3,
             UiKind::Progress => 4,
             UiKind::Switch => 5,
+            UiKind::Input => 6,
         });
         put_u32(&mut out, node.children.len())?;
         for child in &node.children {
@@ -355,6 +360,7 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             3 => UiKind::Row,
             4 => UiKind::Progress,
             5 => UiKind::Switch,
+            6 => UiKind::Input,
             tag => {
                 return Err(DecodeError::InvalidTag {
                     section: "ui kind",
@@ -477,6 +483,7 @@ fn encode_instruction(out: &mut Vec<u8>, instruction: &Instruction) {
         Instruction::Jump(value) => (17, Some(*value), None),
         Instruction::JumpIfFalse(value) => (18, Some(*value), None),
         Instruction::Return => (19, None, None),
+        Instruction::LoadArg => (20, None, None),
     };
     out.push(tag);
     if let Some(value) = u32_operand {
@@ -509,6 +516,7 @@ fn decode_instruction(reader: &mut Reader<'_>) -> Result<Instruction, DecodeErro
         17 => Instruction::Jump(reader.u32()?),
         18 => Instruction::JumpIfFalse(reader.u32()?),
         19 => Instruction::Return,
+        20 => Instruction::LoadArg,
         tag => {
             return Err(DecodeError::InvalidTag {
                 section: "instruction",

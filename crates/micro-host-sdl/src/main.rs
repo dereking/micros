@@ -39,7 +39,10 @@ fn run() -> Result<(), String> {
     let first_button = image
         .nodes
         .iter()
-        .find_map(|node| node.on_click.map(|handler| (node.id, handler)));
+        .find_map(|node| match node.kind {
+            micro_ir::UiKind::Button => node.on_click.map(|handler| (node.id, handler)),
+            _ => None,
+        });
     let bridge = NativeBridge::create(480, 320, smoke)?;
     let renderer = LvglRenderer::new(bridge);
     let mut runtime = Runtime::new(image, renderer, 10_000).map_err(|error| error.to_string())?;

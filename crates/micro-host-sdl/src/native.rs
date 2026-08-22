@@ -59,6 +59,18 @@ unsafe extern "C" {
     ) -> c_int;
     fn micro_native_set_switch_checked(native: *mut c_void, node: c_uint, checked: c_int)
         -> c_int;
+    fn micro_native_create_input(
+        native: *mut c_void,
+        node: c_uint,
+        parent: c_uint,
+        text: *const c_char,
+        placeholder: *const c_char,
+        handler: c_uint,
+        font_handle: usize,
+        line_height_px: c_uint,
+    ) -> c_int;
+    fn micro_native_set_input_text(native: *mut c_void, node: c_uint, text: *const c_char)
+        -> c_int;
     fn micro_native_destroy_app_root(native: *mut c_void) -> c_int;
 }
 
@@ -368,6 +380,44 @@ impl NativeUi for NativeBridge {
         native_result(
             unsafe { micro_native_set_label_text(self.raw.as_ptr(), node.0, text.as_ptr()) },
             "set label text",
+        )
+    }
+
+    fn create_input(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        text: &str,
+        placeholder: &str,
+        handler: Option<FunctionId>,
+        style: Option<&TextStyle>,
+    ) -> Result<(), String> {
+        let text = c_string(text)?;
+        let placeholder = c_string(placeholder)?;
+        call_with_native_text_style(
+            style,
+            AVAILABLE_NATIVE_FONTS,
+            "create input",
+            |selected| unsafe {
+                micro_native_create_input(
+                    self.raw.as_ptr(),
+                    node.0,
+                    parent_id(parent),
+                    text.as_ptr(),
+                    placeholder.as_ptr(),
+                    handler.map_or(u32::MAX, |id| id.0),
+                    selected.font_handle.0 as usize,
+                    selected.line_height_px,
+                )
+            },
+        )
+    }
+
+    fn set_input_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
+        let text = c_string(text)?;
+        native_result(
+            unsafe { micro_native_set_input_text(self.raw.as_ptr(), node.0, text.as_ptr()) },
+            "set input text",
         )
     }
 

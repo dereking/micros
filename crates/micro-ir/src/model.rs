@@ -59,6 +59,13 @@ pub enum FunctionKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Function {
     pub kind: FunctionKind,
+    /// Number of arguments the function accepts from the runtime when invoked
+    /// as a handler. Only meaningful for `Handler`; Init and Binding functions
+    /// always use `0` (a Binding returns its value via `Return`, not via
+    /// args). `1` is reserved for `ui.input` `onChange(s)` handlers, where
+    /// the runtime passes the new text and the handler reads it with the
+    /// `LoadArg` VM instruction.
+    pub arg_count: u8,
     pub locals: u16,
     pub max_stack: u16,
     pub code: Vec<Instruction>,
@@ -72,6 +79,11 @@ pub enum UiKind {
     Row,
     Progress,
     Switch,
+    /// Editable text field. The current text lives in `value` (constant or
+    /// binding) and the optional placeholder lives in `text` as a constant
+    /// string. The optional `on_click` handler is a 1-arg handler that
+    /// receives the new text.
+    Input,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,7 +200,7 @@ impl TextStyle {
     pub const fn default_for(kind: UiKind) -> Option<Self> {
         match kind {
             UiKind::Column | UiKind::Row | UiKind::Progress | UiKind::Switch => None,
-            UiKind::Text => Some(Self::DEFAULT_TEXT),
+            UiKind::Text | UiKind::Input => Some(Self::DEFAULT_TEXT),
             UiKind::Button => Some(Self::DEFAULT_BUTTON),
         }
     }
@@ -419,13 +431,19 @@ fn validate_operand(
         Instruction::LoadLocal(id) | Instruction::StoreLocal(id) if *id >= function.locals => {
             Err(invalid(format!("function {index} has an invalid local")))
         }
+        Instruction::LoadArg if function.arg_count < 1 => {
+            Err(invalid(format!("function {index} uses LoadArg without an argument")))
+        }
         _ => Ok(()),
     }
 }
 
 fn stack_effect(instruction: &Instruction) -> (i32, i32) {
     match instruction {
-        Instruction::Const(_) | Instruction::LoadLocal(_) | Instruction::LoadState(_) => (0, 1),
+        Instruction::Const(_)
+        | Instruction::LoadLocal(_)
+        | Instruction::LoadState(_)
+        | Instruction::LoadArg => (0, 1),
         Instruction::StoreLocal(_) | Instruction::StoreState(_) | Instruction::Pop => (1, -1),
         Instruction::Add
         | Instruction::Sub

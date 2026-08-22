@@ -4,7 +4,7 @@ mod system;
 #[cfg(any(target_arch = "wasm32", test))]
 use micro_ir::{FontFamily, FontWeight, TextStyle};
 
-pub use activation::ActivationQueue;
+pub use activation::{ActivationQueue, InputChangeQueue};
 pub use system::{SystemIntent, SystemShell, SystemSnapshot};
 
 #[cfg(any(target_arch = "wasm32", test))]
@@ -106,13 +106,14 @@ mod wasm_host {
     use micro_renderer_web::WebRenderer;
     use wasm_bindgen::prelude::*;
 
-    use crate::ActivationQueue;
+    use crate::{ActivationQueue, InputChangeQueue};
     use crate::dom::DomBridge;
 
     #[wasm_bindgen]
     pub struct MicroWebRuntime {
         runtime: Runtime<WebRenderer<DomBridge>>,
         activations: ActivationQueue,
+        input_changes: InputChangeQueue,
     }
 
     #[wasm_bindgen]
@@ -137,7 +138,8 @@ mod wasm_host {
             let image = decode(mbc)
                 .map_err(|error| js_error("WEB_MBC", &format!("cannot decode MBC: {error}")))?;
             let activations = ActivationQueue::default();
-            let bridge = DomBridge::new(document, container, activations.clone());
+            let input_changes = InputChangeQueue::default();
+            let bridge = DomBridge::new(document, container, activations.clone(), input_changes.clone());
             let renderer = WebRenderer::new(bridge);
             let runtime = Runtime::new(image, renderer, event_budget).map_err(|error| {
                 js_error("WEB_RUNTIME", &format!("cannot create Runtime: {error}"))
@@ -145,12 +147,16 @@ mod wasm_host {
             Ok(Self {
                 runtime,
                 activations,
+                input_changes,
             })
         }
 
         pub fn tick(&mut self) -> Result<u32, JsValue> {
             while let Some(handler) = self.activations.pop() {
                 self.runtime.enqueue(Event::Activate(FunctionId(handler.0)));
+            }
+            while let Some((handler, text)) = self.input_changes.pop() {
+                self.runtime.enqueue(Event::InputChanged(handler, text));
             }
 
             let mut processed = 0_u32;

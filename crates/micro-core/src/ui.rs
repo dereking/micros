@@ -25,6 +25,7 @@ pub enum RenderPatch {
     SetText { node: NodeId, text: String },
     SetProgress { node: NodeId, fraction: f64 },
     SetChecked { node: NodeId, checked: bool },
+    SetInputText { node: NodeId, text: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

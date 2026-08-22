@@ -2,9 +2,13 @@
 # https://github.com/esp-rs/esp-idf-template/tree/08115a069d167a5ee37363e84f168a565f17bbca/cmake/components
 set(RUST_DEPS "pthread" "newlib" "lvgl__lvgl" "espressif__esp_lvgl_port")
 
+# pinyin_table.h is generated from assets/fonts/ui-sans-common.txt and consumed
+# by the on-screen IME in placeholder.c.
+set(MICRO_FONT_ASSET_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../assets/fonts")
+
 idf_component_register(
   SRCS "placeholder.c"
-  INCLUDE_DIRS "include"
+  INCLUDE_DIRS "include" "${MICRO_FONT_ASSET_DIR}"
   PRIV_REQUIRES "${RUST_DEPS}"
 )
 

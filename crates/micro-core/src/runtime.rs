@@ -23,6 +23,7 @@ pub enum RuntimeError {
     TextIsNotString(NodeId),
     ProgressIsNotNumber(NodeId),
     SwitchIsNotBoolean(NodeId),
+    InputIsNotString(NodeId),
 }
 
 impl fmt::Display for RuntimeError {
@@ -101,7 +102,10 @@ impl<R: RenderPort> Runtime<R> {
         let Some(event) = self.events.pop() else {
             return Ok(false);
         };
-        let Event::Activate(function_id) = event;
+        let (function_id, argument) = match event {
+            Event::Activate(id) => (id, None),
+            Event::InputChanged(id, text) => (id, Some(Value::String(text))),
+        };
         if !matches!(
             self.image.functions.get(function_id.0 as usize),
             Some(micro_ir::Function {
@@ -112,7 +116,8 @@ impl<R: RenderPort> Runtime<R> {
             return Err(RuntimeError::NotAHandler(function_id));
         }
 
-        let result = Vm::new(&self.image, &mut self.state).invoke(function_id, self.event_budget);
+        let result =
+            Vm::new(&self.image, &mut self.state).invoke(function_id, argument, self.event_budget);
         self.flush_changed_bindings()?;
         result.map_err(RuntimeError::Vm)?;
         Ok(true)
@@ -133,7 +138,7 @@ impl<R: RenderPort> Runtime<R> {
     fn evaluate_binding(&mut self, function_id: FunctionId) -> Result<Value, RuntimeError> {
         self.state.begin_tracking();
         let execution = Vm::new(&self.image, &mut self.state)
-            .invoke(function_id, BINDING_BUDGET)
+            .invoke(function_id, None, BINDING_BUDGET)
             .map_err(RuntimeError::Vm);
         let reads = self.state.finish_tracking();
         let value = execution?
@@ -191,6 +196,15 @@ impl<R: RenderPort> Runtime<R> {
                             patches.push(RenderPatch::SetChecked {
                                 node: node.id,
                                 checked: *checked,
+                            });
+                        }
+                        UiKind::Input => {
+                            let Value::String(text) = &value else {
+                                return Err(RuntimeError::InputIsNotString(node.id));
+                            };
+                            patches.push(RenderPatch::SetInputText {
+                                node: node.id,
+                                text: text.clone(),
                             });
                         }
                         _ => {}

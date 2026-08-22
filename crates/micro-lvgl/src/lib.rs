@@ -38,6 +38,16 @@ pub trait NativeUi {
     fn set_label_text(&mut self, node: NodeId, text: &str) -> Result<(), String>;
     fn set_progress_value(&mut self, node: NodeId, fraction: f64) -> Result<(), String>;
     fn set_switch_checked(&mut self, node: NodeId, checked: bool) -> Result<(), String>;
+    fn create_input(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        text: &str,
+        placeholder: &str,
+        handler: Option<FunctionId>,
+        style: Option<&TextStyle>,
+    ) -> Result<(), String>;
+    fn set_input_text(&mut self, node: NodeId, text: &str) -> Result<(), String>;
     fn destroy_app_root(&mut self) -> Result<(), String>;
 }
 
@@ -129,6 +139,25 @@ impl<B: NativeUi> LvglRenderer<B> {
                 self.bridge
                     .create_button(node.id, parent, &text, handler, Some(&style))
             }
+            UiKind::Input => {
+                let Some(Value::String(text)) = node.value.as_ref() else {
+                    return Err(RenderError(format!(
+                        "input {} has no string value",
+                        node.id.0
+                    )));
+                };
+                let text = self.checked_text(node.id, text);
+                let placeholder = self.checked_text(node.id, &node.text);
+                let style = node.text_style.unwrap_or(TextStyle::DEFAULT_TEXT);
+                self.bridge.create_input(
+                    node.id,
+                    parent,
+                    &text,
+                    &placeholder,
+                    node.on_click,
+                    Some(&style),
+                )
+            }
         }
         .map_err(RenderError)?;
         if parent.is_none() {
@@ -163,6 +192,12 @@ impl<B: NativeUi> RenderPort for LvglRenderer<B> {
                     .bridge
                     .set_switch_checked(*node, *checked)
                     .map_err(RenderError)?,
+                RenderPatch::SetInputText { node, text } => {
+                    let text = self.checked_text(*node, text);
+                    self.bridge
+                        .set_input_text(*node, &text)
+                        .map_err(RenderError)?;
+                }
             }
         }
         Ok(())

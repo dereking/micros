@@ -38,6 +38,16 @@ pub trait WebDom {
     fn set_text(&mut self, node: NodeId, text: &str) -> Result<(), String>;
     fn set_progress(&mut self, node: NodeId, fraction: f64) -> Result<(), String>;
     fn set_checked(&mut self, node: NodeId, checked: bool) -> Result<(), String>;
+    fn create_input(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        text: &str,
+        placeholder: &str,
+        handler: Option<FunctionId>,
+        style: Option<&TextStyle>,
+    ) -> Result<(), String>;
+    fn set_input_text(&mut self, node: NodeId, text: &str) -> Result<(), String>;
 }
 
 pub struct WebRenderer<D> {
@@ -115,6 +125,25 @@ impl<D: WebDom> WebRenderer<D> {
                 self.dom
                     .create_button(node.id, parent, &text, handler, Some(&style))
             }
+            UiKind::Input => {
+                let Some(Value::String(text)) = node.value.as_ref() else {
+                    return Err(RenderError(format!(
+                        "input {} has no string value",
+                        node.id.0
+                    )));
+                };
+                let text = self.checked_text(node.id, text);
+                let placeholder = self.checked_text(node.id, &node.text);
+                let style = node.text_style.unwrap_or(TextStyle::DEFAULT_TEXT);
+                self.dom.create_input(
+                    node.id,
+                    parent,
+                    &text,
+                    &placeholder,
+                    node.on_click,
+                    Some(&style),
+                )
+            }
         }
         .map_err(RenderError)?;
 
@@ -145,6 +174,12 @@ impl<D: WebDom> RenderPort for WebRenderer<D> {
                     .dom
                     .set_checked(*node, *checked)
                     .map_err(RenderError)?,
+                RenderPatch::SetInputText { node, text } => {
+                    let text = self.checked_text(*node, text);
+                    self.dom
+                        .set_input_text(*node, &text)
+                        .map_err(RenderError)?;
+                }
             }
         }
         Ok(())

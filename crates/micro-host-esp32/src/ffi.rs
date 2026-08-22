@@ -35,8 +35,26 @@ unsafe extern "C" {
     fn micro_esp_ui_set_label_text(node: u32, text: *const u8, len: usize) -> c_int;
     fn micro_esp_ui_set_progress_value(node: u32, fraction: f64) -> c_int;
     fn micro_esp_ui_set_switch_checked(node: u32, checked: c_int) -> c_int;
+    fn micro_esp_ui_create_input(
+        node: u32,
+        parent: u32,
+        text: *const u8,
+        len: usize,
+        placeholder: *const u8,
+        placeholder_len: usize,
+        handler: u32,
+        font_handle: usize,
+        line_height_px: u32,
+    ) -> c_int;
+    fn micro_esp_ui_set_input_text(node: u32, text: *const u8, len: usize) -> c_int;
     fn micro_esp_ui_destroy_app_root() -> c_int;
     fn micro_esp_ui_take_activation(handler_id: *mut u32) -> c_int;
+    fn micro_esp_ui_take_input_change(
+        handler_id: *mut u32,
+        text: *mut u8,
+        text_capacity: usize,
+        text_len: *mut usize,
+    ) -> c_int;
     fn micro_esp_ui_report_diagnostic(node: u32, message: *const u8, len: usize);
 }
 
@@ -139,6 +157,36 @@ impl NativeUi for EspNativeUi {
 
     fn set_label_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
         native_result(unsafe { micro_esp_ui_set_label_text(node.0, text.as_ptr(), text.len()) })
+    }
+
+    fn create_input(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        text: &str,
+        placeholder: &str,
+        handler: Option<FunctionId>,
+        style: Option<&TextStyle>,
+    ) -> Result<(), String> {
+        let result =
+            call_with_native_text_style(style, AVAILABLE_NATIVE_FONTS, |selected| unsafe {
+                micro_esp_ui_create_input(
+                    node.0,
+                    parent_id(parent),
+                    text.as_ptr(),
+                    text.len(),
+                    placeholder.as_ptr(),
+                    placeholder.len(),
+                    handler.map_or(u32::MAX, |id| id.0),
+                    selected.font_handle.0 as usize,
+                    selected.line_height_px,
+                )
+            })?;
+        native_result(result)
+    }
+
+    fn set_input_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
+        native_result(unsafe { micro_esp_ui_set_input_text(node.0, text.as_ptr(), text.len()) })
     }
 
     fn destroy_app_root(&mut self) -> Result<(), String> {
@@ -325,6 +373,43 @@ pub unsafe extern "C" fn micro_runtime_tick(
                     HostError {
                         code: MicroErrorCode::Ui,
                         diagnostic: format!("ESP activation queue failed with code {code}"),
+                    },
+                    error,
+                    error_length,
+                );
+            }
+        }
+    }
+    loop {
+        let mut handler = 0;
+        let mut text = [0u8; 256];
+        let mut text_len = 0usize;
+        match unsafe {
+            micro_esp_ui_take_input_change(
+                &raw mut handler,
+                text.as_mut_ptr(),
+                text.len(),
+                &raw mut text_len,
+            )
+        } {
+            1 => {
+                if let Ok(text) = std::str::from_utf8(&text[..text_len]) {
+                    if let Err(runtime_error) =
+                        runtime.set_input_text(FunctionId(handler), text.to_owned())
+                    {
+                        return report(runtime_error, error, error_length);
+                    }
+                } else {
+                    write_diagnostic(error, error_length, "input text is not valid UTF-8");
+                    return MicroErrorCode::Ui as c_int;
+                }
+            }
+            0 => break,
+            code => {
+                return report(
+                    HostError {
+                        code: MicroErrorCode::Ui,
+                        diagnostic: format!("ESP input-change queue failed with code {code}"),
                     },
                     error,
                     error_length,

@@ -40,6 +40,7 @@ fn image(kind: FunctionKind, code: Vec<Instruction>, max_stack: u16) -> AppImage
         }],
         functions: vec![Function {
             kind,
+            arg_count: 0,
             locals: 1,
             max_stack,
             code,
@@ -72,7 +73,7 @@ fn executes_arithmetic_and_locals() {
         2,
     );
     let mut state = TestState::default();
-    let execution = Vm::new(&app, &mut state).invoke(FunctionId(0), 20).unwrap();
+    let execution = Vm::new(&app, &mut state).invoke(FunctionId(0), None, 20).unwrap();
     assert_eq!(execution.value, Some(Value::Number(6.0)));
 }
 
@@ -94,7 +95,7 @@ fn branches_and_concatenates_strings() {
         2,
     );
     let mut state = TestState::default();
-    let execution = Vm::new(&app, &mut state).invoke(FunctionId(0), 20).unwrap();
+    let execution = Vm::new(&app, &mut state).invoke(FunctionId(0), None, 20).unwrap();
     assert_eq!(execution.value, Some(Value::String("value=3".into())));
 }
 
@@ -113,7 +114,7 @@ fn reads_and_writes_state() {
     );
     let mut state = TestState(vec![Value::Number(4.0)]);
     assert_eq!(
-        Vm::new(&app, &mut state).invoke(FunctionId(0), 20).unwrap(),
+        Vm::new(&app, &mut state).invoke(FunctionId(0), None, 20).unwrap(),
         Execution {
             value: None,
             executed: 5
@@ -136,7 +137,7 @@ fn reports_division_by_zero_and_type_mismatch() {
     );
     let mut state = TestState::default();
     assert_eq!(
-        Vm::new(&division, &mut state).invoke(FunctionId(0), 10),
+        Vm::new(&division, &mut state).invoke(FunctionId(0), None, 10),
         Err(VmError::DivisionByZero)
     );
 
@@ -151,7 +152,7 @@ fn reports_division_by_zero_and_type_mismatch() {
         2,
     );
     assert!(matches!(
-        Vm::new(&mismatch, &mut state).invoke(FunctionId(0), 10),
+        Vm::new(&mismatch, &mut state).invoke(FunctionId(0), None, 10),
         Err(VmError::TypeMismatch { .. })
     ));
 }
@@ -165,7 +166,7 @@ fn backward_jump_exhausts_budget_exactly() {
     );
     let mut state = TestState::default();
     assert_eq!(
-        Vm::new(&app, &mut state).invoke(FunctionId(0), 3),
+        Vm::new(&app, &mut state).invoke(FunctionId(0), None, 3),
         Err(VmError::BudgetExceeded {
             function: FunctionId(0),
             executed: 3

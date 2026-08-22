@@ -35,5 +35,14 @@ MICRO_EXPORT int micro_native_create_button(micro_native_t *native, uint32_t nod
 MICRO_EXPORT int micro_native_set_label_text(micro_native_t *native, uint32_t node_id, const char *text);
 MICRO_EXPORT int micro_native_set_progress_value(micro_native_t *native, uint32_t node_id, double fraction);
 MICRO_EXPORT int micro_native_set_switch_checked(micro_native_t *native, uint32_t node_id, int checked);
+/* Editable single-line text field. `text` is the current value, `placeholder`
+ * the hint shown when empty, and `handler_id` the onChange handler (or
+ * MICRO_NO_HANDLER to disable editing). */
+MICRO_EXPORT int micro_native_create_input(micro_native_t *native, uint32_t node_id, uint32_t parent_id,
+                                           const char *text, const char *placeholder, uint32_t handler_id,
+                                           uintptr_t font_handle, uint32_t line_height_px);
+MICRO_EXPORT int micro_native_set_input_text(micro_native_t *native, uint32_t node_id, const char *text);
+MICRO_EXPORT int micro_native_take_input_change(micro_native_t *native, uint32_t *handler_id, char *text,
+                                                size_t text_capacity, size_t *text_len);
 
 #endif

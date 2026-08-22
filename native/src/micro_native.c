@@ -10,11 +10,19 @@
 #define MICRO_EVENT_CAPACITY 64U
 #define MICRO_NO_PARENT UINT32_MAX
 #define MICRO_NO_HANDLER UINT32_MAX
+#define MICRO_INPUT_CAPACITY 16U
+#define MICRO_INPUT_TEXT_MAX 256U
 
 typedef struct micro_click_context {
     struct micro_native *native;
     uint32_t handler_id;
 } micro_click_context_t;
+
+typedef struct micro_input_change {
+    uint32_t handler_id;
+    size_t len;
+    char text[MICRO_INPUT_TEXT_MAX];
+} micro_input_change_t;
 
 struct micro_native {
     SDL_Window *window;
@@ -33,6 +41,9 @@ struct micro_native {
     uint32_t activations[MICRO_EVENT_CAPACITY];
     unsigned activation_read;
     unsigned activation_write;
+    micro_input_change_t input_changes[MICRO_INPUT_CAPACITY];
+    unsigned input_read;
+    unsigned input_write;
 };
 
 static void copy_error(char *target, size_t length, const char *message) {
@@ -76,6 +87,25 @@ static void enqueue_activation(micro_native_t *native, uint32_t handler_id) {
 static void click_callback(lv_event_t *event) {
     micro_click_context_t *context = lv_event_get_user_data(event);
     enqueue_activation(context->native, context->handler_id);
+}
+
+static void input_callback(lv_event_t *event) {
+    micro_click_context_t *context = lv_event_get_user_data(event);
+    lv_obj_t *target = lv_event_get_target(event);
+    if (target == NULL) return;
+    const char *text = lv_textarea_get_text(target);
+    if (text == NULL) return;
+    size_t len = strlen(text);
+    if (len > MICRO_INPUT_TEXT_MAX - 1U) len = MICRO_INPUT_TEXT_MAX - 1U;
+    unsigned next = (context->native->input_write + 1U) % MICRO_INPUT_CAPACITY;
+    if (next != context->native->input_read) {
+        micro_input_change_t *change = &context->native->input_changes[context->native->input_write];
+        change->handler_id = context->handler_id;
+        change->len = len;
+        memcpy(change->text, text, len);
+        change->text[len] = '\0';
+        context->native->input_write = next;
+    }
 }
 
 static lv_obj_t *parent_object(micro_native_t *native, uint32_t parent_id) {
@@ -165,6 +195,8 @@ int micro_native_destroy_app_root(micro_native_t *native) {
     lv_obj_clean(lv_display_get_screen_active(native->display));
     memset(native->objects, 0, sizeof(native->objects));
     memset(native->text_targets, 0, sizeof(native->text_targets));
+    native->input_read = 0;
+    native->input_write = 0;
     return 1;
 }
 
@@ -344,5 +376,60 @@ int micro_native_create_button(micro_native_t *native, uint32_t node_id, uint32_
 int micro_native_set_label_text(micro_native_t *native, uint32_t node_id, const char *text) {
     if (node_id >= MICRO_MAX_NODES || native->text_targets[node_id] == NULL) return 0;
     lv_label_set_text(native->text_targets[node_id], text);
+    return 1;
+}
+
+int micro_native_create_input(micro_native_t *native, uint32_t node_id, uint32_t parent_id,
+                              const char *text, const char *placeholder, uint32_t handler_id,
+                              uintptr_t font_handle, uint32_t line_height_px) {
+    if (native == NULL || node_id >= MICRO_MAX_NODES) return 0;
+    lv_obj_t *parent = parent_object(native, parent_id);
+    if (parent == NULL) return 0;
+    lv_obj_t *textarea = lv_textarea_create(parent);
+    lv_textarea_set_one_line(textarea, true);
+    lv_textarea_set_cursor_click_pos(textarea, true);
+    lv_textarea_set_text(textarea, text);
+    if (placeholder != NULL && placeholder[0] != '\0') {
+        lv_textarea_set_placeholder_text(textarea, placeholder);
+    }
+    apply_text_style(textarea, font_handle, line_height_px);
+    lv_obj_set_style_border_color(textarea, lv_color_hex(0x888888), LV_PART_MAIN);
+    lv_obj_set_style_border_width(textarea, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_opa(textarea, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(textarea, 8, LV_PART_MAIN);
+    lv_obj_set_width(textarea, LV_PCT(100));
+    lv_obj_set_height(textarea, LV_SIZE_CONTENT);
+    if (handler_id == MICRO_NO_HANDLER) {
+        lv_obj_remove_flag(textarea, LV_OBJ_FLAG_CLICKABLE);
+    } else {
+        native->clicks[node_id].native = native;
+        native->clicks[node_id].handler_id = handler_id;
+        lv_obj_add_event_cb(textarea, input_callback, LV_EVENT_VALUE_CHANGED,
+                            &native->clicks[node_id]);
+    }
+    native->objects[node_id] = textarea;
+    native->text_targets[node_id] = textarea;
+    return 1;
+}
+
+int micro_native_set_input_text(micro_native_t *native, uint32_t node_id, const char *text) {
+    if (native == NULL || node_id >= MICRO_MAX_NODES || native->objects[node_id] == NULL) return 0;
+    lv_textarea_set_text(native->objects[node_id], text);
+    return 1;
+}
+
+int micro_native_take_input_change(micro_native_t *native, uint32_t *handler_id, char *text,
+                                   size_t text_capacity, size_t *text_len) {
+    if (native == NULL || handler_id == NULL || text == NULL || text_len == NULL ||
+        text_capacity == 0) {
+        return 0;
+    }
+    if (native->input_read == native->input_write) return 0;
+    *handler_id = native->input_changes[native->input_read].handler_id;
+    size_t len = native->input_changes[native->input_read].len;
+    if (len > text_capacity) len = text_capacity;
+    memcpy(text, native->input_changes[native->input_read].text, len);
+    *text_len = len;
+    native->input_read = (native->input_read + 1U) % MICRO_INPUT_CAPACITY;
     return 1;
 }

@@ -220,6 +220,7 @@ impl Validator<'_> {
             "state" | "bind" | "ui.mount" | "ui.column" | "ui.row" | "ui.progress" => 1..=1,
             "ui.text" => 1..=2,
             "ui.switch" => 1..=2,
+            "ui.input" => 1..=2,
             "ui.button" => 2..=2,
             _ => {
                 self.unsupported(call.span, format!("call `{name}`"));
@@ -264,9 +265,55 @@ impl Validator<'_> {
                     self.switch_options(&call.args[1].expr);
                 }
             }
+            "ui.input" => {
+                self.expression(&call.args[0].expr);
+                if call.args.len() == 2 {
+                    self.input_options(&call.args[1].expr);
+                }
+            }
             _ => {
                 for argument in &call.args {
                     self.expression(&argument.expr);
+                }
+            }
+        }
+    }
+
+    fn input_options(&mut self, expression: &Expr) {
+        let Expr::Object(object) = expression else {
+            self.sdk_error(
+                expression.span(),
+                "ui.input options must be an object".into(),
+            );
+            return;
+        };
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                self.unsupported(property.span(), "spread");
+                continue;
+            };
+            let Prop::KeyValue(property) = &**property else {
+                self.unsupported(property.span(), "input property");
+                continue;
+            };
+            let PropName::Ident(name) = &property.key else {
+                self.unsupported(property.key.span(), "computed input property");
+                continue;
+            };
+            if !matches!(name.sym.as_ref(), "onChange" | "placeholder") {
+                self.errors.push(diagnostic_at(
+                    self.source_map,
+                    self.path,
+                    name.span,
+                    "MTS002",
+                    format!("unknown ui.input property `{}`", name.sym),
+                ));
+            }
+            if name.sym == *"onChange" {
+                if let Expr::Arrow(arrow) = &*property.value {
+                    self.arrow_with_params(arrow, 1);
+                } else {
+                    self.expression(&property.value);
                 }
             }
         }
@@ -345,12 +392,34 @@ impl Validator<'_> {
     }
 
     fn arrow(&mut self, arrow: &ArrowExpr) {
+        self.arrow_with_params(arrow, 0);
+    }
+
+    fn arrow_with_params(&mut self, arrow: &ArrowExpr, allowed_params: usize) {
         if arrow.is_async || arrow.is_generator {
             self.unsupported(arrow.span, "async or generator arrow function");
             return;
         }
-        if !arrow.params.is_empty() {
-            self.unsupported(arrow.span, "arrow parameters");
+        if arrow.params.len() > allowed_params {
+            self.sdk_error(
+                arrow.span,
+                format!(
+                    "arrow expects at most {allowed_params} parameter(s), found {}",
+                    arrow.params.len()
+                ),
+            );
+            return;
+        }
+        /* The onChange handler of ui.input receives the new text as its single
+         * argument. Register the parameter name for the body so references to
+         * it are not reported as unknown globals, then restore the set. */
+        let snapshot = self.known.clone();
+        for param in &arrow.params {
+            if let Pat::Ident(binding) = param {
+                self.known.insert(binding.id.sym.to_string());
+            } else {
+                self.unsupported(param.span(), "arrow parameter");
+            }
         }
         match &*arrow.body {
             BlockStmtOrExpr::BlockStmt(block) => {
@@ -360,6 +429,7 @@ impl Validator<'_> {
             }
             BlockStmtOrExpr::Expr(expression) => self.expression(expression),
         }
+        self.known = snapshot;
     }
 
     fn member(&mut self, member: &MemberExpr) {

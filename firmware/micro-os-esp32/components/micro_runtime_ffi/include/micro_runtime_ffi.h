@@ -291,9 +291,22 @@ int micro_esp_ui_create_button(uint32_t node, uint32_t parent,
 int micro_esp_ui_set_label_text(uint32_t node, const uint8_t *text, size_t len);
 int micro_esp_ui_set_progress_value(uint32_t node, double fraction);
 int micro_esp_ui_set_switch_checked(uint32_t node, int checked);
+/* Create an editable single-line text field. `text` is the current value,
+ * `placeholder` the hint shown when empty, and `handler` the onChange
+ * handler id (or MICRO_UI_NO_HANDLER to disable editing). */
+int micro_esp_ui_create_input(uint32_t node, uint32_t parent,
+                              const uint8_t *text, size_t len,
+                              const uint8_t *placeholder, size_t placeholder_len,
+                              uint32_t handler, uintptr_t font_handle,
+                              uint32_t line_height_px);
+int micro_esp_ui_set_input_text(uint32_t node, const uint8_t *text, size_t len);
 int micro_esp_ui_destroy_app_root(void);
 /* Returns 1 with a handler, 0 when empty, and a negative bridge error. */
 int micro_esp_ui_take_activation(uint32_t *handler_id);
+/* Returns 1 with a handler and its new text, 0 when empty, and a negative
+ * bridge error. Copies at most text_capacity bytes into text. */
+int micro_esp_ui_take_input_change(uint32_t *handler_id, uint8_t *text,
+                                   size_t text_capacity, size_t *text_len);
 void micro_esp_ui_report_diagnostic(uint32_t node, const uint8_t *message, size_t len);
 
 #ifdef __cplusplus

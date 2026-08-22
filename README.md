@@ -9,6 +9,7 @@ const count = state(0);
 const presses = state(0);
 const level = state(3);
 const power = state(0);
+const note = state("micro");
 
 ui.mount(
   ui.column([
@@ -31,6 +32,11 @@ ui.mount(
       ui.button("+", { onClick: () => { if (power.value === 1) { if (level.value < 10) { level.value = level.value + 1; } } } }),
     ]),
     ui.switch(bind(() => power.value === 1), { onToggle: () => { power.value = 1 - power.value; } }),
+    ui.input(bind(() => note.value), {
+      placeholder: "type a note",
+      onChange: (s) => { note.value = s; },
+    }),
+    ui.text(bind(() => `note: ${note.value}`)),
   ]),
 );
 ```
@@ -180,8 +186,8 @@ The MVP supports:
 - assignment and `++`/`--` on locals and `state.value`
 - template literals
 - blocks, `if`/`else`, `while`, and arrow handlers/bindings
-- `state`, `bind`, `ui.mount`, `ui.column`, `ui.row`, `ui.text`, `ui.button`, `ui.progress`, and `ui.switch`
-- `{ onClick: () => ..., textStyle?: ... }` button options and `{ onToggle?: () => ... }` switch options
+- `state`, `bind`, `ui.mount`, `ui.column`, `ui.row`, `ui.text`, `ui.button`, `ui.progress`, `ui.switch`, and `ui.input`
+- `{ onClick: () => ..., textStyle?: ... }` button options, `{ onToggle?: () => ... }` switch options, and `ui.input` options `{ placeholder?: string, onChange?: (text: string) => void }`
 
 The compiler rejects unsupported syntax with `path:line:column`, a stable `MTS...` code, and a message. Rejected features include JSX, classes, general functions, async/Promise, exceptions, runtime imports, arbitrary objects/arrays, spread, destructuring, computed properties, browser/Node globals and dynamic UI creation.
 
@@ -196,21 +202,24 @@ are `12/14`, `14/18`, `18/24`, `24/32`, and `32/40` logical pixels, written as
 `size/lineHeight`. Omitting a style resolves to `24/32` for Text and `14/18`
 for Button on every renderer. `ui.row`, `ui.progress`, and `ui.switch` carry no
 text style: Row is a flex container, Progress displays a 0..1 fraction, and
-Switch shows a checked state bound to a Boolean.
+Switch shows a checked state bound to a Boolean. `ui.input` is a single-line
+editable text field whose value is a constant or binding; its `onChange`
+handler receives the new text and may write it back to a `state`.
 
 The embedded and browser assets cover printable ASCII, common Chinese
 punctuation, U+FFFD, and all 3,755 GB2312 level-1 Han characters. Unsupported
 literal glyphs are rejected by the compiler. Unsupported glyphs produced by a
 runtime binding are replaced with U+FFFD and emit a host diagnostic.
 
-## MBC v3
+## MBC v4
 
-MBC begins with `MBC1`, a version, payload length and CRC-32. Version 3 stores
+MBC begins with `MBC1`, a version, payload length and CRC-32. Version 4 stores
 the optional immutable text style and the per-node value source (a constant or
-a binding) for every UI node in addition to constants, state declarations,
-bytecode functions, and the static UI specification. The
-codec is deterministic, rejects v1 and v2 and unknown versions explicitly, and
-rejects truncated or malformed data without panicking.
+a binding) for every UI node, the `ui.input` widget kind, and a per-function
+argument count for 1-arg handlers such as `ui.input` `onChange`, in addition to
+constants, state declarations, bytecode functions, and the static UI
+specification. The codec is deterministic, rejects v1–v3 and unknown versions
+explicitly, and rejects truncated or malformed data without panicking.
 
 MBC is generated output. Edit the TypeScript source and rebuild rather than editing `app.mbc`.
 

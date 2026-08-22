@@ -93,6 +93,22 @@ impl WebDom for FakeDom {
         Ok(())
     }
 
+    fn create_input(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _text: &str,
+        _placeholder: &str,
+        _handler: Option<FunctionId>,
+        _style: Option<&TextStyle>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_input_text(&mut self, _node: NodeId, _text: &str) -> Result<(), String> {
+        Ok(())
+    }
+
     fn set_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
         self.operations.push(Call::SetText(node, text.into()));
         Ok(())

@@ -46,6 +46,7 @@ fn counter_image() -> AppImage {
         functions: vec![
             Function {
                 kind: FunctionKind::Binding(BindingId(0)),
+            arg_count: 0,
                 locals: 0,
                 max_stack: 2,
                 code: vec![
@@ -58,6 +59,7 @@ fn counter_image() -> AppImage {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(0)),
+            arg_count: 0,
                 locals: 0,
                 max_stack: 2,
                 code: vec![
@@ -70,6 +72,7 @@ fn counter_image() -> AppImage {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(1)),
+            arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -82,6 +85,7 @@ fn counter_image() -> AppImage {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(2)),
+            arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -92,6 +96,7 @@ fn counter_image() -> AppImage {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(3)),
+            arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -278,6 +283,7 @@ fn replaces_binding_dependencies_after_each_evaluation() {
         functions: vec![
             Function {
                 kind: FunctionKind::Binding(BindingId(0)),
+            arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -292,6 +298,7 @@ fn replaces_binding_dependencies_after_each_evaluation() {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(0)),
+            arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -302,6 +309,7 @@ fn replaces_binding_dependencies_after_each_evaluation() {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(1)),
+            arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -312,6 +320,7 @@ fn replaces_binding_dependencies_after_each_evaluation() {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(2)),
+            arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -383,18 +392,21 @@ fn value_image() -> AppImage {
         functions: vec![
             Function {
                 kind: FunctionKind::Binding(BindingId(0)),
+            arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![Instruction::LoadState(StateId(0)), Instruction::Return],
             },
             Function {
                 kind: FunctionKind::Binding(BindingId(1)),
+            arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![Instruction::LoadState(StateId(1)), Instruction::Return],
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(0)),
+            arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -405,6 +417,7 @@ fn value_image() -> AppImage {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(1)),
+            arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![

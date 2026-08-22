@@ -158,6 +158,17 @@ impl<B: NativeUi> RuntimeHost<B> {
         Ok(())
     }
 
+    pub fn set_input_text(&mut self, handler: FunctionId, text: String) -> Result<(), HostError> {
+        if self.stopped {
+            return Err(HostError {
+                code: MicroErrorCode::Stopped,
+                diagnostic: "runtime is stopped".into(),
+            });
+        }
+        self.runtime.enqueue(Event::InputChanged(handler, text));
+        Ok(())
+    }
+
     pub fn tick(&mut self) -> Result<bool, HostError> {
         if self.stopped {
             return Err(HostError {

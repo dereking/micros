@@ -2,9 +2,12 @@ use std::collections::VecDeque;
 
 use micro_ir::FunctionId;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     Activate(FunctionId),
+    /// A `ui.input` field changed; the handler receives the new text as its
+    /// single runtime argument.
+    InputChanged(FunctionId, String),
 }
 
 #[derive(Debug, Default)]

@@ -22,4 +22,8 @@ pub enum Instruction {
     Jump(u32),
     JumpIfFalse(u32),
     Return,
+    /// Pushes the runtime-supplied string argument of the current handler
+    /// onto the stack. Only valid inside a `Function` with
+    /// `arg_count == 1` (today, only `ui.input` `onChange(s)`).
+    LoadArg,
 }

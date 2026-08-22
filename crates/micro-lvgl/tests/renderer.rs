@@ -100,6 +100,22 @@ impl NativeUi for FakeBridge {
         Ok(())
     }
 
+    fn create_input(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _text: &str,
+        _placeholder: &str,
+        _handler: Option<FunctionId>,
+        _style: Option<&TextStyle>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_input_text(&mut self, _node: NodeId, _text: &str) -> Result<(), String> {
+        Ok(())
+    }
+
     fn destroy_app_root(&mut self) -> Result<(), String> {
         Ok(())
     }
@@ -352,6 +368,22 @@ impl NativeUi for TrackingBridge {
         unreachable!()
     }
 
+    fn create_input(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _text: &str,
+        _placeholder: &str,
+        _handler: Option<FunctionId>,
+        _style: Option<&TextStyle>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_input_text(&mut self, _node: NodeId, _text: &str) -> Result<(), String> {
+        Ok(())
+    }
+
     fn destroy_app_root(&mut self) -> Result<(), String> {
         assert!(self.root_created);
         self.destroyed.set(self.destroyed.get() + 1);
@@ -492,6 +524,22 @@ impl NativeUi for SharedRootBridge {
         Ok(())
     }
     fn set_switch_checked(&mut self, _node: NodeId, _checked: bool) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_input(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _text: &str,
+        _placeholder: &str,
+        _handler: Option<FunctionId>,
+        _style: Option<&TextStyle>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_input_text(&mut self, _node: NodeId, _text: &str) -> Result<(), String> {
         Ok(())
     }
 
