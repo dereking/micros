@@ -1,26 +1,30 @@
 use std::fmt;
 
 use micro_ir::{FunctionId, NodeId, TextStyle, UiKind};
+use micro_vm::Value;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MicroUiNode {
     pub id: NodeId,
     pub kind: UiKind,
     pub children: Vec<NodeId>,
     pub text: String,
+    pub value: Option<Value>,
     pub on_click: Option<FunctionId>,
     pub text_style: Option<TextStyle>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MicroUiTree {
     pub nodes: Vec<MicroUiNode>,
     pub root: NodeId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RenderPatch {
     SetText { node: NodeId, text: String },
+    SetProgress { node: NodeId, fraction: f64 },
+    SetChecked { node: NodeId, checked: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

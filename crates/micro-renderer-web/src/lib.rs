@@ -1,11 +1,25 @@
 //! Platform-neutral Web renderer behind a narrow DOM bridge.
 
-use micro_core::{MicroUiTree, RenderError, RenderPatch, RenderPort};
+use micro_core::{MicroUiTree, RenderError, RenderPatch, RenderPort, Value};
 use micro_ir::{FunctionId, NodeId, TextStyle, UiKind, sanitize_ui_text};
 
 pub trait WebDom {
     fn report_diagnostic(&mut self, node: NodeId, message: &str);
     fn create_column(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String>;
+    fn create_row(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String>;
+    fn create_progress(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        fraction: f64,
+    ) -> Result<(), String>;
+    fn create_switch(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        checked: bool,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String>;
     fn create_text(
         &mut self,
         node: NodeId,
@@ -22,6 +36,8 @@ pub trait WebDom {
         style: Option<&TextStyle>,
     ) -> Result<(), String>;
     fn set_text(&mut self, node: NodeId, text: &str) -> Result<(), String>;
+    fn set_progress(&mut self, node: NodeId, fraction: f64) -> Result<(), String>;
+    fn set_checked(&mut self, node: NodeId, checked: bool) -> Result<(), String>;
 }
 
 pub struct WebRenderer<D> {
@@ -64,6 +80,27 @@ impl<D: WebDom> WebRenderer<D> {
             .ok_or_else(|| RenderError(format!("node {} is missing", node_id.0)))?;
         match node.kind {
             UiKind::Column => self.dom.create_column(node.id, parent),
+            UiKind::Row => self.dom.create_row(node.id, parent),
+            UiKind::Progress => {
+                let Some(Value::Number(fraction)) = node.value.as_ref() else {
+                    return Err(RenderError(format!(
+                        "progress {} has no numeric value",
+                        node.id.0
+                    )));
+                };
+                self.dom
+                    .create_progress(node.id, parent, fraction.clamp(0.0, 1.0))
+            }
+            UiKind::Switch => {
+                let Some(Value::Bool(checked)) = node.value.as_ref() else {
+                    return Err(RenderError(format!(
+                        "switch {} has no boolean value",
+                        node.id.0
+                    )));
+                };
+                self.dom
+                    .create_switch(node.id, parent, *checked, node.on_click)
+            }
             UiKind::Text => {
                 let text = self.checked_text(node.id, &node.text);
                 let style = node.text_style.unwrap_or(TextStyle::DEFAULT_TEXT);
@@ -95,9 +132,20 @@ impl<D: WebDom> RenderPort for WebRenderer<D> {
 
     fn apply(&mut self, patches: &[RenderPatch]) -> Result<(), RenderError> {
         for patch in patches {
-            let RenderPatch::SetText { node, text } = patch;
-            let text = self.checked_text(*node, text);
-            self.dom.set_text(*node, &text).map_err(RenderError)?;
+            match patch {
+                RenderPatch::SetText { node, text } => {
+                    let text = self.checked_text(*node, text);
+                    self.dom.set_text(*node, &text).map_err(RenderError)?;
+                }
+                RenderPatch::SetProgress { node, fraction } => self
+                    .dom
+                    .set_progress(*node, fraction.clamp(0.0, 1.0))
+                    .map_err(RenderError)?,
+                RenderPatch::SetChecked { node, checked } => self
+                    .dom
+                    .set_checked(*node, *checked)
+                    .map_err(RenderError)?,
+            }
         }
         Ok(())
     }

@@ -69,10 +69,19 @@ pub enum UiKind {
     Column,
     Text,
     Button,
+    Row,
+    Progress,
+    Switch,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextSource {
+    Constant(u32),
+    Binding(FunctionId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueSource {
     Constant(u32),
     Binding(FunctionId),
 }
@@ -178,7 +187,7 @@ impl TextStyle {
 
     pub const fn default_for(kind: UiKind) -> Option<Self> {
         match kind {
-            UiKind::Column => None,
+            UiKind::Column | UiKind::Row | UiKind::Progress | UiKind::Switch => None,
             UiKind::Text => Some(Self::DEFAULT_TEXT),
             UiKind::Button => Some(Self::DEFAULT_BUTTON),
         }
@@ -195,6 +204,7 @@ pub struct UiNodeSpec {
     pub kind: UiKind,
     pub children: Vec<NodeId>,
     pub text: Option<TextSource>,
+    pub value: Option<ValueSource>,
     pub on_click: Option<FunctionId>,
     pub text_style: Option<TextStyle>,
 }
@@ -271,6 +281,23 @@ pub fn validate(image: &AppImage) -> Result<(), ValidationError> {
                     _ => return Err(invalid(format!("node {index} has an invalid binding"))),
                 },
                 TextSource::Constant(_) => {}
+            }
+        }
+        if let Some(value) = node.value {
+            match value {
+                ValueSource::Constant(id) if id as usize >= image.constants.len() => {
+                    return Err(invalid(format!(
+                        "node {index} has an invalid value constant"
+                    )));
+                }
+                ValueSource::Binding(id) => match image.functions.get(id.0 as usize) {
+                    Some(Function {
+                        kind: FunctionKind::Binding(_),
+                        ..
+                    }) => {}
+                    _ => return Err(invalid(format!("node {index} has an invalid binding"))),
+                },
+                ValueSource::Constant(_) => {}
             }
         }
         if let Some(id) = node.on_click {

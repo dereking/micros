@@ -217,8 +217,9 @@ impl Validator<'_> {
             return;
         };
         let expected = match name.as_str() {
-            "state" | "bind" | "ui.mount" | "ui.column" => 1..=1,
+            "state" | "bind" | "ui.mount" | "ui.column" | "ui.row" | "ui.progress" => 1..=1,
             "ui.text" => 1..=2,
+            "ui.switch" => 1..=2,
             "ui.button" => 2..=2,
             _ => {
                 self.unsupported(call.span, format!("call `{name}`"));
@@ -257,10 +258,52 @@ impl Validator<'_> {
                 self.button_options(&call.args[1].expr);
             }
             "ui.text" => self.expression(&call.args[0].expr),
+            "ui.switch" => {
+                self.expression(&call.args[0].expr);
+                if call.args.len() == 2 {
+                    self.switch_options(&call.args[1].expr);
+                }
+            }
             _ => {
                 for argument in &call.args {
                     self.expression(&argument.expr);
                 }
+            }
+        }
+    }
+
+    fn switch_options(&mut self, expression: &Expr) {
+        let Expr::Object(object) = expression else {
+            self.sdk_error(
+                expression.span(),
+                "ui.switch options must be an object".into(),
+            );
+            return;
+        };
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                self.unsupported(property.span(), "spread");
+                continue;
+            };
+            let Prop::KeyValue(property) = &**property else {
+                self.unsupported(property.span(), "switch property");
+                continue;
+            };
+            let PropName::Ident(name) = &property.key else {
+                self.unsupported(property.key.span(), "computed switch property");
+                continue;
+            };
+            if name.sym != *"onToggle" {
+                self.errors.push(diagnostic_at(
+                    self.source_map,
+                    self.path,
+                    name.span,
+                    "MTS002",
+                    format!("unknown ui.switch property `{}`", name.sym),
+                ));
+            }
+            if name.sym == *"onToggle" {
+                self.expression(&property.value);
             }
         }
     }

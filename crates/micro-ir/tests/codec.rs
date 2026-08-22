@@ -1,7 +1,7 @@
 use micro_ir::{
     AppImage, BindingId, Constant, DecodeError, FontFamily, FontWeight, Function, FunctionId,
     FunctionKind, Instruction, NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle,
-    TextStyleError, UiKind, UiNodeSpec, decode, encode, validate,
+    TextStyleError, UiKind, UiNodeSpec, ValueSource, decode, encode, validate,
 };
 
 fn fixture() -> AppImage {
@@ -28,6 +28,7 @@ fn fixture() -> AppImage {
             kind: UiKind::Text,
             children: vec![],
             text: Some(TextSource::Binding(FunctionId(0))),
+            value: None,
             on_click: None,
             text_style: None,
         }],
@@ -51,6 +52,68 @@ fn round_trips_an_exact_text_style() {
 
     assert_eq!(decoded.nodes[0].text_style, image.nodes[0].text_style);
     assert_eq!(decoded, image);
+}
+
+#[test]
+fn round_trips_progress_and_switch_values() {
+    let image = AppImage {
+        constants: vec![
+            Constant::Number(0.5),
+            Constant::Bool(true),
+            Constant::String("on".into()),
+        ],
+        states: vec![],
+        functions: vec![
+            Function {
+                kind: FunctionKind::Binding(BindingId(0)),
+                locals: 0,
+                max_stack: 2,
+                code: vec![Instruction::Const(0), Instruction::Return],
+            },
+            Function {
+                kind: FunctionKind::Handler(micro_ir::HandlerId(0)),
+                locals: 0,
+                max_stack: 1,
+                code: vec![Instruction::Return],
+            },
+        ],
+        nodes: vec![
+            UiNodeSpec {
+                id: NodeId(0),
+                kind: UiKind::Column,
+                children: vec![NodeId(1), NodeId(2)],
+                text: None,
+                value: None,
+                on_click: None,
+                text_style: None,
+            },
+            UiNodeSpec {
+                id: NodeId(1),
+                kind: UiKind::Progress,
+                children: vec![],
+                text: None,
+                value: Some(ValueSource::Binding(FunctionId(0))),
+                on_click: None,
+                text_style: None,
+            },
+            UiNodeSpec {
+                id: NodeId(2),
+                kind: UiKind::Switch,
+                children: vec![],
+                text: None,
+                value: Some(ValueSource::Constant(1)),
+                on_click: Some(FunctionId(1)),
+                text_style: None,
+            },
+        ],
+        root: NodeId(0),
+    };
+    let decoded = decode(&encode(&image).unwrap()).unwrap();
+    assert_eq!(decoded, image);
+    assert_eq!(decoded.nodes[1].kind, UiKind::Progress);
+    assert_eq!(decoded.nodes[1].value, Some(ValueSource::Binding(FunctionId(0))));
+    assert_eq!(decoded.nodes[2].kind, UiKind::Switch);
+    assert_eq!(decoded.nodes[2].value, Some(ValueSource::Constant(1)));
 }
 
 #[test]

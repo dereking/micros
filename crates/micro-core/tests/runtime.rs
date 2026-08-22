@@ -4,6 +4,7 @@ use micro_core::{
 use micro_ir::{
     AppImage, BindingId, Constant, FontWeight, Function, FunctionId, FunctionKind, HandlerId,
     Instruction, NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind, UiNodeSpec,
+    ValueSource,
 };
 use micro_vm::{Value, VmError};
 
@@ -106,6 +107,7 @@ fn counter_image() -> AppImage {
                 kind: UiKind::Column,
                 children: vec![NodeId(1), NodeId(2)],
                 text: None,
+                value: None,
                 on_click: None,
                 text_style: None,
             },
@@ -114,6 +116,7 @@ fn counter_image() -> AppImage {
                 kind: UiKind::Text,
                 children: vec![],
                 text: Some(TextSource::Binding(FunctionId(0))),
+                value: None,
                 on_click: None,
                 text_style: None,
             },
@@ -122,6 +125,7 @@ fn counter_image() -> AppImage {
                 kind: UiKind::Button,
                 children: vec![],
                 text: Some(TextSource::Constant(4)),
+                value: None,
                 on_click: Some(FunctionId(1)),
                 text_style: None,
             },
@@ -322,6 +326,7 @@ fn replaces_binding_dependencies_after_each_evaluation() {
             kind: UiKind::Text,
             children: vec![],
             text: Some(TextSource::Binding(FunctionId(0))),
+            value: None,
             on_click: None,
             text_style: None,
         }],
@@ -354,4 +359,146 @@ fn replaces_binding_dependencies_after_each_evaluation() {
             text: "2".into()
         }]
     );
+}
+
+fn value_image() -> AppImage {
+    AppImage {
+        constants: vec![
+            Constant::Number(0.0),
+            Constant::Bool(false),
+            Constant::Number(0.7),
+            Constant::Bool(true),
+            Constant::String("oops".into()),
+        ],
+        states: vec![
+            StateDecl {
+                ty: ScalarType::Number,
+                initial: 0,
+            },
+            StateDecl {
+                ty: ScalarType::Bool,
+                initial: 1,
+            },
+        ],
+        functions: vec![
+            Function {
+                kind: FunctionKind::Binding(BindingId(0)),
+                locals: 0,
+                max_stack: 1,
+                code: vec![Instruction::LoadState(StateId(0)), Instruction::Return],
+            },
+            Function {
+                kind: FunctionKind::Binding(BindingId(1)),
+                locals: 0,
+                max_stack: 1,
+                code: vec![Instruction::LoadState(StateId(1)), Instruction::Return],
+            },
+            Function {
+                kind: FunctionKind::Handler(HandlerId(0)),
+                locals: 0,
+                max_stack: 1,
+                code: vec![
+                    Instruction::Const(2),
+                    Instruction::StoreState(StateId(0)),
+                    Instruction::Return,
+                ],
+            },
+            Function {
+                kind: FunctionKind::Handler(HandlerId(1)),
+                locals: 0,
+                max_stack: 1,
+                code: vec![
+                    Instruction::Const(3),
+                    Instruction::StoreState(StateId(1)),
+                    Instruction::Return,
+                ],
+            },
+        ],
+        nodes: vec![
+            UiNodeSpec {
+                id: NodeId(0),
+                kind: UiKind::Column,
+                children: vec![NodeId(1), NodeId(2)],
+                text: None,
+                value: None,
+                on_click: None,
+                text_style: None,
+            },
+            UiNodeSpec {
+                id: NodeId(1),
+                kind: UiKind::Progress,
+                children: vec![],
+                text: None,
+                value: Some(ValueSource::Binding(FunctionId(0))),
+                on_click: None,
+                text_style: None,
+            },
+            UiNodeSpec {
+                id: NodeId(2),
+                kind: UiKind::Switch,
+                children: vec![],
+                text: None,
+                value: Some(ValueSource::Binding(FunctionId(1))),
+                on_click: None,
+                text_style: None,
+            },
+        ],
+        root: NodeId(0),
+    }
+}
+
+#[test]
+fn materializes_and_flushes_progress_and_switch_values() {
+    let mut runtime = Runtime::new(value_image(), RecordingRenderer::default(), 10_000).unwrap();
+    assert_eq!(
+        runtime.renderer().created[0].nodes[1].value,
+        Some(Value::Number(0.0))
+    );
+    assert_eq!(
+        runtime.renderer().created[0].nodes[2].value,
+        Some(Value::Bool(false))
+    );
+
+    runtime.enqueue(Event::Activate(FunctionId(2)));
+    runtime.tick().unwrap();
+    assert_eq!(
+        runtime.renderer().patches,
+        [RenderPatch::SetProgress {
+            node: NodeId(1),
+            fraction: 0.7
+        }]
+    );
+
+    runtime.renderer_mut().patches.clear();
+    runtime.enqueue(Event::Activate(FunctionId(3)));
+    runtime.tick().unwrap();
+    assert_eq!(
+        runtime.renderer().patches,
+        [RenderPatch::SetChecked {
+            node: NodeId(2),
+            checked: true
+        }]
+    );
+}
+
+#[test]
+fn progress_binding_returning_string_errors() {
+    let mut image = value_image();
+    image.functions[0].code = vec![Instruction::Const(4), Instruction::Return];
+    let result = Runtime::new(image, RecordingRenderer::default(), 10_000);
+    assert!(matches!(
+        result,
+        Err(RuntimeError::ProgressIsNotNumber(NodeId(1)))
+    ));
+}
+
+#[test]
+fn switch_binding_returning_number_errors() {
+    let mut image = value_image();
+    image.functions[1].code = vec![Instruction::Const(2), Instruction::Return];
+    let result = Runtime::new(image, RecordingRenderer::default(), 10_000);
+    assert!(matches!(
+        result,
+        Err(RuntimeError::SwitchIsNotBoolean(NodeId(2)))
+    ));
 }

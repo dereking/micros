@@ -87,6 +87,57 @@ impl WebDom for DomBridge {
         self.append(node, parent, element)
     }
 
+    fn create_row(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
+        let element = self.create_element("div", node, "micro-row")?;
+        self.append(node, parent, element)
+    }
+
+    fn create_progress(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        fraction: f64,
+    ) -> Result<(), String> {
+        let element = self.create_element("progress", node, "micro-progress")?;
+        element
+            .set_attribute("max", "1")
+            .map_err(|error| format!("set progress max: {error:?}"))?;
+        element
+            .set_attribute("value", &fraction.clamp(0.0, 1.0).to_string())
+            .map_err(|error| format!("set progress value: {error:?}"))?;
+        self.append(node, parent, element)
+    }
+
+    fn create_switch(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        checked: bool,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        let element = self.create_element("button", node, "micro-switch")?;
+        element
+            .set_attribute("type", "button")
+            .map_err(|error| format!("set switch type: {error:?}"))?;
+        element
+            .set_attribute("role", "switch")
+            .map_err(|error| format!("set switch role: {error:?}"))?;
+        element
+            .set_attribute("aria-checked", if checked { "true" } else { "false" })
+            .map_err(|error| format!("set switch aria: {error:?}"))?;
+        if let Some(handler) = handler {
+            let activations = self.activations.clone();
+            let callback = Closure::wrap(Box::new(move |_event: Event| {
+                activations.push(handler);
+            }) as Box<dyn FnMut(Event)>);
+            element
+                .add_event_listener_with_callback("click", callback.as_ref().unchecked_ref())
+                .map_err(|error| format!("listen for switch click: {error:?}"))?;
+            self.click_handlers.push(callback);
+        }
+        self.append(node, parent, element)
+    }
+
     fn create_text(
         &mut self,
         node: NodeId,
@@ -133,5 +184,25 @@ impl WebDom for DomBridge {
             .ok_or_else(|| format!("node {} is missing", node.0))?;
         element.set_text_content(Some(text));
         Ok(())
+    }
+
+    fn set_progress(&mut self, node: NodeId, fraction: f64) -> Result<(), String> {
+        let element = self
+            .elements
+            .get(&node.0)
+            .ok_or_else(|| format!("node {} is missing", node.0))?;
+        element
+            .set_attribute("value", &fraction.clamp(0.0, 1.0).to_string())
+            .map_err(|error| format!("set progress value: {error:?}"))
+    }
+
+    fn set_checked(&mut self, node: NodeId, checked: bool) -> Result<(), String> {
+        let element = self
+            .elements
+            .get(&node.0)
+            .ok_or_else(|| format!("node {} is missing", node.0))?;
+        element
+            .set_attribute("aria-checked", if checked { "true" } else { "false" })
+            .map_err(|error| format!("set switch aria: {error:?}"))
     }
 }

@@ -42,8 +42,14 @@ h1 { max-width: 7ch; margin: 0; font-size: clamp(2.3rem, 6vw, 5.2rem); line-heig
 .app-screen { display: grid; place-items: center; }
 .app-back { position: absolute; z-index: 2; top: 12px; left: 12px; border: 1px solid #648472; border-radius: 99px; padding: 6px 9px; background: #f5f8efdd; color: #173128; cursor: pointer; font-size: 9px; }
 .micro-column { display: flex; align-items: center; flex-direction: column; gap: 16px; }
+.micro-row { display: flex; align-items: center; flex-direction: row; gap: 16px; }
 .micro-text { font: 400 24px/32px "MicroUiSans", sans-serif; white-space: pre-wrap; }
 .micro-button { min-width: 128px; padding: 13px 22px; border: 0; border-radius: 5px; background: #1e7256; box-shadow: 0 8px 16px #1e725644; color: #fff; cursor: pointer; font: 400 14px/18px "MicroUiSans", sans-serif; white-space: pre-wrap; }
+.micro-progress { flex: 1; min-width: 0; height: 12px; accent-color: #1e7256; }
+.micro-switch { position: relative; width: 52px; height: 30px; padding: 0; border: 0; border-radius: 99px; background: #84937d; cursor: pointer; appearance: none; }
+.micro-switch::after { position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; content: ""; transition: transform .15s ease; }
+.micro-switch[aria-checked="true"] { background: #1e7256; }
+.micro-switch[aria-checked="true"]::after { transform: translateX(22px); }
 .monitor { align-self: stretch; display: flex; min-width: 0; flex-direction: column; border: 1px solid #d6ddc744; border-radius: .6rem; background: #17221fca; padding: 1.2rem; }
 .monitor-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .monitor-heading strong { color: #a7cf84; font-size: .58rem; white-space: nowrap; }

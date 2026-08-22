@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use micro_ir::{
-    AppImage, FunctionId, FunctionKind, NodeId, StateId, TextSource, TextStyle, ValidationError,
-    validate,
+    AppImage, FunctionId, FunctionKind, NodeId, StateId, TextSource, TextStyle, UiKind,
+    ValidationError, ValueSource, validate,
 };
 use micro_vm::{Value, Vm, VmError};
 
@@ -21,6 +21,8 @@ pub enum RuntimeError {
     NotAHandler(FunctionId),
     BindingDidNotReturn(FunctionId),
     TextIsNotString(NodeId),
+    ProgressIsNotNumber(NodeId),
+    SwitchIsNotBoolean(NodeId),
 }
 
 impl fmt::Display for RuntimeError {
@@ -161,15 +163,38 @@ impl<R: RenderPort> Runtime<R> {
             if previous.as_ref() == Some(&value) {
                 continue;
             }
-            let Value::String(text) = value else {
-                continue;
-            };
             for node in &self.image.nodes {
                 if node.text == Some(TextSource::Binding(binding)) {
+                    let Value::String(text) = &value else {
+                        continue;
+                    };
                     patches.push(RenderPatch::SetText {
                         node: node.id,
                         text: text.clone(),
                     });
+                }
+                if node.value == Some(ValueSource::Binding(binding)) {
+                    match node.kind {
+                        UiKind::Progress => {
+                            let Value::Number(fraction) = &value else {
+                                return Err(RuntimeError::ProgressIsNotNumber(node.id));
+                            };
+                            patches.push(RenderPatch::SetProgress {
+                                node: node.id,
+                                fraction: fraction.clamp(0.0, 1.0),
+                            });
+                        }
+                        UiKind::Switch => {
+                            let Value::Bool(checked) = &value else {
+                                return Err(RuntimeError::SwitchIsNotBoolean(node.id));
+                            };
+                            patches.push(RenderPatch::SetChecked {
+                                node: node.id,
+                                checked: *checked,
+                            });
+                        }
+                        _ => {}
+                    }
                 }
             }
         }
@@ -193,11 +218,32 @@ impl<R: RenderPort> Runtime<R> {
                     _ => return Err(RuntimeError::TextIsNotString(node.id)),
                 },
             };
+            let value = match node.value {
+                None => None,
+                Some(ValueSource::Constant(id)) => self
+                    .image
+                    .constants
+                    .get(id as usize)
+                    .map(Value::from),
+                Some(ValueSource::Binding(id)) => self.binding_values.get(&id).cloned(),
+            };
+            let value = match node.kind {
+                UiKind::Progress => match value {
+                    Some(Value::Number(fraction)) => Some(Value::Number(fraction.clamp(0.0, 1.0))),
+                    _ => return Err(RuntimeError::ProgressIsNotNumber(node.id)),
+                },
+                UiKind::Switch => match value {
+                    Some(Value::Bool(checked)) => Some(Value::Bool(checked)),
+                    _ => return Err(RuntimeError::SwitchIsNotBoolean(node.id)),
+                },
+                _ => value,
+            };
             nodes.push(MicroUiNode {
                 id: node.id,
                 kind: node.kind,
                 children: node.children.clone(),
                 text,
+                value,
                 on_click: node.on_click,
                 text_style: node
                     .text_style

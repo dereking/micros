@@ -11,6 +11,10 @@ use crate::{HostError, MicroAction, MicroErrorCode, MicroEvent, MicroState, OsHo
 
 unsafe extern "C" {
     fn micro_esp_ui_create_column(node: u32, parent: u32) -> c_int;
+    fn micro_esp_ui_create_row(node: u32, parent: u32) -> c_int;
+    fn micro_esp_ui_create_progress(node: u32, parent: u32, fraction: f64) -> c_int;
+    fn micro_esp_ui_create_switch(node: u32, parent: u32, checked: c_int, handler: u32)
+        -> c_int;
     fn micro_esp_ui_create_label(
         node: u32,
         parent: u32,
@@ -29,6 +33,8 @@ unsafe extern "C" {
         line_height_px: u32,
     ) -> c_int;
     fn micro_esp_ui_set_label_text(node: u32, text: *const u8, len: usize) -> c_int;
+    fn micro_esp_ui_set_progress_value(node: u32, fraction: f64) -> c_int;
+    fn micro_esp_ui_set_switch_checked(node: u32, checked: c_int) -> c_int;
     fn micro_esp_ui_destroy_app_root() -> c_int;
     fn micro_esp_ui_take_activation(handler_id: *mut u32) -> c_int;
     fn micro_esp_ui_report_diagnostic(node: u32, message: *const u8, len: usize);
@@ -43,6 +49,48 @@ impl NativeUi for EspNativeUi {
 
     fn create_column(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
         native_result(unsafe { micro_esp_ui_create_column(node.0, parent_id(parent)) })
+    }
+
+    fn create_row(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
+        native_result(unsafe { micro_esp_ui_create_row(node.0, parent_id(parent)) })
+    }
+
+    fn create_progress(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        fraction: f64,
+    ) -> Result<(), String> {
+        native_result(unsafe {
+            micro_esp_ui_create_progress(node.0, parent_id(parent), fraction)
+        })
+    }
+
+    fn create_switch(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        checked: bool,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        native_result(unsafe {
+            micro_esp_ui_create_switch(
+                node.0,
+                parent_id(parent),
+                c_int::from(checked),
+                handler.map_or(u32::MAX, |id| id.0),
+            )
+        })
+    }
+
+    fn set_progress_value(&mut self, node: NodeId, fraction: f64) -> Result<(), String> {
+        native_result(unsafe { micro_esp_ui_set_progress_value(node.0, fraction) })
+    }
+
+    fn set_switch_checked(&mut self, node: NodeId, checked: bool) -> Result<(), String> {
+        native_result(unsafe {
+            micro_esp_ui_set_switch_checked(node.0, c_int::from(checked))
+        })
     }
 
     fn create_label(

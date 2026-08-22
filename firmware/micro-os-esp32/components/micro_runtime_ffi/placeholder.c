@@ -39,6 +39,7 @@ const void *micro_runtime_ffi_keepalive(void)
 
 #define MICRO_UI_MAX_NODES 256U
 #define MICRO_UI_NO_PARENT UINT32_MAX
+#define MICRO_UI_NO_HANDLER UINT32_MAX
 #define MICRO_UI_ACTIVATION_CAPACITY 64U
 
 struct micro_click_context {
@@ -125,6 +126,98 @@ int micro_esp_ui_create_column(uint32_t node, uint32_t parent)
             objects[node] = column;
             if (parent == MICRO_UI_NO_PARENT) app_root = column;
         }
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
+int micro_esp_ui_create_row(uint32_t node, uint32_t parent)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    lv_obj_t *parent_obj;
+    int result = begin_create(node, parent, &parent_obj);
+    if (result == 0) {
+        lv_obj_t *row = lv_obj_create(parent_obj);
+        if (row == NULL) result = -4;
+        else {
+            lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+            lv_obj_set_style_pad_column(row, 16, LV_PART_MAIN);
+            objects[node] = row;
+            if (parent == MICRO_UI_NO_PARENT) app_root = row;
+        }
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
+int micro_esp_ui_create_progress(uint32_t node, uint32_t parent, double fraction)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    lv_obj_t *parent_obj;
+    int result = begin_create(node, parent, &parent_obj);
+    if (result == 0) {
+        lv_obj_t *bar = lv_bar_create(parent_obj);
+        if (bar == NULL) result = -4;
+        else {
+            lv_bar_set_range(bar, 0, 100);
+            lv_bar_set_value(bar, (int32_t)(fraction * 100.0), LV_ANIM_OFF);
+            lv_obj_set_size(bar, LV_PCT(100), 12);
+            objects[node] = bar;
+            if (parent == MICRO_UI_NO_PARENT) app_root = bar;
+        }
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
+int micro_esp_ui_create_switch(uint32_t node, uint32_t parent, int checked,
+                               uint32_t handler)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    lv_obj_t *parent_obj;
+    int result = begin_create(node, parent, &parent_obj);
+    if (result == 0) {
+        lv_obj_t *toggle = lv_switch_create(parent_obj);
+        if (toggle == NULL) result = -4;
+        else {
+            if (checked) lv_obj_add_state(toggle, LV_STATE_CHECKED);
+            if (handler == MICRO_UI_NO_HANDLER) {
+                lv_obj_remove_flag(toggle, LV_OBJ_FLAG_CLICKABLE);
+            } else {
+                click_contexts[node].handler = handler;
+                lv_obj_add_event_cb(toggle, click_callback, LV_EVENT_CLICKED,
+                                    &click_contexts[node]);
+            }
+            objects[node] = toggle;
+            if (parent == MICRO_UI_NO_PARENT) app_root = toggle;
+        }
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
+int micro_esp_ui_set_progress_value(uint32_t node, double fraction)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    int result = -1;
+    if (node < MICRO_UI_MAX_NODES && objects[node] != NULL) {
+        if (fraction < 0.0) fraction = 0.0;
+        if (fraction > 1.0) fraction = 1.0;
+        lv_bar_set_value(objects[node], (int32_t)(fraction * 100.0), LV_ANIM_OFF);
+        result = 0;
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
+int micro_esp_ui_set_switch_checked(uint32_t node, int checked)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    int result = -1;
+    if (node < MICRO_UI_MAX_NODES && objects[node] != NULL) {
+        if (checked) lv_obj_add_state(objects[node], LV_STATE_CHECKED);
+        else lv_obj_clear_state(objects[node], LV_STATE_CHECKED);
+        result = 0;
     }
     lvgl_port_unlock();
     return result;

@@ -24,7 +24,10 @@ declare function bind<T extends Scalar>(read: () => T): Binding<T>;
 
 declare const ui: {
   column(children: UiNode[]): UiNode;
+  row(children: UiNode[]): UiNode;
   text(value: string | Binding<string>, style?: UiTextStyle): UiNode;
   button(label: string, options: { onClick: () => void; textStyle?: UiTextStyle }): UiNode;
+  progress(value: number | Binding<number>): UiNode;
+  switch(value: Binding<boolean>, options?: { onToggle?: () => void }): UiNode;
   mount(root: UiNode): void;
 };

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use micro_ir::{
     AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId, FunctionKind,
     HandlerId, Instruction, NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind,
-    UiNodeSpec, validate,
+    UiNodeSpec, ValueSource, validate,
 };
 use swc_common::{SourceMap, Span, Spanned, sync::Lrc};
 use swc_ecma_ast::{
@@ -123,18 +123,30 @@ impl<'a> Lowerer<'a> {
         match call_name(call).as_deref() {
             Some("ui.column") => {
                 let id = self.reserve_node(UiKind::Column);
-                let Expr::Array(children) = &*call.args[0].expr else {
-                    return Err(self.error(
-                        call.args[0].span(),
-                        "MTS012",
-                        "ui.column expects a child array",
-                    ));
-                };
-                let mut child_ids = Vec::new();
-                for child in children.elems.iter().flatten() {
-                    child_ids.push(self.lower_ui(&child.expr)?);
+                self.nodes[id.0 as usize].children =
+                    self.lower_child_array(&call.args[0].expr, "ui.column")?;
+                Ok(id)
+            }
+            Some("ui.row") => {
+                let id = self.reserve_node(UiKind::Row);
+                self.nodes[id.0 as usize].children =
+                    self.lower_child_array(&call.args[0].expr, "ui.row")?;
+                Ok(id)
+            }
+            Some("ui.progress") => {
+                let id = self.reserve_node(UiKind::Progress);
+                self.nodes[id.0 as usize].value =
+                    Some(self.lower_value_source(ScalarType::Number, &call.args[0].expr)?);
+                Ok(id)
+            }
+            Some("ui.switch") => {
+                let id = self.reserve_node(UiKind::Switch);
+                self.nodes[id.0 as usize].value =
+                    Some(self.lower_value_source(ScalarType::Bool, &call.args[0].expr)?);
+                if let Some(options) = call.args.get(1) {
+                    let arrow = self.lower_switch_options(&options.expr)?;
+                    self.nodes[id.0 as usize].on_click = Some(self.add_function(arrow, false)?);
                 }
-                self.nodes[id.0 as usize].children = child_ids;
                 Ok(id)
             }
             Some("ui.text") => {
@@ -202,10 +214,128 @@ impl<'a> Lowerer<'a> {
             kind,
             children: vec![],
             text: None,
+            value: None,
             on_click: None,
             text_style: None,
         });
         id
+    }
+
+    fn lower_child_array(
+        &mut self,
+        expression: &Expr,
+        widget: &str,
+    ) -> Result<Vec<NodeId>, Diagnostic> {
+        let Expr::Array(children) = expression else {
+            return Err(self.error(
+                expression.span(),
+                "MTS012",
+                format!("{widget} expects a child array"),
+            ));
+        };
+        let mut child_ids = Vec::new();
+        for child in children.elems.iter().flatten() {
+            child_ids.push(self.lower_ui(&child.expr)?);
+        }
+        Ok(child_ids)
+    }
+
+    fn lower_value_source(
+        &mut self,
+        expected: ScalarType,
+        expression: &Expr,
+    ) -> Result<ValueSource, Diagnostic> {
+        if call_name_expr(expression).as_deref() == Some("bind") {
+            let Expr::Call(binding) = expression else {
+                unreachable!()
+            };
+            let arrow = as_arrow(&binding.args[0].expr).ok_or_else(|| {
+                self.error(binding.args[0].span(), "MTS012", "bind expects an arrow")
+            })?;
+            Ok(ValueSource::Binding(self.add_function(arrow, true)?))
+        } else {
+            let constant = literal_constant(expression).ok_or_else(|| {
+                self.error(
+                    expression.span(),
+                    "MTS012",
+                    "value must be a scalar literal or bind",
+                )
+            })?;
+            if constant.scalar_type() != expected {
+                let expected = match expected {
+                    ScalarType::Number => "number",
+                    ScalarType::Bool => "boolean",
+                    _ => "scalar",
+                };
+                return Err(self.error(
+                    expression.span(),
+                    "MTS012",
+                    format!("progress/switch value must be a {expected}"),
+                ));
+            }
+            Ok(ValueSource::Constant(self.intern(constant)))
+        }
+    }
+
+    fn lower_switch_options<'b>(
+        &self,
+        expression: &'b Expr,
+    ) -> Result<&'b ArrowExpr, Diagnostic> {
+        let Expr::Object(object) = expression else {
+            return Err(self.error(
+                expression.span(),
+                "MTS012",
+                "ui.switch options must be an object",
+            ));
+        };
+        let mut handler = None;
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.switch options cannot use spread",
+                ));
+            };
+            let Prop::KeyValue(property) = &**property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.switch options must use key-value pairs",
+                ));
+            };
+            let PropName::Ident(name) = &property.key else {
+                return Err(self.error(
+                    property.key.span(),
+                    "MTS012",
+                    "ui.switch option names must be identifiers",
+                ));
+            };
+            match name.sym.as_ref() {
+                "onToggle" if handler.is_none() => {
+                    handler = Some(as_arrow(&property.value).ok_or_else(|| {
+                        self.error(property.value.span(), "MTS012", "onToggle arrow is required")
+                    })?);
+                }
+                "onToggle" => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS012",
+                        format!("duplicate ui.switch property `{}`", name.sym),
+                    ));
+                }
+                _ => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS002",
+                        format!("unknown ui.switch property `{}`", name.sym),
+                    ));
+                }
+            }
+        }
+        handler.ok_or_else(|| {
+            self.error(expression.span(), "MTS012", "onToggle arrow is required")
+        })
     }
 
     fn lower_text_style(&self, expression: &Expr) -> Result<TextStyle, Diagnostic> {

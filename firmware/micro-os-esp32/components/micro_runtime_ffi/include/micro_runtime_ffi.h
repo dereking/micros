@@ -278,6 +278,9 @@ micro_state_t micro_os_state(const micro_os_t *os);
 void micro_os_destroy(micro_os_t *os);
 
 int micro_esp_ui_create_column(uint32_t node, uint32_t parent);
+int micro_esp_ui_create_row(uint32_t node, uint32_t parent);
+int micro_esp_ui_create_progress(uint32_t node, uint32_t parent, double fraction);
+int micro_esp_ui_create_switch(uint32_t node, uint32_t parent, int checked, uint32_t handler);
 /* Zero preserves platform defaults; nonzero font handles are platform-owned. */
 int micro_esp_ui_create_label(uint32_t node, uint32_t parent,
                               const uint8_t *text, size_t len,
@@ -286,6 +289,8 @@ int micro_esp_ui_create_button(uint32_t node, uint32_t parent,
                                const uint8_t *text, size_t len, uint32_t handler,
                                uintptr_t font_handle, uint32_t line_height_px);
 int micro_esp_ui_set_label_text(uint32_t node, const uint8_t *text, size_t len);
+int micro_esp_ui_set_progress_value(uint32_t node, double fraction);
+int micro_esp_ui_set_switch_checked(uint32_t node, int checked);
 int micro_esp_ui_destroy_app_root(void);
 /* Returns 1 with a handler, 0 when empty, and a negative bridge error. */
 int micro_esp_ui_take_activation(uint32_t *handler_id);

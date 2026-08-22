@@ -7,6 +7,8 @@ The Counter App is real end to end:
 ```ts
 const count = state(0);
 const presses = state(0);
+const level = state(3);
+const power = state(0);
 
 ui.mount(
   ui.column([
@@ -21,6 +23,14 @@ ui.mount(
     ui.button("Add", { onClick: () => { count.value++; presses.value++; } }),
     ui.button("Reset", { onClick: () => { count.value = 0; } }),
     ui.button("Double", { onClick: () => { count.value = count.value * 2; presses.value++; } }),
+    ui.text(bind(() => { if (power.value === 1) { return "power: on"; } return "power: off"; })),
+    ui.row([
+      ui.text(bind(() => `battery: ${level.value / 10}`)),
+      ui.progress(bind(() => level.value / 10)),
+      ui.button("-", { onClick: () => { if (power.value === 1) { if (level.value > 0) { level.value = level.value - 1; } } } }),
+      ui.button("+", { onClick: () => { if (power.value === 1) { if (level.value < 10) { level.value = level.value + 1; } } } }),
+    ]),
+    ui.switch(bind(() => power.value === 1), { onToggle: () => { power.value = 1 - power.value; } }),
   ]),
 );
 ```
@@ -170,8 +180,8 @@ The MVP supports:
 - assignment and `++`/`--` on locals and `state.value`
 - template literals
 - blocks, `if`/`else`, `while`, and arrow handlers/bindings
-- `state`, `bind`, `ui.mount`, `ui.column`, `ui.text`, and `ui.button`
-- `{ onClick: () => ..., textStyle?: ... }` button options
+- `state`, `bind`, `ui.mount`, `ui.column`, `ui.row`, `ui.text`, `ui.button`, `ui.progress`, and `ui.switch`
+- `{ onClick: () => ..., textStyle?: ... }` button options and `{ onToggle?: () => ... }` switch options
 
 The compiler rejects unsupported syntax with `path:line:column`, a stable `MTS...` code, and a message. Rejected features include JSX, classes, general functions, async/Promise, exceptions, runtime imports, arbitrary objects/arrays, spread, destructuring, computed properties, browser/Node globals and dynamic UI creation.
 
@@ -184,19 +194,22 @@ optional `textStyle` option. The only public family/weight is
 `font: "uiSans"` with `weight: "regular"`. The supported fixed metric pairs
 are `12/14`, `14/18`, `18/24`, `24/32`, and `32/40` logical pixels, written as
 `size/lineHeight`. Omitting a style resolves to `24/32` for Text and `14/18`
-for Button on every renderer.
+for Button on every renderer. `ui.row`, `ui.progress`, and `ui.switch` carry no
+text style: Row is a flex container, Progress displays a 0..1 fraction, and
+Switch shows a checked state bound to a Boolean.
 
 The embedded and browser assets cover printable ASCII, common Chinese
 punctuation, U+FFFD, and all 3,755 GB2312 level-1 Han characters. Unsupported
 literal glyphs are rejected by the compiler. Unsupported glyphs produced by a
 runtime binding are replaced with U+FFFD and emit a host diagnostic.
 
-## MBC v2
+## MBC v3
 
-MBC begins with `MBC1`, a version, payload length and CRC-32. Version 2 stores
-the optional immutable text style for every UI node in addition to constants,
-state declarations, bytecode functions, and the static UI specification. The
-codec is deterministic, rejects v1 and unknown versions explicitly, and
+MBC begins with `MBC1`, a version, payload length and CRC-32. Version 3 stores
+the optional immutable text style and the per-node value source (a constant or
+a binding) for every UI node in addition to constants, state declarations,
+bytecode functions, and the static UI specification. The
+codec is deterministic, rejects v1 and v2 and unknown versions explicitly, and
 rejects truncated or malformed data without panicking.
 
 MBC is generated output. Edit the TypeScript source and rebuild rather than editing `app.mbc`.
@@ -232,6 +245,6 @@ The workspace tests cover:
 
 ## MVP limitations
 
-The UI tree is static after initialization. The available widgets are Column, Text and Button, with reactive text patches and minimal built-in styling. The desktop host has one fixed-size macOS window, and the Web Player is the shared runtime foundation rather than the full Studio. Async App effects, App network APIs, App persistence, packages, dynamic lists, source-level debugging, signing, and production distribution are deferred.
+The UI tree is static after initialization. The available widgets are Column, Row, Text, Button, Progress and Switch, with reactive text and value patches and minimal built-in styling. The desktop host has one fixed-size macOS window, and the Web Player is the shared runtime foundation rather than the full Studio. Async App effects, App network APIs, App persistence, packages, dynamic lists, source-level debugging, signing, and production distribution are deferred.
 
 The approved architecture and step-by-step implementation record are under `docs/superpowers/`.

@@ -19,6 +19,20 @@ unsafe extern "C" {
     fn micro_native_inject_activation(native: *mut c_void, handler_id: c_uint);
     fn micro_native_queue_click(native: *mut c_void, node: c_uint) -> c_int;
     fn micro_native_create_column(native: *mut c_void, node: c_uint, parent: c_uint) -> c_int;
+    fn micro_native_create_row(native: *mut c_void, node: c_uint, parent: c_uint) -> c_int;
+    fn micro_native_create_progress(
+        native: *mut c_void,
+        node: c_uint,
+        parent: c_uint,
+        fraction: f64,
+    ) -> c_int;
+    fn micro_native_create_switch(
+        native: *mut c_void,
+        node: c_uint,
+        parent: c_uint,
+        checked: c_int,
+        handler: c_uint,
+    ) -> c_int;
     fn micro_native_create_label(
         native: *mut c_void,
         node: c_uint,
@@ -38,6 +52,13 @@ unsafe extern "C" {
     ) -> c_int;
     fn micro_native_set_label_text(native: *mut c_void, node: c_uint, text: *const c_char)
     -> c_int;
+    fn micro_native_set_progress_value(
+        native: *mut c_void,
+        node: c_uint,
+        fraction: f64,
+    ) -> c_int;
+    fn micro_native_set_switch_checked(native: *mut c_void, node: c_uint, checked: c_int)
+        -> c_int;
     fn micro_native_destroy_app_root(native: *mut c_void) -> c_int;
 }
 
@@ -229,6 +250,64 @@ impl NativeUi for NativeBridge {
         native_result(
             unsafe { micro_native_create_column(self.raw.as_ptr(), node.0, parent_id(parent)) },
             "create column",
+        )
+    }
+
+    fn create_row(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_create_row(self.raw.as_ptr(), node.0, parent_id(parent)) },
+            "create row",
+        )
+    }
+
+    fn create_progress(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        fraction: f64,
+    ) -> Result<(), String> {
+        native_result(
+            unsafe {
+                micro_native_create_progress(self.raw.as_ptr(), node.0, parent_id(parent), fraction)
+            },
+            "create progress",
+        )
+    }
+
+    fn create_switch(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        checked: bool,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        native_result(
+            unsafe {
+                micro_native_create_switch(
+                    self.raw.as_ptr(),
+                    node.0,
+                    parent_id(parent),
+                    c_int::from(checked),
+                    handler.map_or(u32::MAX, |id| id.0),
+                )
+            },
+            "create switch",
+        )
+    }
+
+    fn set_progress_value(&mut self, node: NodeId, fraction: f64) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_set_progress_value(self.raw.as_ptr(), node.0, fraction) },
+            "set progress value",
+        )
+    }
+
+    fn set_switch_checked(&mut self, node: NodeId, checked: bool) -> Result<(), String> {
+        native_result(
+            unsafe {
+                micro_native_set_switch_checked(self.raw.as_ptr(), node.0, c_int::from(checked))
+            },
+            "set switch checked",
         )
     }
 

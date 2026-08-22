@@ -32,6 +32,33 @@ impl NativeUi for FakeNativeUi {
         Ok(())
     }
 
+    fn create_row(&mut self, node: NodeId, _parent: Option<NodeId>) -> Result<(), String> {
+        self.nodes.insert(node, String::new());
+        Ok(())
+    }
+
+    fn create_progress(
+        &mut self,
+        node: NodeId,
+        _parent: Option<NodeId>,
+        _fraction: f64,
+    ) -> Result<(), String> {
+        self.nodes.insert(node, String::new());
+        Ok(())
+    }
+
+    fn create_switch(
+        &mut self,
+        node: NodeId,
+        _parent: Option<NodeId>,
+        _checked: bool,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        self.nodes.insert(node, String::new());
+        self.activations.push(handler.expect("switch has a handler"));
+        Ok(())
+    }
+
     fn create_label(
         &mut self,
         node: NodeId,
@@ -62,6 +89,14 @@ impl NativeUi for FakeNativeUi {
 
     fn set_label_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
         self.nodes.insert(node, text.to_owned());
+        Ok(())
+    }
+
+    fn set_progress_value(&mut self, _node: NodeId, _fraction: f64) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_switch_checked(&mut self, _node: NodeId, _checked: bool) -> Result<(), String> {
         Ok(())
     }
 
@@ -114,6 +149,29 @@ impl NativeUi for FailingNativeUi {
         Ok(())
     }
 
+    fn create_row(&mut self, _node: NodeId, _parent: Option<NodeId>) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_progress(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _fraction: f64,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_switch(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _checked: bool,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
     fn create_label(
         &mut self,
         _node: NodeId,
@@ -136,6 +194,14 @@ impl NativeUi for FailingNativeUi {
     }
 
     fn set_label_text(&mut self, _node: NodeId, _text: &str) -> Result<(), String> {
+        unreachable!()
+    }
+
+    fn set_progress_value(&mut self, _node: NodeId, _fraction: f64) -> Result<(), String> {
+        unreachable!()
+    }
+
+    fn set_switch_checked(&mut self, _node: NodeId, _checked: bool) -> Result<(), String> {
         unreachable!()
     }
 

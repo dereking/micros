@@ -49,6 +49,7 @@ fn image(kind: FunctionKind, code: Vec<Instruction>, max_stack: u16) -> AppImage
             kind: UiKind::Text,
             children: vec![],
             text: Some(TextSource::Constant(2)),
+            value: None,
             on_click: None,
             text_style: None,
         }],

@@ -1,4 +1,4 @@
-use micro_compiler::validate_source;
+use micro_compiler::{compile_source, validate_source};
 
 #[test]
 fn accepts_the_counter_sdk_surface() {
@@ -48,4 +48,27 @@ fn rejects_unknown_button_props_and_multiple_mounts() {
     let errors = validate_source("mount.ts", mounts).unwrap_err();
     assert_eq!(errors[0].code, "MTS003");
     assert_eq!((errors[0].line, errors[0].column), (2, 1));
+}
+
+#[test]
+fn rejects_non_scalar_widget_values() {
+    let cases = [
+        ("progress-bool.ts", "ui.mount(ui.progress(true));"),
+        ("switch-number.ts", "ui.mount(ui.switch(5));"),
+    ];
+    for (path, source) in cases {
+        let errors = compile_source(path, source).unwrap_err();
+        assert_eq!(errors[0].code, "MTS012", "{path}: {errors:?}");
+        assert_eq!(errors.len(), 1, "{path}: {errors:?}");
+    }
+}
+
+#[test]
+fn rejects_unknown_switch_props() {
+    let errors = validate_source(
+        "switch-prop.ts",
+        "ui.mount(ui.switch(bind(() => true), { color: 'red' }));",
+    )
+    .unwrap_err();
+    assert_eq!(errors[0].code, "MTS002");
 }

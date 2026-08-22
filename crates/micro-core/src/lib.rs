@@ -6,6 +6,7 @@ mod state;
 mod ui;
 
 pub use event::{Event, EventQueue};
+pub use micro_vm::Value;
 pub use runtime::{Runtime, RuntimeError};
 pub use state::StateStore;
 pub use ui::{MicroUiNode, MicroUiTree, RenderError, RenderPatch, RenderPort};

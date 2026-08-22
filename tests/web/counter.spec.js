@@ -9,6 +9,29 @@ test("ESP32 simulator launches the real Counter MBC and returns home", async ({ 
   await expect(page.getByText("Count: 1")).toBeVisible();
   await page.getByRole("button", { name: "Add" }).click();
   await expect(page.getByText("Count: 2")).toBeVisible();
+
+  await expect(page.getByText("battery: 0.3")).toBeVisible();
+  await expect(page.getByRole("progressbar")).toHaveAttribute("value", "0.3");
+  const toggle = page.getByRole("switch");
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByText("power: off")).toBeVisible();
+
+  // Drain/charge are gated on the power switch, so "+" is a no-op while off.
+  await page.getByRole("button", { name: "+" }).click();
+  await expect(page.getByText("battery: 0.3")).toBeVisible();
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByText("power: on")).toBeVisible();
+
+  await page.getByRole("button", { name: "+" }).click();
+  await expect(page.getByText("battery: 0.4")).toBeVisible();
+  await expect(page.getByRole("progressbar")).toHaveAttribute("value", "0.4");
+
+  await page.getByRole("button", { name: "-" }).click();
+  await expect(page.getByText("battery: 0.3")).toBeVisible();
+  await expect(page.getByRole("progressbar")).toHaveAttribute("value", "0.3");
+
   await page.getByRole("button", { name: "Back" }).click();
   await expect(page.getByRole("button", { name: "Settings" })).toBeVisible();
   const runtimeError = page.locator("[data-runtime-error]");

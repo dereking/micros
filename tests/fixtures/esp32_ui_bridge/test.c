@@ -21,8 +21,17 @@ static lv_obj_t *make(lv_obj_t *parent, int kind) { lv_obj_t *obj=&pool[used++];
 lv_obj_t *lv_obj_create(lv_obj_t *parent) { return make(parent, 1); }
 lv_obj_t *lv_label_create(lv_obj_t *parent) { return make(parent, 2); }
 lv_obj_t *lv_button_create(lv_obj_t *parent) { return make(parent, 3); }
+lv_obj_t *lv_bar_create(lv_obj_t *parent) { return make(parent, 4); }
+lv_obj_t *lv_switch_create(lv_obj_t *parent) { lv_obj_t *obj = make(parent, 5); obj->flags = LV_OBJ_FLAG_CLICKABLE; return obj; }
 void lv_label_set_text(lv_obj_t *obj, const char *text) { snprintf(obj->text, sizeof obj->text, "%s", text); }
-void lv_obj_set_flex_flow(lv_obj_t *obj, int flow) { assert(flow == LV_FLEX_FLOW_COLUMN); obj->kind = 1; }
+void lv_obj_set_flex_flow(lv_obj_t *obj, int flow) { obj->flex_flow = flow; }
+void lv_obj_set_style_pad_column(lv_obj_t *obj, int32_t value, lv_style_selector_t selector) { assert(selector == LV_PART_MAIN); obj->pad_column = value; }
+void lv_bar_set_range(lv_obj_t *obj, int32_t min, int32_t max) { obj->bar_min = min; obj->bar_max = max; }
+void lv_bar_set_value(lv_obj_t *obj, int32_t value, int anim) { (void)anim; obj->bar_value = value; }
+void lv_obj_set_size(lv_obj_t *obj, int32_t width, int32_t height) { obj->width = width; obj->height = height; }
+void lv_obj_add_state(lv_obj_t *obj, int state) { obj->state |= (uint32_t)state; }
+void lv_obj_clear_state(lv_obj_t *obj, int state) { obj->state &= ~(uint32_t)state; }
+void lv_obj_remove_flag(lv_obj_t *obj, int flag) { obj->flags &= ~(uint32_t)flag; }
 void lv_obj_set_style_text_font(lv_obj_t *obj, const lv_font_t *font, lv_style_selector_t selector) { assert(selector == LV_PART_MAIN); obj->font=font; }
 void lv_obj_set_style_text_line_space(lv_obj_t *obj, int32_t value, lv_style_selector_t selector) { assert(selector == LV_PART_MAIN); obj->line_space=value; }
 void lv_obj_delete(lv_obj_t *obj) { obj->deleted=1; }
@@ -65,5 +74,33 @@ int main(void) {
     assert(micro_esp_ui_create_button(5, UINT32_MAX, (const uint8_t *)"Root", 4, 9, (uintptr_t)&font14, 14) == 0);
     assert(pool[6].line_space == -3);
     assert(micro_esp_ui_destroy_app_root() == 0 && pool[5].deleted == 1);
+
+    /* Row, progress, and switch bridge contract. */
+    assert(micro_esp_ui_create_row(8, UINT32_MAX) == 0);
+    assert(pool[7].parent == &screen && pool[7].flex_flow == LV_FLEX_FLOW_ROW && pool[7].pad_column == 16);
+    assert(micro_esp_ui_create_progress(9, 8, 0.5) == 0);
+    assert(pool[8].parent == &pool[7] && pool[8].bar_min == 0 && pool[8].bar_max == 100 && pool[8].bar_value == 50);
+    assert(pool[8].width == 100 && pool[8].height == 12);
+    assert(micro_esp_ui_create_switch(10, 8, 1, 42) == 0);
+    assert(pool[9].parent == &pool[7] && (pool[9].state & LV_STATE_CHECKED));
+    assert(micro_esp_ui_create_switch(11, 8, 0, UINT32_MAX) == 0);
+    assert(pool[10].parent == &pool[7] && !(pool[10].flags & LV_OBJ_FLAG_CLICKABLE) && !(pool[10].state & LV_STATE_CHECKED));
+    assert(micro_esp_ui_set_progress_value(9, 0.75) == 0);
+    assert(pool[8].bar_value == 75);
+    assert(micro_esp_ui_set_progress_value(9, 1.5) == 0);
+    assert(pool[8].bar_value == 100);
+    assert(micro_esp_ui_set_progress_value(9, -0.5) == 0);
+    assert(pool[8].bar_value == 0);
+    assert(micro_esp_ui_set_switch_checked(10, 0) == 0);
+    assert(!(pool[9].state & LV_STATE_CHECKED));
+    assert(micro_esp_ui_set_switch_checked(10, 1) == 0);
+    assert(pool[9].state & LV_STATE_CHECKED);
+    click(&pool[9]);
+    dispatch_queued_activations();
+    assert(dispatched_handler == 42);
+    assert(micro_esp_ui_take_activation(&handler) == 0);
+    assert(micro_esp_ui_set_progress_value(99, 0.1) != 0);
+    assert(micro_esp_ui_set_switch_checked(99, 1) != 0);
+    assert(micro_esp_ui_destroy_app_root() == 0 && pool[7].deleted == 1 && locks == 0);
     puts("ESP32 LVGL UI bridge contract passed");
 }

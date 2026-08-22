@@ -3,11 +3,11 @@ use std::fmt;
 use crate::{
     AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId, FunctionKind,
     HandlerId, Instruction, NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind,
-    UiNodeSpec, ValidationError, validate,
+    UiNodeSpec, ValidationError, ValueSource, validate,
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
-const VERSION: u16 = 2;
+const VERSION: u16 = 3;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -278,6 +278,9 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
             UiKind::Column => 0,
             UiKind::Text => 1,
             UiKind::Button => 2,
+            UiKind::Row => 3,
+            UiKind::Progress => 4,
+            UiKind::Switch => 5,
         });
         put_u32(&mut out, node.children.len())?;
         for child in &node.children {
@@ -293,6 +296,20 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
                 out.extend_from_slice(&id.to_le_bytes());
             }
             Some(TextSource::Binding(id)) => {
+                out.push(2);
+                out.extend_from_slice(&id.0.to_le_bytes());
+            }
+        }
+        match node.value {
+            None => {
+                out.push(0);
+                out.extend_from_slice(&0_u32.to_le_bytes());
+            }
+            Some(ValueSource::Constant(id)) => {
+                out.push(1);
+                out.extend_from_slice(&id.to_le_bytes());
+            }
+            Some(ValueSource::Binding(id)) => {
                 out.push(2);
                 out.extend_from_slice(&id.0.to_le_bytes());
             }
@@ -335,6 +352,9 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             0 => UiKind::Column,
             1 => UiKind::Text,
             2 => UiKind::Button,
+            3 => UiKind::Row,
+            4 => UiKind::Progress,
+            5 => UiKind::Switch,
             tag => {
                 return Err(DecodeError::InvalidTag {
                     section: "ui kind",
@@ -356,6 +376,19 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             tag => {
                 return Err(DecodeError::InvalidTag {
                     section: "text source",
+                    tag,
+                });
+            }
+        };
+        let value_tag = reader.u8()?;
+        let value_id = reader.u32()?;
+        let value = match value_tag {
+            0 => None,
+            1 => Some(ValueSource::Constant(value_id)),
+            2 => Some(ValueSource::Binding(FunctionId(value_id))),
+            tag => {
+                return Err(DecodeError::InvalidTag {
+                    section: "value source",
                     tag,
                 });
             }
@@ -412,6 +445,7 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             kind,
             children,
             text,
+            value,
             on_click,
             text_style,
         });

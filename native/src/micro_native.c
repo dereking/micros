@@ -9,6 +9,7 @@
 #define MICRO_MAX_NODES 256U
 #define MICRO_EVENT_CAPACITY 64U
 #define MICRO_NO_PARENT UINT32_MAX
+#define MICRO_NO_HANDLER UINT32_MAX
 
 typedef struct micro_click_context {
     struct micro_native *native;
@@ -247,6 +248,67 @@ int micro_native_create_column(micro_native_t *native, uint32_t node_id, uint32_
     lv_obj_set_flex_align(object, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     if (parent_id == MICRO_NO_PARENT) lv_obj_center(object);
     native->objects[node_id] = object;
+    return 1;
+}
+
+int micro_native_create_row(micro_native_t *native, uint32_t node_id, uint32_t parent_id) {
+    if (node_id >= MICRO_MAX_NODES) return 0;
+    lv_obj_t *parent = parent_object(native, parent_id);
+    if (parent == NULL) return 0;
+    lv_obj_t *object = lv_obj_create(parent);
+    lv_obj_set_size(object, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_layout(object, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(object, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(object, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(object, 16, LV_PART_MAIN);
+    native->objects[node_id] = object;
+    return 1;
+}
+
+int micro_native_create_progress(micro_native_t *native, uint32_t node_id, uint32_t parent_id, double fraction) {
+    if (node_id >= MICRO_MAX_NODES) return 0;
+    lv_obj_t *parent = parent_object(native, parent_id);
+    if (parent == NULL) return 0;
+    lv_obj_t *bar = lv_bar_create(parent);
+    lv_bar_set_range(bar, 0, 100);
+    lv_bar_set_value(bar, (int32_t)(fraction * 100.0), LV_ANIM_OFF);
+    lv_obj_set_size(bar, LV_PCT(100), 12);
+    native->objects[node_id] = bar;
+    return 1;
+}
+
+int micro_native_create_switch(micro_native_t *native, uint32_t node_id, uint32_t parent_id, int checked, uint32_t handler_id) {
+    if (node_id >= MICRO_MAX_NODES) return 0;
+    lv_obj_t *parent = parent_object(native, parent_id);
+    if (parent == NULL) return 0;
+    lv_obj_t *toggle = lv_switch_create(parent);
+    if (checked) lv_obj_add_state(toggle, LV_STATE_CHECKED);
+    if (handler_id == MICRO_NO_HANDLER) {
+        lv_obj_remove_flag(toggle, LV_OBJ_FLAG_CLICKABLE);
+    } else {
+        native->clicks[node_id].native = native;
+        native->clicks[node_id].handler_id = handler_id;
+        lv_obj_add_event_cb(toggle, click_callback, LV_EVENT_CLICKED, &native->clicks[node_id]);
+    }
+    native->objects[node_id] = toggle;
+    return 1;
+}
+
+int micro_native_set_progress_value(micro_native_t *native, uint32_t node_id, double fraction) {
+    if (node_id >= MICRO_MAX_NODES || native->objects[node_id] == NULL) return 0;
+    if (fraction < 0.0) fraction = 0.0;
+    if (fraction > 1.0) fraction = 1.0;
+    lv_bar_set_value(native->objects[node_id], (int32_t)(fraction * 100.0), LV_ANIM_OFF);
+    return 1;
+}
+
+int micro_native_set_switch_checked(micro_native_t *native, uint32_t node_id, int checked) {
+    if (node_id >= MICRO_MAX_NODES || native->objects[node_id] == NULL) return 0;
+    if (checked) {
+        lv_obj_add_state(native->objects[node_id], LV_STATE_CHECKED);
+    } else {
+        lv_obj_clear_state(native->objects[node_id], LV_STATE_CHECKED);
+    }
     return 1;
 }
 

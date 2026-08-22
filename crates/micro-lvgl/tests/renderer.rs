@@ -1,13 +1,16 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use micro_core::{MicroUiNode, MicroUiTree, RenderPatch, RenderPort};
+use micro_core::{MicroUiNode, MicroUiTree, RenderPatch, RenderPort, Value};
 use micro_ir::{FontWeight, FunctionId, NodeId, TextStyle, UiKind};
 use micro_lvgl::{LvglRenderer, NativeUi};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 enum Call {
     Column(NodeId, Option<NodeId>),
+    Row(NodeId, Option<NodeId>),
+    Progress(NodeId, Option<NodeId>, f64),
+    Switch(NodeId, Option<NodeId>, bool, Option<FunctionId>),
     Label(NodeId, Option<NodeId>, String, Option<TextStyle>),
     Button(
         NodeId,
@@ -17,6 +20,8 @@ enum Call {
         Option<TextStyle>,
     ),
     SetText(NodeId, String),
+    SetProgress(NodeId, f64),
+    SetChecked(NodeId, bool),
     Diagnostic(NodeId, String),
 }
 
@@ -29,6 +34,29 @@ impl NativeUi for FakeBridge {
     }
     fn create_column(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
         self.0.push(Call::Column(node, parent));
+        Ok(())
+    }
+    fn create_row(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
+        self.0.push(Call::Row(node, parent));
+        Ok(())
+    }
+    fn create_progress(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        fraction: f64,
+    ) -> Result<(), String> {
+        self.0.push(Call::Progress(node, parent, fraction));
+        Ok(())
+    }
+    fn create_switch(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        checked: bool,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        self.0.push(Call::Switch(node, parent, checked, handler));
         Ok(())
     }
     fn create_label(
@@ -63,6 +91,14 @@ impl NativeUi for FakeBridge {
         self.0.push(Call::SetText(node, text.into()));
         Ok(())
     }
+    fn set_progress_value(&mut self, node: NodeId, fraction: f64) -> Result<(), String> {
+        self.0.push(Call::SetProgress(node, fraction));
+        Ok(())
+    }
+    fn set_switch_checked(&mut self, node: NodeId, checked: bool) -> Result<(), String> {
+        self.0.push(Call::SetChecked(node, checked));
+        Ok(())
+    }
 
     fn destroy_app_root(&mut self) -> Result<(), String> {
         Ok(())
@@ -79,6 +115,7 @@ fn tree() -> MicroUiTree {
                 kind: UiKind::Column,
                 children: vec![NodeId(1), NodeId(2)],
                 text: String::new(),
+                value: None,
                 on_click: None,
                 text_style: None,
             },
@@ -87,6 +124,7 @@ fn tree() -> MicroUiTree {
                 kind: UiKind::Text,
                 children: vec![],
                 text: "Count: 0".into(),
+                value: None,
                 on_click: None,
                 text_style: Some(label_style),
             },
@@ -95,6 +133,7 @@ fn tree() -> MicroUiTree {
                 kind: UiKind::Button,
                 children: vec![],
                 text: "Add".into(),
+                value: None,
                 on_click: Some(FunctionId(7)),
                 text_style: Some(button_style),
             },
@@ -138,6 +177,92 @@ fn maps_tree_preorder_and_applies_text_only_patch() {
 }
 
 #[test]
+fn maps_row_progress_and_switch_and_applies_value_patches() {
+    let mut renderer = LvglRenderer::new(FakeBridge::default());
+    renderer
+        .create_tree(&MicroUiTree {
+            nodes: vec![
+                MicroUiNode {
+                    id: NodeId(0),
+                    kind: UiKind::Column,
+                    children: vec![NodeId(1), NodeId(2)],
+                    text: String::new(),
+                    value: None,
+                    on_click: None,
+                    text_style: None,
+                },
+                MicroUiNode {
+                    id: NodeId(1),
+                    kind: UiKind::Row,
+                    children: vec![NodeId(3), NodeId(4)],
+                    text: String::new(),
+                    value: None,
+                    on_click: None,
+                    text_style: None,
+                },
+                MicroUiNode {
+                    id: NodeId(2),
+                    kind: UiKind::Switch,
+                    children: vec![],
+                    text: String::new(),
+                    value: Some(Value::Bool(false)),
+                    on_click: Some(FunctionId(7)),
+                    text_style: None,
+                },
+                MicroUiNode {
+                    id: NodeId(3),
+                    kind: UiKind::Text,
+                    children: vec![],
+                    text: "level: 3".into(),
+                    value: None,
+                    on_click: None,
+                    text_style: None,
+                },
+                MicroUiNode {
+                    id: NodeId(4),
+                    kind: UiKind::Progress,
+                    children: vec![],
+                    text: String::new(),
+                    value: Some(Value::Number(0.5)),
+                    on_click: None,
+                    text_style: None,
+                },
+            ],
+            root: NodeId(0),
+        })
+        .unwrap();
+    renderer
+        .apply(&[
+            RenderPatch::SetProgress {
+                node: NodeId(4),
+                fraction: 0.75,
+            },
+            RenderPatch::SetChecked {
+                node: NodeId(2),
+                checked: true,
+            },
+        ])
+        .unwrap();
+    assert_eq!(
+        renderer.bridge().0,
+        [
+            Call::Column(NodeId(0), None),
+            Call::Row(NodeId(1), Some(NodeId(0))),
+            Call::Label(
+                NodeId(3),
+                Some(NodeId(1)),
+                "level: 3".into(),
+                Some(TextStyle::DEFAULT_TEXT),
+            ),
+            Call::Progress(NodeId(4), Some(NodeId(1)), 0.5),
+            Call::Switch(NodeId(2), Some(NodeId(0)), false, Some(FunctionId(7))),
+            Call::SetProgress(NodeId(4), 0.75),
+            Call::SetChecked(NodeId(2), true),
+        ]
+    );
+}
+
+#[test]
 fn normalizes_unstyled_text_and_button_before_lvgl_calls() {
     let mut tree = tree();
     tree.nodes[1].text_style = None;
@@ -172,7 +297,26 @@ impl NativeUi for TrackingBridge {
         self.root_created = true;
         Ok(())
     }
-
+    fn create_row(&mut self, _node: NodeId, _parent: Option<NodeId>) -> Result<(), String> {
+        Ok(())
+    }
+    fn create_progress(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _fraction: f64,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    fn create_switch(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _checked: bool,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     fn create_label(
         &mut self,
         _node: NodeId,
@@ -199,6 +343,12 @@ impl NativeUi for TrackingBridge {
     }
 
     fn set_label_text(&mut self, _node: NodeId, _text: &str) -> Result<(), String> {
+        unreachable!()
+    }
+    fn set_progress_value(&mut self, _node: NodeId, _fraction: f64) -> Result<(), String> {
+        unreachable!()
+    }
+    fn set_switch_checked(&mut self, _node: NodeId, _checked: bool) -> Result<(), String> {
         unreachable!()
     }
 
@@ -295,6 +445,26 @@ impl NativeUi for SharedRootBridge {
             Ok(())
         }
     }
+    fn create_row(&mut self, _node: NodeId, _parent: Option<NodeId>) -> Result<(), String> {
+        Ok(())
+    }
+    fn create_progress(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _fraction: f64,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    fn create_switch(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _checked: bool,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
 
     fn create_label(
         &mut self,
@@ -316,6 +486,12 @@ impl NativeUi for SharedRootBridge {
         Ok(())
     }
     fn set_label_text(&mut self, _node: NodeId, _text: &str) -> Result<(), String> {
+        Ok(())
+    }
+    fn set_progress_value(&mut self, _node: NodeId, _fraction: f64) -> Result<(), String> {
+        Ok(())
+    }
+    fn set_switch_checked(&mut self, _node: NodeId, _checked: bool) -> Result<(), String> {
         Ok(())
     }
 

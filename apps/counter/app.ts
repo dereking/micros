@@ -1,9 +1,11 @@
 // Counter Studio — richer Micro App example.
 // Demonstrates multiple states, styled text, template-literal and
-// control-flow bindings, and several handlers.
+// control-flow bindings, several handlers, and the row/progress/switch widgets.
 
 const count = state(0);
 const presses = state(0);
+const level = state(3);
+const power = state(0);
 
 ui.mount(
   ui.column([
@@ -37,6 +39,36 @@ ui.mount(
       onClick: () => {
         count.value = count.value * 2;
         presses.value++;
+      },
+    }),
+
+    ui.text(bind(() => {
+      if (power.value === 1) { return "power: on"; }
+      return "power: off";
+    })),
+
+    ui.row([
+      ui.text(bind(() => `battery: ${level.value / 10}`)),
+      ui.progress(bind(() => level.value / 10)),
+      ui.button("-", {
+        onClick: () => {
+          if (power.value === 1) {
+            if (level.value > 0) { level.value = level.value - 1; }
+          }
+        },
+      }),
+      ui.button("+", {
+        onClick: () => {
+          if (power.value === 1) {
+            if (level.value < 10) { level.value = level.value + 1; }
+          }
+        },
+      }),
+    ]),
+
+    ui.switch(bind(() => power.value === 1), {
+      onToggle: () => {
+        power.value = 1 - power.value;
       },
     }),
   ]),

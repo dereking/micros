@@ -1,4 +1,4 @@
-use micro_core::{MicroUiNode, MicroUiTree, RenderPatch, RenderPort};
+use micro_core::{MicroUiNode, MicroUiTree, RenderPatch, RenderPort, Value};
 use micro_ir::{FontWeight, FunctionId, NodeId, TextStyle, UiKind};
 use micro_renderer_web::{WebDom, WebRenderer};
 
@@ -7,9 +7,12 @@ struct FakeDom {
     operations: Vec<Call>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 enum Call {
     Column(NodeId, Option<NodeId>),
+    Row(NodeId, Option<NodeId>),
+    Progress(NodeId, Option<NodeId>, f64),
+    Switch(NodeId, Option<NodeId>, bool, Option<FunctionId>),
     Text(NodeId, Option<NodeId>, String, Option<TextStyle>),
     Button(
         NodeId,
@@ -19,6 +22,8 @@ enum Call {
         Option<TextStyle>,
     ),
     SetText(NodeId, String),
+    SetProgress(NodeId, f64),
+    SetChecked(NodeId, bool),
     Diagnostic(NodeId, String),
 }
 
@@ -28,6 +33,33 @@ impl WebDom for FakeDom {
     }
     fn create_column(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
         self.operations.push(Call::Column(node, parent));
+        Ok(())
+    }
+
+    fn create_row(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
+        self.operations.push(Call::Row(node, parent));
+        Ok(())
+    }
+
+    fn create_progress(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        fraction: f64,
+    ) -> Result<(), String> {
+        self.operations.push(Call::Progress(node, parent, fraction));
+        Ok(())
+    }
+
+    fn create_switch(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        checked: bool,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        self.operations
+            .push(Call::Switch(node, parent, checked, handler));
         Ok(())
     }
 
@@ -63,6 +95,16 @@ impl WebDom for FakeDom {
 
     fn set_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
         self.operations.push(Call::SetText(node, text.into()));
+        Ok(())
+    }
+
+    fn set_progress(&mut self, node: NodeId, fraction: f64) -> Result<(), String> {
+        self.operations.push(Call::SetProgress(node, fraction));
+        Ok(())
+    }
+
+    fn set_checked(&mut self, node: NodeId, checked: bool) -> Result<(), String> {
+        self.operations.push(Call::SetChecked(node, checked));
         Ok(())
     }
 }
@@ -109,6 +151,7 @@ fn tree_with_text(text: &str) -> MicroUiTree {
                 kind: UiKind::Column,
                 children: vec![NodeId(1)],
                 text: String::new(),
+                value: None,
                 on_click: None,
                 text_style: None,
             },
@@ -117,6 +160,7 @@ fn tree_with_text(text: &str) -> MicroUiTree {
                 kind: UiKind::Text,
                 children: vec![],
                 text: text.into(),
+                value: None,
                 on_click: None,
                 text_style: None,
             },
@@ -136,6 +180,7 @@ fn maps_tree_preorder_and_applies_text_patch() {
                 kind: UiKind::Column,
                 children: vec![NodeId(1), NodeId(2)],
                 text: String::new(),
+                value: None,
                 on_click: None,
                 text_style: None,
             },
@@ -144,6 +189,7 @@ fn maps_tree_preorder_and_applies_text_patch() {
                 kind: UiKind::Text,
                 children: vec![],
                 text: "Count: 0".into(),
+                value: None,
                 on_click: None,
                 text_style: Some(label_style),
             },
@@ -152,6 +198,7 @@ fn maps_tree_preorder_and_applies_text_patch() {
                 kind: UiKind::Button,
                 children: vec![],
                 text: "Add".into(),
+                value: None,
                 on_click: Some(FunctionId(7)),
                 text_style: Some(button_style),
             },
@@ -193,6 +240,92 @@ fn maps_tree_preorder_and_applies_text_patch() {
 }
 
 #[test]
+fn maps_row_progress_and_switch_and_applies_value_patches() {
+    let mut renderer = WebRenderer::new(FakeDom::default());
+    renderer
+        .create_tree(&MicroUiTree {
+            root: NodeId(0),
+            nodes: vec![
+                MicroUiNode {
+                    id: NodeId(0),
+                    kind: UiKind::Column,
+                    children: vec![NodeId(1), NodeId(2)],
+                    text: String::new(),
+                    value: None,
+                    on_click: None,
+                    text_style: None,
+                },
+                MicroUiNode {
+                    id: NodeId(1),
+                    kind: UiKind::Row,
+                    children: vec![NodeId(3), NodeId(4)],
+                    text: String::new(),
+                    value: None,
+                    on_click: None,
+                    text_style: None,
+                },
+                MicroUiNode {
+                    id: NodeId(2),
+                    kind: UiKind::Switch,
+                    children: vec![],
+                    text: String::new(),
+                    value: Some(Value::Bool(false)),
+                    on_click: Some(FunctionId(7)),
+                    text_style: None,
+                },
+                MicroUiNode {
+                    id: NodeId(3),
+                    kind: UiKind::Text,
+                    children: vec![],
+                    text: "level: 3".into(),
+                    value: None,
+                    on_click: None,
+                    text_style: None,
+                },
+                MicroUiNode {
+                    id: NodeId(4),
+                    kind: UiKind::Progress,
+                    children: vec![],
+                    text: String::new(),
+                    value: Some(Value::Number(0.5)),
+                    on_click: None,
+                    text_style: None,
+                },
+            ],
+        })
+        .unwrap();
+    renderer
+        .apply(&[
+            RenderPatch::SetProgress {
+                node: NodeId(4),
+                fraction: 0.75,
+            },
+            RenderPatch::SetChecked {
+                node: NodeId(2),
+                checked: true,
+            },
+        ])
+        .unwrap();
+    assert_eq!(
+        renderer.dom().operations,
+        [
+            Call::Column(NodeId(0), None),
+            Call::Row(NodeId(1), Some(NodeId(0))),
+            Call::Text(
+                NodeId(3),
+                Some(NodeId(1)),
+                "level: 3".into(),
+                Some(TextStyle::DEFAULT_TEXT),
+            ),
+            Call::Progress(NodeId(4), Some(NodeId(1)), 0.5),
+            Call::Switch(NodeId(2), Some(NodeId(0)), false, Some(FunctionId(7))),
+            Call::SetProgress(NodeId(4), 0.75),
+            Call::SetChecked(NodeId(2), true),
+        ]
+    );
+}
+
+#[test]
 fn normalizes_unstyled_text_and_button_before_dom_calls() {
     let mut tree = tree_with_text("欢迎");
     tree.nodes[0].children.push(NodeId(2));
@@ -201,6 +334,7 @@ fn normalizes_unstyled_text_and_button_before_dom_calls() {
         kind: UiKind::Button,
         children: vec![],
         text: "确认".into(),
+        value: None,
         on_click: Some(FunctionId(7)),
         text_style: None,
     });

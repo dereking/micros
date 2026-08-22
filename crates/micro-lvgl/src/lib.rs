@@ -1,11 +1,25 @@
 //! LVGL renderer adapter behind a platform-neutral native bridge trait.
 
-use micro_core::{MicroUiTree, RenderError, RenderPatch, RenderPort};
+use micro_core::{MicroUiTree, RenderError, RenderPatch, RenderPort, Value};
 use micro_ir::{FunctionId, NodeId, TextStyle, UiKind, sanitize_ui_text};
 
 pub trait NativeUi {
     fn report_diagnostic(&mut self, node: NodeId, message: &str);
     fn create_column(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String>;
+    fn create_row(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String>;
+    fn create_progress(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        fraction: f64,
+    ) -> Result<(), String>;
+    fn create_switch(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        checked: bool,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String>;
     fn create_label(
         &mut self,
         node: NodeId,
@@ -22,6 +36,8 @@ pub trait NativeUi {
         style: Option<&TextStyle>,
     ) -> Result<(), String>;
     fn set_label_text(&mut self, node: NodeId, text: &str) -> Result<(), String>;
+    fn set_progress_value(&mut self, node: NodeId, fraction: f64) -> Result<(), String>;
+    fn set_switch_checked(&mut self, node: NodeId, checked: bool) -> Result<(), String>;
     fn destroy_app_root(&mut self) -> Result<(), String>;
 }
 
@@ -77,6 +93,27 @@ impl<B: NativeUi> LvglRenderer<B> {
             .ok_or_else(|| RenderError(format!("node {} is missing", node_id.0)))?;
         match node.kind {
             UiKind::Column => self.bridge.create_column(node.id, parent),
+            UiKind::Row => self.bridge.create_row(node.id, parent),
+            UiKind::Progress => {
+                let Some(Value::Number(fraction)) = node.value.as_ref() else {
+                    return Err(RenderError(format!(
+                        "progress {} has no numeric value",
+                        node.id.0
+                    )));
+                };
+                self.bridge
+                    .create_progress(node.id, parent, fraction.clamp(0.0, 1.0))
+            }
+            UiKind::Switch => {
+                let Some(Value::Bool(checked)) = node.value.as_ref() else {
+                    return Err(RenderError(format!(
+                        "switch {} has no boolean value",
+                        node.id.0
+                    )));
+                };
+                self.bridge
+                    .create_switch(node.id, parent, *checked, node.on_click)
+            }
             UiKind::Text => {
                 let text = self.checked_text(node.id, &node.text);
                 let style = node.text_style.unwrap_or(TextStyle::DEFAULT_TEXT);
@@ -111,11 +148,22 @@ impl<B: NativeUi> RenderPort for LvglRenderer<B> {
 
     fn apply(&mut self, patches: &[RenderPatch]) -> Result<(), RenderError> {
         for patch in patches {
-            let RenderPatch::SetText { node, text } = patch;
-            let text = self.checked_text(*node, text);
-            self.bridge
-                .set_label_text(*node, &text)
-                .map_err(RenderError)?;
+            match patch {
+                RenderPatch::SetText { node, text } => {
+                    let text = self.checked_text(*node, text);
+                    self.bridge
+                        .set_label_text(*node, &text)
+                        .map_err(RenderError)?;
+                }
+                RenderPatch::SetProgress { node, fraction } => self
+                    .bridge
+                    .set_progress_value(*node, fraction.clamp(0.0, 1.0))
+                    .map_err(RenderError)?,
+                RenderPatch::SetChecked { node, checked } => self
+                    .bridge
+                    .set_switch_checked(*node, *checked)
+                    .map_err(RenderError)?,
+            }
         }
         Ok(())
     }
