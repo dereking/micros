@@ -103,11 +103,118 @@ Micro OS firmware lives under `firmware/micro-os-esp32/` and builds with:
 ```zsh
 export IDF_TOOLS_PATH="$PWD/work/toolchains/espressif"
 source work/toolchains/esp-idf/export.sh
+source work/toolchains/espup-export.sh
 idf.py -C firmware/micro-os-esp32 set-target esp32s3
 idf.py -C firmware/micro-os-esp32 build
 ```
 
-The vendor demo commands above are only for validating the pinned board source.
+The first build compiles LVGL 9.5.0, esp_lvgl_port, GT911, and the Rust
+stdlib for `xtensa-esp32s3-espidf`; later builds reuse everything under
+`firmware/micro-os-esp32/build/` and `work/toolchains/`.
+
+## Flash and monitor the Micro OS firmware
+
+A successful build produces the standard ESP-IDF output plus the staged MBC
+image under `firmware/micro-os-esp32/build/`. Connect the Spotpear
+ESP32-S3-Touch-LCD-7 V1.2 N8R8 board, then export the port and flash the four
+images that make up the device: bootloader, partition table, application, and
+the Counter MBC.
+
+`idf.py flash` only knows about the three ESP-IDF images. The MBC image lives
+at a fourth partition (`micro_app`, raw subtype `0x06`) that ESP-IDF does not
+treat as a standard flashable asset, so the `esptool` invocation below writes
+all four segments in one go:
+
+```zsh
+export IDF_TOOLS_PATH="$PWD/work/toolchains/espressif"
+source work/toolchains/esp-idf/export.sh
+source work/toolchains/espup-export.sh
+export ESPPORT=/dev/cu.wchusbserial59591149741   # WCH USB-serial on this machine
+python -m esptool --chip esp32s3 -b 460800 \
+  --before default_reset --after hard_reset write_flash \
+  --flash_mode dio --flash_size 8MB --flash_freq 80m \
+  0x0      firmware/micro-os-esp32/build/bootloader/bootloader.bin \
+  0x8000   firmware/micro-os-esp32/build/partition_table/partition-table.bin \
+  0x10000  firmware/micro-os-esp32/build/micro_os_esp32.bin \
+  0x3A0000 firmware/micro-os-esp32/build/esp-idf/main/micro_app.bin
+```
+
+Then attach the serial monitor:
+
+```zsh
+python -m esp_idf_monitor --port "$ESPPORT"
+```
+
+`esp_idf_monitor` requires a real TTY; when running it from a non-interactive
+shell, use a small Python snippet that opens the port with `pyserial`,
+pulse-toggles RTS to reset the board, and reads the boot stream into a buffer.
+
+A successful boot prints, in order:
+
+```
+micro_os: detected Flash: 8388608 bytes
+micro_os: detected PSRAM: 8388608 bytes
+micro_os: 8 MB Flash / 8 MB PSRAM hardware class verified
+GT911: TouchPad_ID:0x39,0x31,0x31
+LVGL: Starting LVGL task
+micro_os: clearing smoke screen for MBC runtime bring-up
+micro_os: micro_app partition: offset=0x3a0000 size=4456448
+micro_os: MBC header: magic OK, version=3, payload=1274, total=1288
+micro_os: loaded MBC: 1288 bytes from micro_app partition
+micro_os: micro runtime created; ticking every 30 ms
+main_task: Returned from app_main()
+```
+
+After this the LCD shows the Counter App's static UI tree (title, count line,
+status line, Add / Reset / Double / Switch buttons); each touch on a button
+goes through the GT911 → LVGL input device → `micro_esp_ui_take_activation`
+queue, and `micro_runtime_tick` (driven by an `lv_timer`) drains the queue
+and runs the matching handler with a 10,000-instruction budget.
+
+On an iteration, reflash only the parts that changed:
+
+```zsh
+# Just the application binary (no MBC change):
+python -m esptool --chip esp32s3 -b 460800 \
+  --before default_reset --after hard_reset write_flash \
+  --flash_mode dio --flash_size 8MB --flash_freq 80m \
+  0x10000 firmware/micro-os-esp32/build/micro_os_esp32.bin
+
+# Just the MBC image (after `npm run build:app` re-emits apps/counter/dist/app.mbc):
+python -m esptool --chip esp32s3 -b 460800 \
+  --before default_reset --after hard_reset write_flash \
+  --flash_mode dio --flash_size 8MB --flash_freq 80m \
+  0x3A0000 firmware/micro-os-esp32/build/esp-idf/main/micro_app.bin
+```
+
+## Incremental rebuilds
+
+`work/toolchains/` holds the project-local ESP-IDF 5.5.4, Xtensa GCC 14.2.0
+ESP32-S3 toolchain, and the Xtensa Rust toolchain (none of it is in version
+control). After editing the firmware C code, the `micro-host-esp32` Rust
+crate, the LVGL C port, or the UI fonts, rerun:
+
+```zsh
+idf.py -C firmware/micro-os-esp32 build
+```
+
+ESP-IDF only recompiles changed components. The CMake `ExternalProject_Add`
+under `components/micro_runtime_ffi/` only reruns `cargo build` when sources in
+`crates/micro-host-esp32/` or its SDK bindings change. The Rust ABI stamp
+under
+`firmware/micro-os-esp32/build/esp-idf/micro_runtime_ffi/rust-abi-complete.sha256`
+is rewritten on every successful Rust archive build; this is the commit point
+proving the Rust ABI is part of the final link.
+
+## Build artifacts
+
+A successful build produces:
+
+- `firmware/micro-os-esp32/build/micro_os_esp32.bin` — application image, flashed at `0x10000`
+- `firmware/micro-os-esp32/build/micro_os_esp32.elf` — debug ELF with symbols
+- `firmware/micro-os-esp32/build/micro_os_esp32.map` — full linker map
+- `firmware/micro-os-esp32/build/esp-idf/micro_runtime_ffi/target/xtensa-esp32s3-espidf/release/libmicro_host_esp32.a` — Rust static archive linked into the C ABI component
+- `firmware/micro-os-esp32/build/esp-idf/micro_runtime_ffi/rust-abi-complete.sha256` — SHA-256 of the Rust archive inputs, the archive itself, and the link map
 
 ## Hardware verification checklist — not yet performed
 

@@ -34,6 +34,7 @@ LVGL+SDL3（macOS）或 DOM（浏览器 Wasm）。更详细的架构与命令见
 | `npm run test:native` | 一键原生测试：自检 → 编译 App → 构建宿主 → 无头冒烟 → 打开窗口；`npm run test:native -- --smoke` 只跑冒烟 |
 | `npm test` | 运行全部平台无关 Rust 测试（`cargo test --workspace`） |
 | `npm run test:web` | Web 端：Node 单测 + 构建 + Playwright 浏览器验收 |
+| ESP 固件 build / flash | 一次性安装见 `firmware/micro-os-esp32/TOOLCHAIN.md`；之后 `idf.py -C firmware/micro-os-esp32 build` / `flash` |
 
 ## 3. 初始化开发环境 / Environment Setup
 
