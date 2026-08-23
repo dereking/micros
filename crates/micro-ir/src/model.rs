@@ -109,6 +109,10 @@ pub enum UiKind {
     /// Clickable-row container (LVGL list). Children are Button rows; each
     /// carries its own text and onClick handler.
     List,
+    /// Tabbed container (LVGL tabview). `options` holds the tab titles (as
+    /// interned strings); children are the tab content nodes, one per tab in
+    /// the same order.
+    Tabview,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,7 +239,8 @@ impl TextStyle {
             | UiKind::Led
             | UiKind::Spinner
             | UiKind::Scale
-            | UiKind::List => None,
+            | UiKind::List
+            | UiKind::Tabview => None,
             UiKind::Text | UiKind::Input => Some(Self::DEFAULT_TEXT),
             UiKind::Button => Some(Self::DEFAULT_BUTTON),
         }

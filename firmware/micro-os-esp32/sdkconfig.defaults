@@ -18,6 +18,10 @@ CONFIG_SPIRAM_SPEED_80M=y
 
 # Runtime scheduling and diagnostics
 CONFIG_FREERTOS_HZ=1000
+# Building the full Micro UI tree (dozens of LVGL widgets incl.
+# list/tabview) needs more than the default 4 KB main-task stack;
+# an overflow used to panic in vApplicationStackOverflowHook.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
 CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y

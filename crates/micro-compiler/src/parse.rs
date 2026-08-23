@@ -218,7 +218,7 @@ impl Validator<'_> {
         };
         let expected = match name.as_str() {
             "state" | "bind" | "ui.mount" | "ui.column" | "ui.row" | "ui.progress"
-            | "ui.led" | "ui.spinner" | "ui.list" => 1..=1,
+            | "ui.led" | "ui.spinner" | "ui.list" | "ui.tabview" => 1..=1,
             "ui.text" => 1..=2,
             "ui.switch" => 1..=2,
             "ui.input" => 1..=2,
@@ -313,9 +313,54 @@ impl Validator<'_> {
             "ui.list" => {
                 self.list_items(&call.args[0].expr);
             }
+            "ui.tabview" => {
+                self.tabview_tabs(&call.args[0].expr);
+            }
             _ => {
                 for argument in &call.args {
                     self.expression(&argument.expr);
+                }
+            }
+        }
+    }
+
+    fn tabview_tabs(&mut self, expression: &Expr) {
+        let Expr::Array(array) = expression else {
+            self.sdk_error(
+                expression.span(),
+                "ui.tabview expects a tab array".into(),
+            );
+            return;
+        };
+        for element in array.elems.iter().flatten() {
+            let Expr::Object(object) = &*element.expr else {
+                self.unsupported(element.expr.span(), "tab");
+                continue;
+            };
+            for property in &object.props {
+                let PropOrSpread::Prop(property) = property else {
+                    self.unsupported(property.span(), "spread");
+                    continue;
+                };
+                let Prop::KeyValue(property) = &**property else {
+                    self.unsupported(property.span(), "tab property");
+                    continue;
+                };
+                let PropName::Ident(name) = &property.key else {
+                    self.unsupported(property.key.span(), "computed tab property");
+                    continue;
+                };
+                if !matches!(name.sym.as_ref(), "title" | "content") {
+                    self.errors.push(diagnostic_at(
+                        self.source_map,
+                        self.path,
+                        name.span,
+                        "MTS002",
+                        format!("unknown tab property `{}`", name.sym),
+                    ));
+                }
+                if name.sym == *"content" {
+                    self.expression(&property.value);
                 }
             }
         }

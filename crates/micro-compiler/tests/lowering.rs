@@ -29,7 +29,7 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
         .iter()
         .filter(|function| matches!(function.kind, FunctionKind::Binding(_)))
         .collect();
-    assert_eq!(bindings.len(), 20);
+    assert_eq!(bindings.len(), 24);
 
     let handlers: Vec<_> = image
         .functions
@@ -82,7 +82,7 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
 
     let root = &image.nodes[image.root.0 as usize];
     assert_eq!(root.kind, UiKind::Column);
-    assert_eq!(root.children.len(), 25);
+    assert_eq!(root.children.len(), 26);
     // The first child is a styled static title.
     let title = &image.nodes[root.children[0].0 as usize];
     assert!(matches!(title.text, Some(TextSource::Constant(_))));

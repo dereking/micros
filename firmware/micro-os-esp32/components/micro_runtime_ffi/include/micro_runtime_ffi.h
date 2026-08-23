@@ -280,6 +280,11 @@ void micro_os_destroy(micro_os_t *os);
 int micro_esp_ui_create_column(uint32_t node, uint32_t parent);
 int micro_esp_ui_create_row(uint32_t node, uint32_t parent);
 int micro_esp_ui_create_list(uint32_t node, uint32_t parent);
+/* Tabbed container. `titles` is the tab titles joined with '\n'. */
+int micro_esp_ui_create_tabview(uint32_t node, uint32_t parent,
+                               const uint8_t *titles, size_t titles_len);
+/* Select which tab's content page subsequent children mount into. */
+int micro_esp_ui_create_tab_content(uint32_t index);
 int micro_esp_ui_create_progress(uint32_t node, uint32_t parent, double fraction);
 int micro_esp_ui_create_switch(uint32_t node, uint32_t parent, int checked, uint32_t handler);
 /* Zero preserves platform defaults; nonzero font handles are platform-owned. */

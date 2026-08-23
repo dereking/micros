@@ -110,6 +110,8 @@ static lv_obj_t *s_pinyin_label;
 static lv_obj_t *s_ime_toggle;
 static lv_obj_t *s_target_ta;
 static bool s_ime_active;
+static lv_obj_t *s_tabview;
+static lv_obj_t *s_tab_target;
 #define MICRO_IME_CANDIDATE_COUNT 8U
 #define MICRO_IME_CANDIDATE_HEIGHT 44
 #define MICRO_IME_PINYIN_MAX 12U
@@ -529,7 +531,16 @@ static lv_obj_t *parent_object(uint32_t parent)
     if (parent == MICRO_UI_NO_PARENT) {
         return lv_screen_active();
     }
-    return parent < MICRO_UI_MAX_NODES ? objects[parent] : NULL;
+    if (parent >= MICRO_UI_MAX_NODES) {
+        return NULL;
+    }
+    lv_obj_t *obj = objects[parent];
+    /* Content nodes created right after create_tab_content(i) mount into the
+     * i-th tab page instead of the tabview bar itself. */
+    if (s_tab_target != NULL && obj != NULL && lv_obj_check_type(obj, &lv_tabview_class)) {
+        return s_tab_target;
+    }
+    return obj;
 }
 
 static char *copy_text(const uint8_t *text, size_t len)
@@ -600,6 +611,8 @@ int micro_esp_ui_create_column(uint32_t node, uint32_t parent)
             lv_obj_set_style_pad_top(column, 12, LV_PART_MAIN);
             lv_obj_set_style_pad_bottom(column, 12, LV_PART_MAIN);
             lv_obj_set_style_pad_row(column, 8, LV_PART_MAIN);
+            /* No scrollbar chrome; manual touch scrolling still works. */
+            lv_obj_set_scrollbar_mode(column, LV_SCROLLBAR_MODE_OFF);
             objects[node] = column;
             if (parent == MICRO_UI_NO_PARENT) app_root = column;
         }
@@ -644,6 +657,59 @@ int micro_esp_ui_create_list(uint32_t node, uint32_t parent)
             lv_obj_set_style_pad_row(list, 4, LV_PART_MAIN);
             objects[node] = list;
             if (parent == MICRO_UI_NO_PARENT) app_root = list;
+        }
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
+int micro_esp_ui_create_tabview(uint32_t node, uint32_t parent,
+                                 const uint8_t *titles, size_t titles_len)
+{
+    char *copy = copy_text(titles, titles_len);
+    if (copy == NULL) return -5;
+    if (!lvgl_port_lock(0)) { free(copy); return -3; }
+    lv_obj_t *parent_obj;
+    int result = begin_create(node, parent, &parent_obj);
+    if (result == 0) {
+        lv_obj_t *tabview = lv_tabview_create(parent_obj);
+        if (tabview == NULL) result = -4;
+        else {
+            /* Bounded height so the tabview sits inside the scrollable
+     * column without filling the screen, blocking column scroll,
+     * or driving a layout feedback loop that flickers. */
+            lv_obj_set_size(tabview, LV_PCT(100), 280);
+            /* Titles arrive '
+'-joined; add one tab per title. */
+            char *cursor = copy;
+            char *save = NULL;
+            for (char *token = strtok_r(cursor, "\n", &save); token != NULL;
+                 token = strtok_r(NULL, "\n", &save)) {
+                lv_tabview_add_tab(tabview, token);
+            }
+            s_tabview = tabview;
+            s_tab_target = NULL;
+            objects[node] = tabview;
+            if (parent == MICRO_UI_NO_PARENT) app_root = tabview;
+        }
+    }
+    lvgl_port_unlock();
+    free(copy);
+    return result;
+}
+
+int micro_esp_ui_create_tab_content(uint32_t index)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    int result = -1;
+    if (s_tabview != NULL) {
+        lv_obj_t *content = lv_tabview_get_content(s_tabview);
+        if (content != NULL) {
+            lv_obj_t *page = lv_obj_get_child(content, index);
+            if (page != NULL) {
+                s_tab_target = page;
+                result = 0;
+            }
         }
     }
     lvgl_port_unlock();
@@ -1030,6 +1096,10 @@ int micro_esp_ui_create_spinner(uint32_t node, uint32_t parent, int active)
             lv_obj_set_size(spinner, 48, 48);
             if (!active) {
                 lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+                /* lv_spinner_create starts an infinite arc animation that keeps
+                 * invalidating even when hidden. Stop it so an idle spinner
+                 * cannot drive a periodic redraw/flicker. */
+                lv_anim_del(spinner, NULL);
             }
             objects[node] = spinner;
             if (parent == MICRO_UI_NO_PARENT) app_root = spinner;
@@ -1049,6 +1119,7 @@ int micro_esp_ui_set_spinner(uint32_t node, int active)
             lv_obj_clear_flag(objects[node], LV_OBJ_FLAG_HIDDEN);
         } else {
             lv_obj_add_flag(objects[node], LV_OBJ_FLAG_HIDDEN);
+            lv_anim_del(objects[node], NULL);
         }
         result = 0;
     }
@@ -1177,6 +1248,8 @@ int micro_esp_ui_destroy_app_root(void)
     }
     s_target_ta = NULL;
     s_ime_active = false;
+    s_tabview = NULL;
+    s_tab_target = NULL;
     s_candidate_shown = 0;
     if (app_root != NULL) lv_obj_delete(app_root);
     app_root = NULL;

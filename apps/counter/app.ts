@@ -142,5 +142,25 @@ ui.mount(
       { text: "double count", onClick: () => { count.value = count.value * 2; } },
       { text: "level up", onClick: () => { if (level.value < 10) { level.value = level.value + 1; } } },
     ]),
+
+    ui.tabview([
+      {
+        title: "stats",
+        content: ui.column([
+          ui.text(bind(() => `count is ${count.value}`)),
+          ui.text(bind(() => `presses ${presses.value}`)),
+        ]),
+      },
+      {
+        title: "power",
+        content: ui.column([
+          ui.text(bind(() => {
+            if (power.value === 1) { return "power: on"; }
+            return "power: off";
+          })),
+          ui.progress(bind(() => level.value / 10)),
+        ]),
+      },
+    ]),
   ]),
 );

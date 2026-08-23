@@ -199,7 +199,12 @@ static void checkbox_callback(lv_event_t *event) {
 static lv_obj_t *parent_object(micro_native_t *native, uint32_t parent_id) {
     if (parent_id == MICRO_NO_PARENT) return lv_screen_active();
     if (parent_id >= MICRO_MAX_NODES) return NULL;
-    return native->objects[parent_id];
+    lv_obj_t *obj = native->objects[parent_id];
+    if (native->tab_target != NULL && obj != NULL &&
+        lv_obj_check_type(obj, &lv_tabview_class)) {
+        return native->tab_target;
+    }
+    return obj;
 }
 
 static void apply_text_style(lv_obj_t *object, uintptr_t font_handle, uint32_t line_height_px) {
@@ -286,6 +291,8 @@ int micro_native_destroy_app_root(micro_native_t *native) {
     memset(native->needles, 0, sizeof(native->needles));
     native->input_read = 0;
     native->input_write = 0;
+    native->tabview = NULL;
+    native->tab_target = NULL;
     native->slider_read = 0;
     native->slider_write = 0;
     native->checkbox_read = 0;
@@ -402,6 +409,41 @@ int micro_native_create_list(micro_native_t *native, uint32_t node_id, uint32_t 
     lv_obj_set_size(list, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_style_pad_row(list, 4, LV_PART_MAIN);
     native->objects[node_id] = list;
+    return 1;
+}
+
+int micro_native_create_tabview(micro_native_t *native, uint32_t node_id, uint32_t parent_id,
+                                 const char *titles) {
+    if (native == NULL || node_id >= MICRO_MAX_NODES) return 0;
+    lv_obj_t *parent = parent_object(native, parent_id);
+    if (parent == NULL) return 0;
+    lv_obj_t *tabview = lv_tabview_create(parent);
+    /* Bounded height so the tabview sits inside the scrollable
+     * column without filling the screen, blocking column scroll,
+     * or driving a layout feedback loop that flickers. */
+            lv_obj_set_size(tabview, LV_PCT(100), 280);
+    char *copy = strdup(titles);
+    if (copy != NULL) {
+        char *save = NULL;
+        for (char *token = strtok_r(copy, "\n", &save); token != NULL;
+             token = strtok_r(NULL, "\n", &save)) {
+            lv_tabview_add_tab(tabview, token);
+        }
+        free(copy);
+    }
+    native->tabview = tabview;
+    native->tab_target = NULL;
+    native->objects[node_id] = tabview;
+    return 1;
+}
+
+int micro_native_create_tab_content(micro_native_t *native, uint32_t index) {
+    if (native == NULL || native->tabview == NULL) return 0;
+    lv_obj_t *content = lv_tabview_get_content(native->tabview);
+    if (content == NULL) return 0;
+    lv_obj_t *page = lv_obj_get_child(content, index);
+    if (page == NULL) return 0;
+    native->tab_target = page;
     return 1;
 }
 

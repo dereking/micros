@@ -21,6 +21,8 @@ unsafe extern "C" {
     fn micro_native_create_column(native: *mut c_void, node: c_uint, parent: c_uint) -> c_int;
     fn micro_native_create_row(native: *mut c_void, node: c_uint, parent: c_uint) -> c_int;
     fn micro_native_create_list(native: *mut c_void, node: c_uint, parent: c_uint) -> c_int;
+    fn micro_native_create_tabview(native: *mut c_void, node: c_uint, parent: c_uint, titles: *const c_char) -> c_int;
+    fn micro_native_create_tab_content(native: *mut c_void, index: c_uint) -> c_int;
     fn micro_native_create_progress(
         native: *mut c_void,
         node: c_uint,

@@ -83,6 +83,13 @@ pub trait NativeUi {
     ) -> Result<(), String>;
     fn set_selection_value(&mut self, node: NodeId, index: f64) -> Result<(), String>;
     fn create_list(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String>;
+    fn create_tabview(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        titles: &[String],
+    ) -> Result<(), String>;
+    fn create_tab_content(&mut self, index: u32) -> Result<(), String>;
     fn create_led(&mut self, node: NodeId, parent: Option<NodeId>, on: bool) -> Result<(), String>;
     fn set_led(&mut self, node: NodeId, on: bool) -> Result<(), String>;
     fn create_spinner(&mut self, node: NodeId, parent: Option<NodeId>, active: bool)
@@ -258,6 +265,18 @@ impl<B: NativeUi> LvglRenderer<B> {
                 )
             }
             UiKind::List => self.bridge.create_list(node.id, parent),
+            UiKind::Tabview => {
+                self.bridge
+                    .create_tabview(node.id, parent, &node.options)
+                    .map_err(RenderError)?;
+                for (index, child) in node.children.iter().enumerate() {
+                    self.bridge
+                        .create_tab_content(index as u32)
+                        .map_err(RenderError)?;
+                    self.create_node(tree, *child, Some(node.id))?;
+                }
+                Ok(())
+            }
             UiKind::Led => {
                 let Some(Value::Bool(on)) = node.value.as_ref() else {
                     return Err(RenderError(format!("led {} has no boolean value", node.id.0)));
@@ -288,7 +307,10 @@ impl<B: NativeUi> LvglRenderer<B> {
             self.owns_app_root = true;
         }
         for child in &node.children {
-            self.create_node(tree, *child, Some(node.id))?;
+            /* Tabview mounts its content children itself; skip them here. */
+            if !matches!(node.kind, UiKind::Tabview) {
+                self.create_node(tree, *child, Some(node.id))?;
+            }
         }
         Ok(())
     }

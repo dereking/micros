@@ -56,5 +56,6 @@ declare const ui: {
   spinner(active: boolean | Binding<boolean>): UiNode;
   scale(value: number | Binding<number>, options?: { min?: number; max?: number }): UiNode;
   list(items: { text: string; onClick: () => void }[]): UiNode;
+  tabview(tabs: { title: string; content: UiNode }[]): UiNode;
   mount(root: UiNode): void;
 };

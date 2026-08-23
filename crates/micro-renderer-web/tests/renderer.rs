@@ -195,6 +195,19 @@ impl WebDom for FakeDom {
         Ok(())
     }
 
+    fn create_tabview(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _titles: &[String],
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_tab_content(&mut self, _index: u32) -> Result<(), String> {
+        Ok(())
+    }
+
     fn set_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
         self.operations.push(Call::SetText(node, text.into()));
         Ok(())

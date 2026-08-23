@@ -17,6 +17,7 @@ pub struct DomBridge {
     slider_changes: SliderChangeQueue,
     checkbox_changes: CheckboxChangeQueue,
     selection_changes: SelectionChangeQueue,
+    active_tab: Option<u32>,
     click_handlers: Vec<Closure<dyn FnMut(Event)>>,
 }
 
@@ -39,6 +40,7 @@ impl DomBridge {
             slider_changes,
             checkbox_changes,
             selection_changes,
+            active_tab: None,
             click_handlers: Vec::new(),
         }
     }
@@ -76,7 +78,22 @@ impl DomBridge {
                 .ok_or_else(|| format!("parent node {} is missing", parent.0))?,
             None => &self.container,
         };
-        parent
+        let target = if parent.class_name() == "micro-tabview" {
+            /* Tab content children land on the page for the active tab. */
+            if let Some(index) = self.active_tab {
+                let page_index = index as usize * 2 + 1;
+                if let Some(page) = parent.child_nodes().item(page_index as u32) {
+                    page.dyn_into::<web_sys::Element>().unwrap_or_else(|_| parent.clone())
+                } else {
+                    parent.clone()
+                }
+            } else {
+                parent.clone()
+            }
+        } else {
+            parent.clone()
+        };
+        target
             .append_child(&element)
             .map_err(|error| format!("append node {}: {error:?}", node.0))?;
         self.elements.insert(node.0, element);
@@ -393,6 +410,47 @@ impl WebDom for DomBridge {
     fn create_list(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
         let element = self.create_element("div", node, "micro-list")?;
         self.append(node, parent, element)
+    }
+
+    fn create_tabview(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        titles: &[String],
+    ) -> Result<(), String> {
+        let element = self.create_element("div", node, "micro-tabview")?;
+        for title in titles {
+            let tab = self
+                .document
+                .create_element("button")
+                .map_err(|error| format!("create tab: {error:?}"))?;
+            tab.set_attribute("class", "micro-tab-title")
+                .map_err(|error| format!("set tab class: {error:?}"))?;
+            tab.set_text_content(Some(title));
+            element
+                .append_child(&tab)
+                .map_err(|error| format!("append tab: {error:?}"))?;
+            let page = self
+                .document
+                .create_element("div")
+                .map_err(|error| format!("create tab page: {error:?}"))?;
+            page.set_attribute("class", "micro-tab-page")
+                .map_err(|error| format!("set tab page class: {error:?}"))?;
+            element
+                .append_child(&page)
+                .map_err(|error| format!("append tab page: {error:?}"))?;
+        }
+        self.append(node, parent, element)
+    }
+
+    fn create_tab_content(&mut self, index: u32) -> Result<(), String> {
+        /* Children of a tabview are appended after the title/page pairs: the
+         * last page is at position 2*index+1 within the tabview, but the child
+         * itself is appended by the generic append(). We just record the
+         * current page count for ordering via a data attribute on the element
+         * the child will land in. */
+        self.active_tab = Some(index);
+        Ok(())
     }
 
     fn create_led(&mut self, node: NodeId, parent: Option<NodeId>, on: bool) -> Result<(), String> {

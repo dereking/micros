@@ -233,6 +233,13 @@ impl<'a> Lowerer<'a> {
                 }
                 Ok(id)
             }
+            Some("ui.tabview") => {
+                let id = self.reserve_node(UiKind::Tabview);
+                let (titles, contents) = self.lower_tabview_tabs(&call.args[0].expr)?;
+                self.nodes[id.0 as usize].options = titles;
+                self.nodes[id.0 as usize].children = contents;
+                Ok(id)
+            }
             Some("ui.list") => {
                 let id = self.reserve_node(UiKind::List);
                 let children = self.lower_list_items(&call.args[0].expr)?;
@@ -640,6 +647,96 @@ impl<'a> Lowerer<'a> {
         expression: &Expr,
     ) -> Result<(), Diagnostic> {
         self.lower_selection_options(node, expression, "ui.dropdown")
+    }
+
+    fn lower_tabview_tabs(
+        &mut self,
+        expression: &Expr,
+    ) -> Result<(Vec<u32>, Vec<NodeId>), Diagnostic> {
+        let Expr::Array(array) = expression else {
+            return Err(self.error(
+                expression.span(),
+                "MTS012",
+                "ui.tabview expects a tab array",
+            ));
+        };
+        let mut titles = Vec::with_capacity(array.elems.len());
+        let mut contents = Vec::with_capacity(array.elems.len());
+        for element in array.elems.iter().flatten() {
+            let Expr::Object(object) = &*element.expr else {
+                return Err(self.error(
+                    element.expr.span(),
+                    "MTS012",
+                    "tab entries must be object literals",
+                ));
+            };
+            let mut title = None;
+            let mut content = None;
+            for property in &object.props {
+                let PropOrSpread::Prop(property) = property else {
+                    return Err(self.error(
+                        property.span(),
+                        "MTS012",
+                        "tab entries cannot use spread",
+                    ));
+                };
+                let Prop::KeyValue(property) = &**property else {
+                    return Err(self.error(
+                        property.span(),
+                        "MTS012",
+                        "tab properties must use key-value pairs",
+                    ));
+                };
+                let PropName::Ident(name) = &property.key else {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS012",
+                        "tab property names must be identifiers",
+                    ));
+                };
+                match name.sym.as_ref() {
+                    "title" if title.is_none() => {
+                        let constant = literal_constant(&property.value)
+                            .filter(|constant| matches!(constant, Constant::String(_)))
+                            .ok_or_else(|| {
+                                self.error(
+                                    property.value.span(),
+                                    "MTS012",
+                                    "tab title must be a string",
+                                )
+                            })?;
+                        if let Constant::String(value) = &constant {
+                            self.validate_literal_glyphs(property.value.span(), value)?;
+                        }
+                        title = Some(self.intern(constant));
+                    }
+                    "content" if content.is_none() => {
+                        content = Some(self.lower_ui(&property.value)?);
+                    }
+                    "title" | "content" => {
+                        return Err(self.error(
+                            property.key.span(),
+                            "MTS012",
+                            format!("duplicate tab property `{}`", name.sym),
+                        ));
+                    }
+                    _ => {
+                        return Err(self.error(
+                            property.key.span(),
+                            "MTS002",
+                            format!("unknown tab property `{}`", name.sym),
+                        ));
+                    }
+                }
+            }
+            titles.push(title.ok_or_else(|| {
+                self.error(element.expr.span(), "MTS012", "tab is missing a title")
+            })?);
+            contents.push(content.ok_or_else(|| {
+                self.error(element.expr.span(), "MTS012", "tab is missing content")
+            })?);
+        }
+        Ok((titles, contents))
     }
 
     fn lower_list_items(&mut self, expression: &Expr) -> Result<Vec<NodeId>, Diagnostic> {

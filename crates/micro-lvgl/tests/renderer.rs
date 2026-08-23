@@ -202,6 +202,19 @@ impl NativeUi for FakeBridge {
         Ok(())
     }
 
+    fn create_tabview(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _titles: &[String],
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_tab_content(&mut self, _index: u32) -> Result<(), String> {
+        Ok(())
+    }
+
     fn destroy_app_root(&mut self) -> Result<(), String> {
         Ok(())
     }
@@ -572,6 +585,19 @@ impl NativeUi for TrackingBridge {
         Ok(())
     }
 
+    fn create_tabview(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _titles: &[String],
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_tab_content(&mut self, _index: u32) -> Result<(), String> {
+        Ok(())
+    }
+
     fn destroy_app_root(&mut self) -> Result<(), String> {
         assert!(self.root_created);
         self.destroyed.set(self.destroyed.get() + 1);
@@ -814,6 +840,19 @@ impl NativeUi for SharedRootBridge {
     }
 
     fn create_list(&mut self, _node: NodeId, _parent: Option<NodeId>) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_tabview(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _titles: &[String],
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_tab_content(&mut self, _index: u32) -> Result<(), String> {
         Ok(())
     }
 
