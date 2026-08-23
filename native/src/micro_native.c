@@ -429,12 +429,11 @@ int micro_native_create_list(micro_native_t *native, uint32_t node_id, uint32_t 
     lv_obj_t *list = lv_list_create(parent);
     lv_obj_set_size(list, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_style_pad_row(list, 4, LV_PART_MAIN);
-    /* Soft card: borderless, light rounded background. */
+    /* Borderless and blended into the parent so it matches the app
+     * background; the items themselves stand out. */
     lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(list, lv_color_hex(0xEFF2EC), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(list, lv_obj_get_style_bg_color(parent, LV_PART_MAIN), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(list, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_radius(list, 12, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(list, 8, LV_PART_MAIN);
     native->objects[node_id] = list;
     return 1;
 }
@@ -458,15 +457,38 @@ int micro_native_create_tabview(micro_native_t *native, uint32_t node_id, uint32
         }
         free(copy);
     }
-    /* Strip the default theme borders from the content panel, tab bar and
-     * each page so the tab body reads as one clean surface. */
+    /* One uniform light background across the app; no padding or borders at
+     * the tab level, scrollbar flush with the page edge. */
+    lv_color_t app_bg = lv_color_hex(0xF2F4F0);
+    if (parent_id == MICRO_NO_PARENT) {
+        lv_obj_set_style_bg_color(lv_screen_active(), app_bg, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(lv_screen_active(), LV_OPA_COVER, LV_PART_MAIN);
+    }
+    lv_obj_set_style_bg_color(tabview, app_bg, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(tabview, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(tabview, 0, LV_PART_MAIN);
     lv_obj_t *tab_content = lv_tabview_get_content(tabview);
     lv_obj_set_style_border_width(tab_content, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(tab_content, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(tab_content, app_bg, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(tab_content, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_t *tab_bar = lv_tabview_get_tab_bar(tabview);
-    lv_obj_set_style_border_width(tab_bar, 0, LV_PART_MAIN);
+    /* A thin bottom divider separates the tab bar from the content. */
+    lv_obj_set_style_border_width(tab_bar, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_side(tab_bar, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
+    lv_obj_set_style_border_color(tab_bar, lv_color_hex(0xD5D9CE), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(tab_bar, app_bg, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(tab_bar, LV_OPA_COVER, LV_PART_MAIN);
     uint32_t page_count = tab_content == NULL ? 0 : lv_obj_get_child_count(tab_content);
     for (uint32_t pi = 0; pi < page_count; ++pi) {
-        lv_obj_set_style_border_width(lv_obj_get_child(tab_content, pi), 0, LV_PART_MAIN);
+        lv_obj_t *page = lv_obj_get_child(tab_content, pi);
+        lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(page, app_bg, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(page, 0, LV_PART_SCROLLBAR);
+        lv_obj_set_style_bg_color(page, lv_color_hex(0xB8BFB4), LV_PART_SCROLLBAR);
+        lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_SCROLLBAR);
     }
     native->tabview = tabview;
     native->tab_target = NULL;

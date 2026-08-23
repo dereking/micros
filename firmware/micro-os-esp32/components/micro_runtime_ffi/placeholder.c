@@ -683,14 +683,13 @@ int micro_esp_ui_create_list(uint32_t node, uint32_t parent)
         else {
             lv_obj_set_size(list, LV_PCT(100), LV_SIZE_CONTENT);
             lv_obj_set_style_pad_row(list, 4, LV_PART_MAIN);
-            /* Soft card: borderless, light rounded background so the docked
-             * list reads as a deliberate footer group rather than a boxed
-             * rectangle from the default theme. */
+            /* Borderless and blended into the parent so it matches the app
+             * background exactly; the items themselves stand out. */
             lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
-            lv_obj_set_style_bg_color(list, lv_color_hex(0xEFF2EC), LV_PART_MAIN);
+            lv_obj_set_style_bg_color(list,
+                                      lv_obj_get_style_bg_color(parent_obj, LV_PART_MAIN),
+                                      LV_PART_MAIN);
             lv_obj_set_style_bg_opa(list, LV_OPA_COVER, LV_PART_MAIN);
-            lv_obj_set_style_radius(list, 12, LV_PART_MAIN);
-            lv_obj_set_style_pad_all(list, 8, LV_PART_MAIN);
             /* Let the outer column own scrolling. */
             lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
             lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLLABLE);
@@ -726,18 +725,47 @@ int micro_esp_ui_create_tabview(uint32_t node, uint32_t parent,
                  token = strtok_r(NULL, "\n", &save)) {
                 lv_tabview_add_tab(tabview, token);
             }
-            /* The tab page is the single scroll container; keep its scrollbar
-             * visible so the user can tell content scrolls. Strip the default
-             * theme borders from the content panel, the tab bar and each page
-             * so the tab body reads as one clean surface. */
+            /* One uniform light background for the whole app: screen, tab bar,
+             * content panel and every page. Columns/rows blend into their
+             * parent, so the whole tab body reads as a single consistent
+             * surface instead of a patchwork of theme shades. */
+            lv_color_t app_bg = lv_color_hex(0xF2F4F0);
+            if (parent == MICRO_UI_NO_PARENT) {
+                lv_obj_set_style_bg_color(lv_screen_active(), app_bg, LV_PART_MAIN);
+                lv_obj_set_style_bg_opa(lv_screen_active(), LV_OPA_COVER, LV_PART_MAIN);
+            }
+            lv_obj_set_style_bg_color(tabview, app_bg, LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(tabview, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_pad_all(tabview, 0, LV_PART_MAIN);
+
             lv_obj_t *tab_content = lv_tabview_get_content(tabview);
             lv_obj_set_style_border_width(tab_content, 0, LV_PART_MAIN);
+            lv_obj_set_style_pad_all(tab_content, 0, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(tab_content, app_bg, LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(tab_content, LV_OPA_COVER, LV_PART_MAIN);
+
             lv_obj_t *tab_bar = lv_tabview_get_tab_bar(tabview);
-            lv_obj_set_style_border_width(tab_bar, 0, LV_PART_MAIN);
+            /* A thin bottom divider separates the tab bar from the content. */
+            lv_obj_set_style_border_width(tab_bar, 1, LV_PART_MAIN);
+            lv_obj_set_style_border_side(tab_bar, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
+            lv_obj_set_style_border_color(tab_bar, lv_color_hex(0xD5D9CE), LV_PART_MAIN);
+            lv_obj_set_style_bg_color(tab_bar, app_bg, LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(tab_bar, LV_OPA_COVER, LV_PART_MAIN);
+
             uint32_t page_count = tab_content == NULL ? 0 : lv_obj_get_child_count(tab_content);
             for (uint32_t pi = 0; pi < page_count; ++pi) {
                 lv_obj_t *page = lv_obj_get_child(tab_content, pi);
                 lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
+                /* No page-level padding: the columns' own padding is the only
+                 * content inset. */
+                lv_obj_set_style_pad_all(page, 0, LV_PART_MAIN);
+                lv_obj_set_style_bg_color(page, app_bg, LV_PART_MAIN);
+                lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
+                /* Scrollbar flush with the page edge (the theme leaves a gap)
+                 * and on the same surface. */
+                lv_obj_set_style_pad_all(page, 0, LV_PART_SCROLLBAR);
+                lv_obj_set_style_bg_color(page, lv_color_hex(0xB8BFB4), LV_PART_SCROLLBAR);
+                lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_SCROLLBAR);
                 lv_obj_set_scrollbar_mode(page, LV_SCROLLBAR_MODE_AUTO);
             }
             s_tabview = tabview;
