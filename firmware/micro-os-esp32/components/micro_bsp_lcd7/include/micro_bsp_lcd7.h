@@ -30,7 +30,7 @@ extern "C" {
 
 #define MICRO_BSP_CH422G_TOUCH_RESET_EXIO 1
 #define MICRO_BSP_CH422G_BACKLIGHT_EXIO 2
-#define MICRO_BSP_RGB_BOUNCE_BUFFER_LINES 32
+#define MICRO_BSP_RGB_BOUNCE_BUFFER_LINES 10
 
 _Static_assert(MICRO_BSP_LCD_WIDTH == 800, "Spotpear panel width must remain 800");
 _Static_assert(MICRO_BSP_LCD_HEIGHT == 480, "Spotpear panel height must remain 480");
