@@ -410,10 +410,8 @@ static void micro_esp_ui_hide_keyboard(void)
 static void input_focus_callback(lv_event_t *event)
 {
     lv_obj_t *textarea = lv_event_get_target(event);
-    lv_event_code_t code = lv_event_get_code(event);
-    if (code == LV_EVENT_CLICKED || code == LV_EVENT_FOCUSED) {
-        micro_esp_ui_show_keyboard(textarea);
-    }
+    (void)event;
+    micro_esp_ui_show_keyboard(textarea);
     /* Note: no DEFOCUSED handler here. Hiding on defocus makes the keyboard
      * disappear the moment the IME toggle or a keyboard key steals focus, and
      * the IME can never engage. The keyboard is dismissed only by its own
@@ -950,7 +948,6 @@ int micro_esp_ui_create_input(uint32_t node, uint32_t parent,
                                     &click_contexts[node]);
             }
             lv_obj_add_event_cb(textarea, input_focus_callback, LV_EVENT_CLICKED, NULL);
-            lv_obj_add_event_cb(textarea, input_focus_callback, LV_EVENT_FOCUSED, NULL);
             objects[node] = textarea;
             text_targets[node] = textarea;
             if (parent == MICRO_UI_NO_PARENT) app_root = textarea;
