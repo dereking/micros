@@ -1,6 +1,6 @@
 use std::fmt;
 
-use micro_ir::{FunctionId, NodeId, TextStyle, UiKind};
+use micro_ir::{FunctionId, LayoutSpec, NodeId, TextStyle, UiKind};
 use micro_vm::Value;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -15,6 +15,8 @@ pub struct MicroUiNode {
     pub range: Option<(f64, f64)>,
     /// Choice strings for selection widgets (Dropdown/Roller).
     pub options: Vec<String>,
+    /// Optional Delphi-style layout hint from `ui.place`.
+    pub layout: Option<LayoutSpec>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

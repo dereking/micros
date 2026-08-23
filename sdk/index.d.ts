@@ -57,5 +57,13 @@ declare const ui: {
   scale(value: number | Binding<number>, options?: { min?: number; max?: number }): UiNode;
   list(items: { text: string; onClick: () => void }[]): UiNode;
   tabview(tabs: { title: string; content: UiNode }[]): UiNode;
+  place(
+    widget: UiNode,
+    layout: {
+      align?: "top" | "bottom" | "left" | "right" | "client" | "none";
+      left?: number;
+      top?: number;
+    },
+  ): UiNode;
   mount(root: UiNode): void;
 };

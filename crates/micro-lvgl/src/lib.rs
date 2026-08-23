@@ -1,7 +1,7 @@
 //! LVGL renderer adapter behind a platform-neutral native bridge trait.
 
 use micro_core::{MicroUiTree, RenderError, RenderPatch, RenderPort, Value};
-use micro_ir::{FunctionId, NodeId, TextStyle, UiKind, sanitize_ui_text};
+use micro_ir::{FunctionId, LayoutSpec, NodeId, TextStyle, UiKind, sanitize_ui_text};
 
 pub trait NativeUi {
     fn report_diagnostic(&mut self, node: NodeId, message: &str);
@@ -90,6 +90,8 @@ pub trait NativeUi {
         titles: &[String],
     ) -> Result<(), String>;
     fn create_tab_content(&mut self, index: u32) -> Result<(), String>;
+    fn set_layout_spec(&mut self, node: NodeId, layout: micro_ir::LayoutSpec) -> Result<(), String>;
+    fn apply_delphi_layout(&mut self, container: NodeId, children: &[NodeId]) -> Result<(), String>;
     fn create_led(&mut self, node: NodeId, parent: Option<NodeId>, on: bool) -> Result<(), String>;
     fn set_led(&mut self, node: NodeId, on: bool) -> Result<(), String>;
     fn create_spinner(&mut self, node: NodeId, parent: Option<NodeId>, active: bool)
@@ -314,6 +316,25 @@ impl<B: NativeUi> LvglRenderer<B> {
             if !matches!(node.kind, UiKind::Tabview) {
                 self.create_node(tree, *child, Some(node.id))?;
             }
+        }
+        /* Delphi layout: after a column/row's children exist, apply any
+         * ui.place layout hints to dock them. */
+        if matches!(node.kind, UiKind::Column | UiKind::Row)
+            && node
+                .children
+                .iter()
+                .any(|c| tree.nodes.get(c.0 as usize).is_some_and(|n| n.layout.is_some()))
+        {
+            for child in &node.children {
+                if let Some(layout) = tree.nodes[child.0 as usize].layout {
+                    self.bridge
+                        .set_layout_spec(*child, layout)
+                        .map_err(RenderError)?;
+                }
+            }
+            self.bridge
+                .apply_delphi_layout(node.id, &node.children)
+                .map_err(RenderError)?;
         }
         Ok(())
     }

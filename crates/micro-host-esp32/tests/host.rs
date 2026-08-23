@@ -215,6 +215,14 @@ impl NativeUi for FakeNativeUi {
         Ok(())
     }
 
+    fn set_layout_spec(&mut self, _node: NodeId, _layout: micro_ir::LayoutSpec) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn apply_delphi_layout(&mut self, _container: NodeId, _children: &[NodeId]) -> Result<(), String> {
+        Ok(())
+    }
+
     fn destroy_app_root(&mut self) -> Result<(), String> {
         self.nodes.clear();
         self.destroyed += 1;
@@ -432,6 +440,14 @@ impl NativeUi for FailingNativeUi {
     }
 
     fn create_tab_content(&mut self, _index: u32) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_layout_spec(&mut self, _node: NodeId, _layout: micro_ir::LayoutSpec) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn apply_delphi_layout(&mut self, _container: NodeId, _children: &[NodeId]) -> Result<(), String> {
         Ok(())
     }
 

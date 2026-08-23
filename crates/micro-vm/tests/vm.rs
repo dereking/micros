@@ -55,6 +55,7 @@ fn image(kind: FunctionKind, code: Vec<Instruction>, max_stack: u16) -> AppImage
             text_style: None,
             range: None,
             options: vec![],
+            layout: None,
         }],
         root: NodeId(0),
     }

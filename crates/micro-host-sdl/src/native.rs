@@ -100,6 +100,8 @@ unsafe extern "C" {
         index: f64,
         handler: c_uint,
     ) -> c_int;
+    fn micro_native_set_layout_spec(native: *mut c_void, node: c_uint, align: c_uint, left: f64, top: f64) -> c_int;
+    fn micro_native_apply_delphi_layout(native: *mut c_void, container: c_uint, child_ids: *const c_uint, child_count: c_uint) -> c_int;
     fn micro_native_create_led(native: *mut c_void, node: c_uint, parent: c_uint, on: c_int) -> c_int;
     fn micro_native_set_led(native: *mut c_void, node: c_uint, on: c_int) -> c_int;
     fn micro_native_create_spinner(native: *mut c_void, node: c_uint, parent: c_uint, active: c_int) -> c_int;
@@ -542,6 +544,43 @@ impl NativeUi for NativeBridge {
                 )
             },
             "create dropdown",
+        )
+    }
+
+    fn set_layout_spec(&mut self, node: NodeId, layout: micro_ir::LayoutSpec) -> Result<(), String> {
+        native_result(
+            unsafe {
+                micro_native_set_layout_spec(
+                    self.raw.as_ptr(),
+                    node.0,
+                    match layout.align {
+                        micro_ir::LayoutAlign::None => 0,
+                        micro_ir::LayoutAlign::Top => 1,
+                        micro_ir::LayoutAlign::Bottom => 2,
+                        micro_ir::LayoutAlign::Left => 3,
+                        micro_ir::LayoutAlign::Right => 4,
+                        micro_ir::LayoutAlign::Client => 5,
+                    },
+                    layout.left,
+                    layout.top,
+                )
+            },
+            "set layout spec",
+        )
+    }
+
+    fn apply_delphi_layout(&mut self, container: NodeId, children: &[NodeId]) -> Result<(), String> {
+        let ids: Vec<c_uint> = children.iter().map(|c| c.0).collect();
+        native_result(
+            unsafe {
+                micro_native_apply_delphi_layout(
+                    self.raw.as_ptr(),
+                    container.0,
+                    ids.as_ptr(),
+                    ids.len() as c_uint,
+                )
+            },
+            "apply delphi layout",
         )
     }
 

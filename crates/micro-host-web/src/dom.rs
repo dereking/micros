@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use micro_ir::{FunctionId, NodeId, TextStyle};
+use micro_ir::{FunctionId, LayoutAlign, LayoutSpec, NodeId, TextStyle};
 use micro_renderer_web::WebDom;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
@@ -18,6 +18,7 @@ pub struct DomBridge {
     checkbox_changes: CheckboxChangeQueue,
     selection_changes: SelectionChangeQueue,
     active_tab: Option<u32>,
+    layout_specs: std::collections::BTreeMap<u32, (u8, f64, f64)>,
     click_handlers: Vec<Closure<dyn FnMut(Event)>>,
 }
 
@@ -41,6 +42,7 @@ impl DomBridge {
             checkbox_changes,
             selection_changes,
             active_tab: None,
+            layout_specs: std::collections::BTreeMap::new(),
             click_handlers: Vec::new(),
         }
     }
@@ -441,6 +443,78 @@ impl WebDom for DomBridge {
                 .map_err(|error| format!("append tab page: {error:?}"))?;
         }
         self.append(node, parent, element)
+    }
+
+    fn set_layout_spec(&mut self, node: NodeId, layout: LayoutSpec) -> Result<(), String> {
+        let align = match layout.align {
+            LayoutAlign::None => 0,
+            LayoutAlign::Top => 1,
+            LayoutAlign::Bottom => 2,
+            LayoutAlign::Left => 3,
+            LayoutAlign::Right => 4,
+            LayoutAlign::Client => 5,
+        };
+        self.layout_specs.insert(node.0, (align, layout.left, layout.top));
+        Ok(())
+    }
+
+    fn apply_delphi_layout(
+        &mut self,
+        container: NodeId,
+        children: &[NodeId],
+    ) -> Result<(), String> {
+        let container_el = self
+            .elements
+            .get(&container.0)
+            .ok_or_else(|| format!("container node {} is missing", container.0))?;
+        let width = container_el.client_width() as f64;
+        let height = container_el.client_height() as f64;
+        let mut top_y = 0.0_f64;
+        let mut bottom_y = height;
+        let mut left_x = 0.0_f64;
+        let mut right_x = width;
+        for child in children {
+            let Some((align, l, t)) = self.layout_specs.get(&child.0).copied() else {
+                continue;
+            };
+            let el = self
+                .elements
+                .get(&child.0)
+                .ok_or_else(|| format!("child node {} is missing", child.0))?;
+            let w = el.client_width() as f64;
+            let h = el.client_height() as f64;
+            let style = match align {
+                0 => format!("position:absolute;left:{}px;top:{}px;", l, t),
+                1 => {
+                    let s = format!("position:absolute;left:0px;top:{}px;width:{}px;", top_y, width);
+                    top_y += h;
+                    s
+                }
+                2 => {
+                    bottom_y -= h;
+                    format!("position:absolute;left:0px;top:{}px;width:{}px;", bottom_y, width)
+                }
+                3 => {
+                    let s = format!("position:absolute;left:{}px;top:0px;height:{}px;", left_x, height);
+                    left_x += w;
+                    s
+                }
+                4 => {
+                    right_x -= w;
+                    format!("position:absolute;left:{}px;top:0px;height:{}px;", right_x, height)
+                }
+                _ => format!(
+                    "position:absolute;left:{}px;top:{}px;width:{}px;height:{}px;",
+                    left_x,
+                    top_y,
+                    right_x - left_x,
+                    bottom_y - top_y
+                ),
+            };
+            el.set_attribute("style", &style)
+                .map_err(|error| format!("apply delphi layout: {error:?}"))?;
+        }
+        Ok(())
     }
 
     fn create_tab_content(&mut self, index: u32) -> Result<(), String> {

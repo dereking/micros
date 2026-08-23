@@ -2,13 +2,13 @@ use std::fmt;
 
 use crate::{
     AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId, FunctionKind,
-    HandlerId, Instruction, NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind,
-    UiNodeSpec, ValidationError, ValueSource, validate,
+    HandlerId, Instruction, LayoutAlign, LayoutSpec, NodeId, ScalarType, StateDecl, StateId,
+    TextSource, TextStyle, UiKind, UiNodeSpec, ValidationError, ValueSource, validate,
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
-/// MBC v11 adds `UiKind::Tabview`.
-const VERSION: u16 = 11;
+/// MBC v12 adds the per-node `layout` (Delphi-style dock) hint.
+const VERSION: u16 = 12;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -364,6 +364,22 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
         for option in &node.options {
             out.extend_from_slice(&option.to_le_bytes());
         }
+        match node.layout {
+            None => out.push(0),
+            Some(layout) => {
+                out.push(1);
+                out.push(match layout.align {
+                    LayoutAlign::None => 0,
+                    LayoutAlign::Top => 1,
+                    LayoutAlign::Bottom => 2,
+                    LayoutAlign::Left => 3,
+                    LayoutAlign::Right => 4,
+                    LayoutAlign::Client => 5,
+                });
+                out.extend_from_slice(&layout.left.to_le_bytes());
+                out.extend_from_slice(&layout.top.to_le_bytes());
+            }
+        }
     }
     out.extend_from_slice(&root.0.to_le_bytes());
     Ok(out)
@@ -495,6 +511,34 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
         for _ in 0..option_count {
             options.push(reader.u32()?);
         }
+        let layout = match reader.u8()? {
+            0 => None,
+            1 => {
+                let align = match reader.u8()? {
+                    0 => LayoutAlign::None,
+                    1 => LayoutAlign::Top,
+                    2 => LayoutAlign::Bottom,
+                    3 => LayoutAlign::Left,
+                    4 => LayoutAlign::Right,
+                    5 => LayoutAlign::Client,
+                    tag => {
+                        return Err(DecodeError::InvalidTag {
+                            section: "layout align",
+                            tag,
+                        });
+                    }
+                };
+                let left = f64::from_le_bytes(reader.take(8)?.try_into().unwrap());
+                let top = f64::from_le_bytes(reader.take(8)?.try_into().unwrap());
+                Some(LayoutSpec { align, left, top })
+            }
+            tag => {
+                return Err(DecodeError::InvalidTag {
+                    section: "layout",
+                    tag,
+                });
+            }
+        };
         nodes.push(UiNodeSpec {
             id,
             kind,
@@ -505,6 +549,7 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             text_style,
             range,
             options,
+            layout,
         });
     }
     let root = NodeId(reader.u32()?);

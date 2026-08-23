@@ -346,6 +346,7 @@ impl<R: RenderPort> Runtime<R> {
                     .or_else(|| TextStyle::default_for(node.kind)),
                 range: node.range,
                 options,
+                layout: node.layout,
             });
         }
         Ok(MicroUiTree {

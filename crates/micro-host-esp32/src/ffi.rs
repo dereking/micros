@@ -75,6 +75,12 @@ unsafe extern "C" {
         index: f64,
         handler: u32,
     ) -> c_int;
+    fn micro_esp_ui_set_layout_spec(node: u32, align: u32, left: f64, top: f64) -> c_int;
+    fn micro_esp_ui_apply_delphi_layout(
+        container: u32,
+        child_ids: *const u32,
+        child_count: u32,
+    ) -> c_int;
     fn micro_esp_ui_create_led(node: u32, parent: u32, on: c_int) -> c_int;
     fn micro_esp_ui_set_led(node: u32, on: c_int) -> c_int;
     fn micro_esp_ui_create_spinner(node: u32, parent: u32, active: c_int) -> c_int;
@@ -319,6 +325,39 @@ impl NativeUi for EspNativeUi {
                 index,
                 handler.map_or(u32::MAX, |id| id.0),
             )
+        })
+    }
+
+    fn set_layout_spec(
+        &mut self,
+        node: NodeId,
+        layout: micro_ir::LayoutSpec,
+    ) -> Result<(), String> {
+        native_result(unsafe {
+            micro_esp_ui_set_layout_spec(
+                node.0,
+                match layout.align {
+                    micro_ir::LayoutAlign::None => 0,
+                    micro_ir::LayoutAlign::Top => 1,
+                    micro_ir::LayoutAlign::Bottom => 2,
+                    micro_ir::LayoutAlign::Left => 3,
+                    micro_ir::LayoutAlign::Right => 4,
+                    micro_ir::LayoutAlign::Client => 5,
+                },
+                layout.left,
+                layout.top,
+            )
+        })
+    }
+
+    fn apply_delphi_layout(
+        &mut self,
+        container: NodeId,
+        children: &[NodeId],
+    ) -> Result<(), String> {
+        let ids: Vec<u32> = children.iter().map(|c| c.0).collect();
+        native_result(unsafe {
+            micro_esp_ui_apply_delphi_layout(container.0, ids.as_ptr(), ids.len() as u32)
         })
     }
 

@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use micro_ir::{
     AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId, FunctionKind,
-    HandlerId, Instruction, NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind,
-    UiNodeSpec, ValueSource, validate,
+    HandlerId, Instruction, LayoutAlign, LayoutSpec, NodeId, ScalarType, StateDecl, StateId,
+    TextSource, TextStyle, UiKind, UiNodeSpec, ValueSource, validate,
 };
 use swc_common::{SourceMap, Span, Spanned, sync::Lrc};
 use swc_ecma_ast::{
@@ -121,6 +121,12 @@ impl<'a> Lowerer<'a> {
             return Err(self.error(expression.span(), "MTS012", "UI value must be an ui.* call"));
         };
         match call_name(call).as_deref() {
+            Some("ui.place") => {
+                let id = self.lower_ui(&call.args[0].expr)?;
+                self.nodes[id.0 as usize].layout =
+                    Some(self.lower_place_layout(&call.args[1].expr)?);
+                Ok(id)
+            }
             Some("ui.column") => {
                 let id = self.reserve_node(UiKind::Column);
                 self.nodes[id.0 as usize].children =
@@ -316,6 +322,7 @@ impl<'a> Lowerer<'a> {
             text_style: None,
             range: None,
             options: vec![],
+            layout: None,
         });
         id
     }
@@ -608,6 +615,79 @@ impl<'a> Lowerer<'a> {
             self.nodes[node.0 as usize].range = Some((min, max));
         }
         Ok(())
+    }
+
+    fn lower_place_layout(&mut self, expression: &Expr) -> Result<LayoutSpec, Diagnostic> {
+        let Expr::Object(object) = expression else {
+            return Err(self.error(
+                expression.span(),
+                "MTS012",
+                "ui.place layout must be an object",
+            ));
+        };
+        let mut align = LayoutAlign::None;
+        let mut left = 0.0;
+        let mut top = 0.0;
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.place layout cannot use spread",
+                ));
+            };
+            let Prop::KeyValue(property) = &**property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.place layout must use key-value pairs",
+                ));
+            };
+            let PropName::Ident(name) = &property.key else {
+                return Err(self.error(
+                    property.key.span(),
+                    "MTS012",
+                    "ui.place layout names must be identifiers",
+                ));
+            };
+            match name.sym.as_ref() {
+                "align" => {
+                    let Expr::Lit(Lit::Str(value)) = &*property.value else {
+                        return Err(self.error(
+                            property.value.span(),
+                            "MTS012",
+                            "ui.place align must be a string",
+                        ));
+                    };
+                    let align_name = value.value.as_str().unwrap_or("");
+                    align = match align_name {
+                        "none" => LayoutAlign::None,
+                        "top" => LayoutAlign::Top,
+                        "bottom" => LayoutAlign::Bottom,
+                        "left" => LayoutAlign::Left,
+                        "right" => LayoutAlign::Right,
+                        "client" => LayoutAlign::Client,
+                        other => {
+                            return Err(self.error(
+                                property.value.span(),
+                                "MTS012",
+                                format!("unknown ui.place align `{other}`"),
+                            ));
+                        }
+                    };
+                }
+                "left" => left = self.numeric_option(property.value.span(), &property.value)?,
+                "top" => top = self.numeric_option(property.value.span(), &property.value)?,
+                _ => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS002",
+                        format!("unknown ui.place layout property `{}`", name.sym),
+                    ));
+                }
+            }
+        }
+        Ok(LayoutSpec { align, left, top })
     }
 
     fn lower_string_array(

@@ -81,6 +81,13 @@ struct micro_roller_change {
     double index;
 };
 
+struct micro_layout_spec {
+    uint8_t used;
+    uint8_t align;
+    double left;
+    double top;
+};
+
 static lv_obj_t *objects[MICRO_UI_MAX_NODES];
 static lv_obj_t *text_targets[MICRO_UI_MAX_NODES];
 static lv_obj_t *needles[MICRO_UI_MAX_NODES];
@@ -102,6 +109,7 @@ static struct micro_dropdown_change dropdown_changes[MICRO_UI_DROPDOWN_CAPACITY]
 static unsigned dropdown_read;
 static unsigned dropdown_write;
 static struct micro_roller_change roller_changes[MICRO_UI_ROLLER_CAPACITY];
+static struct micro_layout_spec layout_specs[MICRO_UI_MAX_NODES];
 static unsigned roller_read;
 static unsigned roller_write;
 static lv_obj_t *s_keyboard;
@@ -1056,6 +1064,80 @@ int micro_esp_ui_create_dropdown(uint32_t node, uint32_t parent,
     return result;
 }
 
+int micro_esp_ui_set_layout_spec(uint32_t node, uint32_t align,
+                                 double left, double top)
+{
+    if (node >= MICRO_UI_MAX_NODES) return -1;
+    layout_specs[node].used = 1;
+    layout_specs[node].align = (uint8_t)align;
+    layout_specs[node].left = left;
+    layout_specs[node].top = top;
+    return 0;
+}
+
+int micro_esp_ui_apply_delphi_layout(uint32_t container,
+                                     const uint32_t *child_ids, uint32_t child_count)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    if (container >= MICRO_UI_MAX_NODES || objects[container] == NULL ||
+        child_ids == NULL) {
+        lvgl_port_unlock();
+        return -1;
+    }
+    lv_obj_t *obj = objects[container];
+    /* Manual docking replaces the container's flex layout. */
+    lv_obj_set_layout(obj, LV_LAYOUT_NONE);
+    lv_coord_t avail_w = lv_obj_get_content_width(obj);
+    lv_coord_t avail_h = lv_obj_get_content_height(obj);
+    lv_coord_t top_y = 0;
+    lv_coord_t bottom_y = avail_h;
+    lv_coord_t left_x = 0;
+    lv_coord_t right_x = avail_w;
+    for (uint32_t i = 0; i < child_count; ++i) {
+        uint32_t node = child_ids[i];
+        if (node >= MICRO_UI_MAX_NODES || objects[node] == NULL) continue;
+        lv_obj_t *child = objects[node];
+        uint8_t align = layout_specs[node].used ? layout_specs[node].align : 1;
+        lv_obj_update_layout(child);
+        lv_coord_t w = lv_obj_get_width(child);
+        lv_coord_t h = lv_obj_get_height(child);
+        switch (align) {
+            case 0: /* none */
+                lv_obj_set_pos(child, (lv_coord_t)layout_specs[node].left,
+                               (lv_coord_t)layout_specs[node].top);
+                break;
+            case 1: /* top */
+                lv_obj_set_width(child, avail_w);
+                lv_obj_set_pos(child, 0, top_y);
+                top_y += h;
+                break;
+            case 2: /* bottom */
+                lv_obj_set_width(child, avail_w);
+                bottom_y -= h;
+                lv_obj_set_pos(child, 0, bottom_y);
+                break;
+            case 3: /* left */
+                lv_obj_set_height(child, avail_h);
+                lv_obj_set_pos(child, left_x, 0);
+                left_x += w;
+                break;
+            case 4: /* right */
+                lv_obj_set_height(child, avail_h);
+                right_x -= w;
+                lv_obj_set_pos(child, right_x, 0);
+                break;
+            case 5: /* client */
+                lv_obj_set_pos(child, left_x, top_y);
+                lv_obj_set_size(child, right_x - left_x, bottom_y - top_y);
+                break;
+            default:
+                break;
+        }
+    }
+    lvgl_port_unlock();
+    return 0;
+}
+
 int micro_esp_ui_create_led(uint32_t node, uint32_t parent, int on)
 {
     if (!lvgl_port_lock(0)) return -3;
@@ -1259,6 +1341,7 @@ int micro_esp_ui_destroy_app_root(void)
     memset(objects, 0, sizeof objects);
     memset(text_targets, 0, sizeof text_targets);
     memset(needles, 0, sizeof needles);
+    memset(layout_specs, 0, sizeof layout_specs);
     activation_read = 0;
     activation_write = 0;
     input_read = 0;

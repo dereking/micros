@@ -219,6 +219,7 @@ impl Validator<'_> {
         let expected = match name.as_str() {
             "state" | "bind" | "ui.mount" | "ui.column" | "ui.row" | "ui.progress"
             | "ui.led" | "ui.spinner" | "ui.list" | "ui.tabview" => 1..=1,
+            "ui.place" => 2..=2,
             "ui.text" => 1..=2,
             "ui.switch" => 1..=2,
             "ui.input" => 1..=2,
@@ -312,6 +313,10 @@ impl Validator<'_> {
             }
             "ui.list" => {
                 self.list_items(&call.args[0].expr);
+            }
+            "ui.place" => {
+                self.expression(&call.args[0].expr);
+                self.place_layout(&call.args[1].expr);
             }
             "ui.tabview" => {
                 self.tabview_tabs(&call.args[0].expr);
@@ -408,6 +413,39 @@ impl Validator<'_> {
                         self.expression(&property.value);
                     }
                 }
+            }
+        }
+    }
+
+    fn place_layout(&mut self, expression: &Expr) {
+        let Expr::Object(object) = expression else {
+            self.sdk_error(
+                expression.span(),
+                "ui.place layout must be an object".into(),
+            );
+            return;
+        };
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                self.unsupported(property.span(), "spread");
+                continue;
+            };
+            let Prop::KeyValue(property) = &**property else {
+                self.unsupported(property.span(), "layout property");
+                continue;
+            };
+            let PropName::Ident(name) = &property.key else {
+                self.unsupported(property.key.span(), "computed layout property");
+                continue;
+            };
+            if !matches!(name.sym.as_ref(), "align" | "left" | "top") {
+                self.errors.push(diagnostic_at(
+                    self.source_map,
+                    self.path,
+                    name.span,
+                    "MTS002",
+                    format!("unknown ui.place layout property `{}`", name.sym),
+                ));
             }
         }
     }

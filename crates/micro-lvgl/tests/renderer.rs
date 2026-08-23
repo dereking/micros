@@ -215,6 +215,14 @@ impl NativeUi for FakeBridge {
         Ok(())
     }
 
+    fn set_layout_spec(&mut self, _node: NodeId, _layout: micro_ir::LayoutSpec) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn apply_delphi_layout(&mut self, _container: NodeId, _children: &[NodeId]) -> Result<(), String> {
+        Ok(())
+    }
+
     fn destroy_app_root(&mut self) -> Result<(), String> {
         Ok(())
     }
@@ -235,6 +243,7 @@ fn tree() -> MicroUiTree {
                 text_style: None,
                 range: None,
                 options: vec![],
+                layout: None,
             },
             MicroUiNode {
                 id: NodeId(1),
@@ -246,6 +255,7 @@ fn tree() -> MicroUiTree {
                 text_style: Some(label_style),
                 range: None,
                 options: vec![],
+                layout: None,
             },
             MicroUiNode {
                 id: NodeId(2),
@@ -257,6 +267,7 @@ fn tree() -> MicroUiTree {
                 text_style: Some(button_style),
                 range: None,
                 options: vec![],
+                layout: None,
             },
         ],
         root: NodeId(0),
@@ -313,6 +324,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     text_style: None,
                     range: None,
                     options: vec![],
+                    layout: None,
                 },
                 MicroUiNode {
                     id: NodeId(1),
@@ -324,6 +336,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     text_style: None,
                     range: None,
                     options: vec![],
+                    layout: None,
                 },
                 MicroUiNode {
                     id: NodeId(2),
@@ -335,6 +348,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     text_style: None,
                     range: None,
                     options: vec![],
+                    layout: None,
                 },
                 MicroUiNode {
                     id: NodeId(3),
@@ -346,6 +360,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     text_style: None,
                     range: None,
                     options: vec![],
+                    layout: None,
                 },
                 MicroUiNode {
                     id: NodeId(4),
@@ -357,6 +372,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     text_style: None,
                     range: None,
                     options: vec![],
+                    layout: None,
                 },
             ],
             root: NodeId(0),
@@ -595,6 +611,14 @@ impl NativeUi for TrackingBridge {
     }
 
     fn create_tab_content(&mut self, _index: u32) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_layout_spec(&mut self, _node: NodeId, _layout: micro_ir::LayoutSpec) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn apply_delphi_layout(&mut self, _container: NodeId, _children: &[NodeId]) -> Result<(), String> {
         Ok(())
     }
 
@@ -853,6 +877,14 @@ impl NativeUi for SharedRootBridge {
     }
 
     fn create_tab_content(&mut self, _index: u32) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_layout_spec(&mut self, _node: NodeId, _layout: micro_ir::LayoutSpec) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn apply_delphi_layout(&mut self, _container: NodeId, _children: &[NodeId]) -> Result<(), String> {
         Ok(())
     }
 

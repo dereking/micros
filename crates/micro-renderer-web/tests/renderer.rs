@@ -208,6 +208,14 @@ impl WebDom for FakeDom {
         Ok(())
     }
 
+    fn set_layout_spec(&mut self, _node: NodeId, _layout: micro_ir::LayoutSpec) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn apply_delphi_layout(&mut self, _container: NodeId, _children: &[NodeId]) -> Result<(), String> {
+        Ok(())
+    }
+
     fn set_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
         self.operations.push(Call::SetText(node, text.into()));
         Ok(())
@@ -271,6 +279,7 @@ fn tree_with_text(text: &str) -> MicroUiTree {
                 text_style: None,
                 range: None,
                 options: vec![],
+                layout: None,
             },
             MicroUiNode {
                 id: NodeId(1),
@@ -282,6 +291,7 @@ fn tree_with_text(text: &str) -> MicroUiTree {
                 text_style: None,
                 range: None,
                 options: vec![],
+                layout: None,
             },
         ],
     }
@@ -304,6 +314,7 @@ fn maps_tree_preorder_and_applies_text_patch() {
                 text_style: None,
                 range: None,
                 options: vec![],
+                layout: None,
             },
             MicroUiNode {
                 id: NodeId(1),
@@ -315,6 +326,7 @@ fn maps_tree_preorder_and_applies_text_patch() {
                 text_style: Some(label_style),
                 range: None,
                 options: vec![],
+                layout: None,
             },
             MicroUiNode {
                 id: NodeId(2),
@@ -326,6 +338,7 @@ fn maps_tree_preorder_and_applies_text_patch() {
                 text_style: Some(button_style),
                 range: None,
                 options: vec![],
+                layout: None,
             },
         ],
     };
@@ -381,6 +394,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     text_style: None,
                     range: None,
                     options: vec![],
+                    layout: None,
                 },
                 MicroUiNode {
                     id: NodeId(1),
@@ -392,6 +406,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     text_style: None,
                     range: None,
                     options: vec![],
+                    layout: None,
                 },
                 MicroUiNode {
                     id: NodeId(2),
@@ -403,6 +418,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     text_style: None,
                     range: None,
                     options: vec![],
+                    layout: None,
                 },
                 MicroUiNode {
                     id: NodeId(3),
@@ -414,6 +430,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     text_style: None,
                     range: None,
                     options: vec![],
+                    layout: None,
                 },
                 MicroUiNode {
                     id: NodeId(4),
@@ -425,6 +442,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     text_style: None,
                     range: None,
                     options: vec![],
+                    layout: None,
                 },
             ],
         })
@@ -474,6 +492,7 @@ fn normalizes_unstyled_text_and_button_before_dom_calls() {
         text_style: None,
         range: None,
         options: vec![],
+        layout: None,
     });
     let mut renderer = WebRenderer::new(FakeDom::default());
     renderer.create_tree(&tree).unwrap();

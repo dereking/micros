@@ -127,6 +127,27 @@ pub enum ValueSource {
     Binding(FunctionId),
 }
 
+/// Delphi-style docking align for a child inside its container.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutAlign {
+    /// No docking; placed at an explicit (left, top) offset.
+    None,
+    Top,
+    Bottom,
+    Left,
+    Right,
+    /// Fill whatever space remains after the docked siblings.
+    Client,
+}
+
+/// Per-node layout hints, set via `ui.place(widget, { align, left, top })`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LayoutSpec {
+    pub align: LayoutAlign,
+    pub left: f64,
+    pub top: f64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FontFamily {
     UiSans,
@@ -265,6 +286,8 @@ pub struct UiNodeSpec {
     pub range: Option<(f64, f64)>,
     /// Interned string constants for selection widgets (Dropdown/Roller).
     pub options: Vec<u32>,
+    /// Optional Delphi-style layout hint from `ui.place`.
+    pub layout: Option<LayoutSpec>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

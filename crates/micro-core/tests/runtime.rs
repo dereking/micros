@@ -117,6 +117,7 @@ fn counter_image() -> AppImage {
                 text_style: None,
                 range: None,
                 options: vec![],
+                layout: None,
             },
             UiNodeSpec {
                 id: NodeId(1),
@@ -128,6 +129,7 @@ fn counter_image() -> AppImage {
                 text_style: None,
                 range: None,
                 options: vec![],
+                layout: None,
             },
             UiNodeSpec {
                 id: NodeId(2),
@@ -139,6 +141,7 @@ fn counter_image() -> AppImage {
                 text_style: None,
                 range: None,
                 options: vec![],
+                layout: None,
             },
         ],
         root: NodeId(0),
@@ -346,6 +349,7 @@ fn replaces_binding_dependencies_after_each_evaluation() {
             text_style: None,
             range: None,
             options: vec![],
+            layout: None,
         }],
         root: NodeId(0),
     };
@@ -446,6 +450,7 @@ fn value_image() -> AppImage {
                 text_style: None,
                 range: None,
                 options: vec![],
+                layout: None,
             },
             UiNodeSpec {
                 id: NodeId(1),
@@ -457,6 +462,7 @@ fn value_image() -> AppImage {
                 text_style: None,
                 range: None,
                 options: vec![],
+                layout: None,
             },
             UiNodeSpec {
                 id: NodeId(2),
@@ -468,6 +474,7 @@ fn value_image() -> AppImage {
                 text_style: None,
                 range: None,
                 options: vec![],
+                layout: None,
             },
         ],
         root: NodeId(0),
