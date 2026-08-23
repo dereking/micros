@@ -616,9 +616,9 @@ int micro_esp_ui_create_column(uint32_t node, uint32_t parent)
             lv_obj_remove_flag(column, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
             lv_obj_set_style_pad_left(column, 16, LV_PART_MAIN);
             lv_obj_set_style_pad_right(column, 16, LV_PART_MAIN);
-            lv_obj_set_style_pad_top(column, 12, LV_PART_MAIN);
-            lv_obj_set_style_pad_bottom(column, 12, LV_PART_MAIN);
-            lv_obj_set_style_pad_row(column, 8, LV_PART_MAIN);
+            lv_obj_set_style_pad_top(column, 6, LV_PART_MAIN);
+            lv_obj_set_style_pad_bottom(column, 6, LV_PART_MAIN);
+            lv_obj_set_style_pad_row(column, 6, LV_PART_MAIN);
             /* Columns never scroll internally (the tabview / page owns
              * navigation); a scrollable column overflows into a slow full-area
              * redraw that trips the task watchdog. */
@@ -1242,12 +1242,12 @@ int micro_esp_ui_create_scale(uint32_t node, uint32_t parent,
         else {
             lv_scale_set_mode(scale, LV_SCALE_MODE_ROUND_INNER);
             lv_scale_set_range(scale, (int32_t)min, (int32_t)max);
-            lv_obj_set_size(scale, 160, 160);
+            lv_obj_set_size(scale, 100, 100);
             lv_obj_set_style_pad_all(scale, 8, LV_PART_MAIN);
             lv_obj_t *needle = lv_line_create(scale);
-            lv_point_precise_t points[2] = {{0, 0}, {0, -60}};
+            lv_point_precise_t points[2] = {{0, 0}, {0, -40}};
             lv_line_set_points(needle, points, 2);
-            lv_scale_set_line_needle_value(scale, needle, 60, (int32_t)value);
+            lv_scale_set_line_needle_value(scale, needle, 40, (int32_t)value);
             needles[node] = needle;
             objects[node] = scale;
             if (parent == MICRO_UI_NO_PARENT) app_root = scale;
@@ -1263,7 +1263,7 @@ int micro_esp_ui_set_scale_value(uint32_t node, double value)
     int result = -1;
     if (node < MICRO_UI_MAX_NODES && objects[node] != NULL &&
         lv_obj_check_type(objects[node], &lv_scale_class) && needles[node] != NULL) {
-        lv_scale_set_line_needle_value(objects[node], needles[node], 60, (int32_t)value);
+        lv_scale_set_line_needle_value(objects[node], needles[node], 40, (int32_t)value);
         result = 0;
     }
     lvgl_port_unlock();

@@ -735,11 +735,11 @@ int micro_native_create_scale(micro_native_t *native, uint32_t node_id, uint32_t
     lv_obj_t *scale = lv_scale_create(parent);
     lv_scale_set_mode(scale, LV_SCALE_MODE_ROUND_INNER);
     lv_scale_set_range(scale, (int32_t)min, (int32_t)max);
-    lv_obj_set_size(scale, 160, 160);
+    lv_obj_set_size(scale, 100, 100);
     lv_obj_t *needle = lv_line_create(scale);
-    lv_point_precise_t points[2] = {{0, 0}, {0, -60}};
+    lv_point_precise_t points[2] = {{0, 0}, {0, -40}};
     lv_line_set_points(needle, points, 2);
-    lv_scale_set_line_needle_value(scale, needle, 60, (int32_t)value);
+    lv_scale_set_line_needle_value(scale, needle, 40, (int32_t)value);
     native->needles[node_id] = needle;
     native->objects[node_id] = scale;
     return 1;
