@@ -156,6 +156,12 @@ impl<B: NativeUi> LvglRenderer<B> {
             .nodes
             .get(node_id.0 as usize)
             .ok_or_else(|| RenderError(format!("node {} is missing", node_id.0)))?;
+        /* Mark ownership before building children (the Tabview arm recurses
+         * into its content nodes), so a partially built root is still cleaned
+         * up when creation fails partway. */
+        if parent.is_none() {
+            self.owns_app_root = true;
+        }
         match node.kind {
             UiKind::Column => self.bridge.create_column(node.id, parent),
             UiKind::Row => self.bridge.create_row(node.id, parent),
@@ -303,9 +309,6 @@ impl<B: NativeUi> LvglRenderer<B> {
             }
         }
         .map_err(RenderError)?;
-        if parent.is_none() {
-            self.owns_app_root = true;
-        }
         for child in &node.children {
             /* Tabview mounts its content children itself; skip them here. */
             if !matches!(node.kind, UiKind::Tabview) {
