@@ -27,4 +27,8 @@ pub enum Instruction {
     /// onto the stack. Only valid inside a `Function` with
     /// `arg_count == 1` (today, only `ui.input` `onChange(s)`).
     LoadArg,
+    /// Invokes the host request at `AppImage::host_requests[idx]`. Pops the
+    /// request's argument count; for a synchronous read the host pushes the
+    /// scalar result back; actions and async requests push nothing.
+    HostCall(u32),
 }

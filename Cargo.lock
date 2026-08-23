@@ -326,6 +326,7 @@ version = "0.1.0"
 dependencies = [
  "micro-core",
  "micro-ir",
+ "micro-vm",
  "swc_common",
  "swc_ecma_ast",
  "swc_ecma_parser",
@@ -348,6 +349,7 @@ dependencies = [
  "micro-ir",
  "micro-lvgl",
  "micro-os-core",
+ "micro-vm",
 ]
 
 [[package]]

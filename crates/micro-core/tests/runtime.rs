@@ -3,10 +3,10 @@ use micro_core::{
 };
 use micro_ir::{
     AppImage, BindingId, Constant, FontWeight, Function, FunctionId, FunctionKind, HandlerId,
-    Instruction, NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind, UiNodeSpec,
-    ValueSource,
+    HostCallKind, HostRequest, Instruction, NodeId, ScalarType, StateDecl, StateId, TextSource,
+    TextStyle, UiKind, UiNodeSpec, ValueSource,
 };
-use micro_vm::{Value, VmError};
+use micro_vm::{HostAccess, Value, VmError};
 
 #[derive(Default)]
 struct RecordingRenderer {
@@ -144,6 +144,7 @@ fn counter_image() -> AppImage {
                 layout: None,
             },
         ],
+        host_requests: vec![],
         root: NodeId(0),
     }
 }
@@ -351,6 +352,7 @@ fn replaces_binding_dependencies_after_each_evaluation() {
             options: vec![],
             layout: None,
         }],
+        host_requests: vec![],
         root: NodeId(0),
     };
     let mut runtime = Runtime::new(image, RecordingRenderer::default(), 10_000).unwrap();
@@ -477,6 +479,7 @@ fn value_image() -> AppImage {
                 layout: None,
             },
         ],
+        host_requests: vec![],
         root: NodeId(0),
     }
 }
@@ -535,4 +538,146 @@ fn switch_binding_returning_number_errors() {
         result,
         Err(RuntimeError::SwitchIsNotBoolean(NodeId(2)))
     ));
+}
+
+#[derive(Default)]
+struct SimHost {
+    pending: Vec<(FunctionId, Value)>,
+}
+
+impl HostAccess for SimHost {
+    fn call(
+        &mut self,
+        request: &HostRequest,
+        _args: &[Value],
+    ) -> Result<Option<Value>, VmError> {
+        match request.kind {
+            HostCallKind::DeviceChip => Ok(Some(Value::String("ESP32-S3".into()))),
+            HostCallKind::NetScanWifi => {
+                self.pending
+                    .push((request.callback.unwrap(), Value::String("ap1\nap2".into())));
+                Ok(None)
+            }
+            _ => Err(VmError::Host("unexpected host call".into())),
+        }
+    }
+
+    fn drain_results(&mut self) -> Vec<(FunctionId, Value)> {
+        std::mem::take(&mut self.pending)
+    }
+}
+
+/// Image with one string state, a binding reading it, a 1-arg handler that
+/// stores its argument into the state, and a 0-arg handler that defers an
+/// async `net.scanWifi`.
+fn host_image() -> AppImage {
+    AppImage {
+        constants: vec![Constant::String("off".into())],
+        states: vec![StateDecl {
+            ty: ScalarType::String,
+            initial: 0,
+        }],
+        functions: vec![
+            Function {
+                kind: FunctionKind::Binding(BindingId(0)),
+                arg_count: 0,
+                locals: 0,
+                max_stack: 2,
+                code: vec![Instruction::LoadState(StateId(0)), Instruction::Return],
+            },
+            Function {
+                kind: FunctionKind::Handler(HandlerId(0)),
+                arg_count: 1,
+                locals: 0,
+                max_stack: 2,
+                code: vec![
+                    Instruction::LoadArg,
+                    Instruction::StoreState(StateId(0)),
+                    Instruction::Return,
+                ],
+            },
+            Function {
+                kind: FunctionKind::Handler(HandlerId(1)),
+                arg_count: 0,
+                locals: 0,
+                max_stack: 1,
+                code: vec![Instruction::HostCall(0), Instruction::Return],
+            },
+        ],
+        nodes: vec![UiNodeSpec {
+            id: NodeId(0),
+            kind: UiKind::Text,
+            children: vec![],
+            text: Some(TextSource::Binding(FunctionId(0))),
+            value: None,
+            on_click: None,
+            text_style: None,
+            range: None,
+            options: vec![],
+            layout: None,
+        }],
+        host_requests: vec![HostRequest::async_request(
+            HostCallKind::NetScanWifi,
+            vec![],
+            FunctionId(1),
+        )],
+        root: NodeId(0),
+    }
+}
+
+#[test]
+fn host_read_in_binding_materializes_the_host_value() {
+    let mut image = host_image();
+    image.host_requests[0] =
+        HostRequest::sync(HostCallKind::DeviceChip, vec![], Some(ScalarType::String));
+    image.functions[0].code = vec![Instruction::HostCall(0), Instruction::Return];
+    /* The 0-arg handler no longer matches the now-sync request; consume its
+     * result so the image stays valid. */
+    image.functions[2].code = vec![Instruction::HostCall(0), Instruction::Pop, Instruction::Return];
+    let runtime = Runtime::new_with_host(
+        image,
+        RecordingRenderer::default(),
+        10_000,
+        Box::new(SimHost::default()),
+    )
+    .unwrap();
+    assert_eq!(runtime.renderer().created[0].nodes[0].text, "ESP32-S3");
+}
+
+#[test]
+fn null_host_rejects_host_reads_during_creation() {
+    let mut image = host_image();
+    image.host_requests[0] =
+        HostRequest::sync(HostCallKind::DeviceChip, vec![], Some(ScalarType::String));
+    image.functions[0].code = vec![Instruction::HostCall(0), Instruction::Return];
+    image.functions[2].code = vec![Instruction::HostCall(0), Instruction::Pop, Instruction::Return];
+    let result = Runtime::new(image, RecordingRenderer::default(), 10_000);
+    assert!(matches!(
+        result,
+        Err(RuntimeError::Vm(VmError::Host(_)))
+    ));
+}
+
+#[test]
+fn async_host_result_round_trips_through_drain_and_tick() {
+    let mut runtime = Runtime::new_with_host(
+        host_image(),
+        RecordingRenderer::default(),
+        10_000,
+        Box::new(SimHost::default()),
+    )
+    .unwrap();
+
+    runtime.enqueue(Event::Activate(FunctionId(2)));
+    runtime.tick().unwrap();
+    runtime.enqueue_host_results();
+    runtime.tick().unwrap();
+
+    assert_eq!(
+        runtime.renderer().patches,
+        [RenderPatch::SetText {
+            node: NodeId(0),
+            text: "ap1\nap2".into()
+        }]
+    );
 }

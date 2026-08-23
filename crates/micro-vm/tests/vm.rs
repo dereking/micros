@@ -2,7 +2,7 @@ use micro_ir::{
     AppImage, Constant, Function, FunctionId, FunctionKind, HandlerId, Instruction, NodeId,
     ScalarType, StateDecl, StateId, TextSource, UiKind, UiNodeSpec,
 };
-use micro_vm::{Execution, StateAccess, StateError, Value, Vm, VmError};
+use micro_vm::{Execution, HostAccess, StateAccess, StateError, Value, Vm, VmError};
 
 #[derive(Default)]
 struct TestState(Vec<Value>);
@@ -57,6 +57,7 @@ fn image(kind: FunctionKind, code: Vec<Instruction>, max_stack: u16) -> AppImage
             options: vec![],
             layout: None,
         }],
+        host_requests: vec![],
         root: NodeId(0),
     }
 }
@@ -175,4 +176,132 @@ fn backward_jump_exhausts_budget_exactly() {
             executed: 3
         })
     );
+}
+
+#[derive(Default)]
+struct TestHost {
+    results: Vec<(FunctionId, Value)>,
+}
+
+impl micro_vm::HostAccess for TestHost {
+    fn call(
+        &mut self,
+        request: &micro_ir::HostRequest,
+        args: &[Value],
+    ) -> Result<Option<Value>, VmError> {
+        match request.kind {
+            micro_ir::HostCallKind::DeviceChip => Ok(Some(Value::String("ESP32-S3".into()))),
+            micro_ir::HostCallKind::NetWifiConnect => {
+                assert_eq!(args.len(), 2);
+                Ok(None)
+            }
+            micro_ir::HostCallKind::NetScanWifi => {
+                self.results
+                    .push((request.callback.unwrap(), Value::String("ap1\nap2".into())));
+                Ok(None)
+            }
+            _ => Err(VmError::Host("unexpected host call".into())),
+        }
+    }
+
+    fn drain_results(&mut self) -> Vec<(FunctionId, Value)> {
+        std::mem::take(&mut self.results)
+    }
+}
+
+fn host_image(
+    requests: Vec<micro_ir::HostRequest>,
+    kind: FunctionKind,
+    code: Vec<Instruction>,
+) -> AppImage {
+    AppImage {
+        constants: vec![Constant::String("SSID".into()), Constant::String("pass".into())],
+        states: vec![],
+        functions: vec![Function {
+            kind,
+            arg_count: 0,
+            locals: 0,
+            max_stack: 4,
+            code,
+        }],
+        nodes: vec![UiNodeSpec {
+            id: NodeId(0),
+            kind: UiKind::Text,
+            children: vec![],
+            text: Some(TextSource::Constant(0)),
+            value: None,
+            on_click: None,
+            text_style: None,
+            range: None,
+            options: vec![],
+            layout: None,
+        }],
+        host_requests: requests,
+        root: NodeId(0),
+    }
+}
+
+#[test]
+fn host_read_pushes_the_returned_value() {
+    let app = host_image(
+        vec![micro_ir::HostRequest::sync(
+            micro_ir::HostCallKind::DeviceChip,
+            vec![],
+            Some(ScalarType::String),
+        )],
+        FunctionKind::Binding(micro_ir::BindingId(0)),
+        vec![Instruction::HostCall(0), Instruction::Return],
+    );
+    let mut state = TestState::default();
+    let mut host = TestHost::default();
+    let execution = Vm::new(&app, &mut state)
+        .invoke_with_host(FunctionId(0), None, 10_000, &mut host)
+        .unwrap();
+    assert_eq!(execution.value, Some(Value::String("ESP32-S3".into())));
+}
+
+#[test]
+fn host_action_receives_arguments_in_source_order() {
+    let app = host_image(
+        vec![micro_ir::HostRequest::sync(
+            micro_ir::HostCallKind::NetWifiConnect,
+            vec![ScalarType::String, ScalarType::String],
+            None,
+        )],
+        FunctionKind::Handler(HandlerId(0)),
+        vec![
+            Instruction::Const(0),
+            Instruction::Const(1),
+            Instruction::HostCall(0),
+            Instruction::Return,
+        ],
+    );
+    let mut state = TestState::default();
+    let mut host = TestHost::default();
+    let execution = Vm::new(&app, &mut state)
+        .invoke_with_host(FunctionId(0), None, 10_000, &mut host)
+        .unwrap();
+    assert_eq!(execution.value, None);
+}
+
+#[test]
+fn async_host_call_records_a_completion_for_drain() {
+    let app = host_image(
+        vec![micro_ir::HostRequest::async_request(
+            micro_ir::HostCallKind::NetScanWifi,
+            vec![],
+            FunctionId(1),
+        )],
+        FunctionKind::Handler(HandlerId(0)),
+        vec![Instruction::HostCall(0), Instruction::Return],
+    );
+    let mut state = TestState::default();
+    let mut host = TestHost::default();
+    Vm::new(&app, &mut state)
+        .invoke_with_host(FunctionId(0), None, 10_000, &mut host)
+        .unwrap();
+    let drained = host.drain_results();
+    assert_eq!(drained.len(), 1);
+    assert_eq!(drained[0].0, FunctionId(1));
+    assert_eq!(drained[0].1, Value::String("ap1\nap2".into()));
 }

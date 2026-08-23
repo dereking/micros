@@ -1,4 +1,5 @@
 mod activation;
+pub mod host;
 mod system;
 
 #[cfg(any(target_arch = "wasm32", test))]
@@ -108,6 +109,7 @@ mod wasm_host {
 
     use crate::{ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SelectionChangeQueue, SliderChangeQueue};
     use crate::dom::DomBridge;
+    use crate::host::WebHost;
 
     #[wasm_bindgen]
     pub struct MicroWebRuntime {
@@ -155,7 +157,13 @@ mod wasm_host {
                 selection_changes.clone(),
             );
             let renderer = WebRenderer::new(bridge);
-            let runtime = Runtime::new(image, renderer, event_budget).map_err(|error| {
+            let runtime = Runtime::new_with_host(
+                image,
+                renderer,
+                event_budget,
+                Box::new(WebHost::new()),
+            )
+            .map_err(|error| {
                 js_error("WEB_RUNTIME", &format!("cannot create Runtime: {error}"))
             })?;
             Ok(Self {
@@ -189,7 +197,7 @@ mod wasm_host {
             loop {
                 match self.runtime.tick() {
                     Ok(true) => processed = processed.saturating_add(1),
-                    Ok(false) => return Ok(processed),
+                    Ok(false) => break,
                     Err(error) => {
                         return Err(js_error(
                             "WEB_RUNTIME",
@@ -198,6 +206,10 @@ mod wasm_host {
                     }
                 }
             }
+            /* Async host requests (net.scanWifi / net.httpGet) complete one
+             * tick later with the simulated result. */
+            self.runtime.enqueue_host_results();
+            Ok(processed)
         }
 
         pub fn dispose(&mut self) {

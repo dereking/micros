@@ -22,6 +22,31 @@ type UiTextStyle =
 declare function state<T extends Scalar>(initial: T): State<T>;
 declare function bind<T extends Scalar>(read: () => T): Binding<T>;
 
+/** ESP32 hardware capabilities. Sync reads are sampled when the binding runs. */
+declare const device: {
+  name(): string;
+  chip(): string;
+  flashBytes(): number;
+  psramBytes(): number;
+  resetReason(): string;
+  backlight(): number;
+  setBacklight(level: number): void;
+};
+
+/** Network (Wi-Fi) capabilities. Dynamic values arrive via async callbacks. */
+declare const net: {
+  /** "off" | "connecting" | "connected" | "error" */
+  wifiState(): string;
+  /** Connected SSID, or "" when not connected. */
+  wifiSsid(): string;
+  wifiConnect(ssid: string, password: string): void;
+  wifiDisconnect(): void;
+  /** Calls back with the SSID list, one per line. */
+  scanWifi(onResult: (list: string) => void): void;
+  /** Calls back with the HTTP response body (or an error line). */
+  httpGet(url: string, onResult: (response: string) => void): void;
+};
+
 declare const ui: {
   column(children: UiNode[]): UiNode;
   row(children: UiNode[]): UiNode;

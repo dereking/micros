@@ -1,7 +1,8 @@
 use micro_ir::{
     AppImage, BindingId, Constant, DecodeError, FontFamily, FontWeight, Function, FunctionId,
-    FunctionKind, Instruction, LayoutSpec, NodeId, ScalarType, StateDecl, StateId, TextSource,
-    TextStyle, TextStyleError, UiKind, UiNodeSpec, ValueSource, decode, encode, validate,
+    FunctionKind, HostCallKind, HostRequest, Instruction, LayoutSpec, NodeId, ScalarType,
+    StateDecl, StateId, TextSource, TextStyle, TextStyleError, UiKind, UiNodeSpec, ValueSource,
+    decode, encode, validate,
 };
 
 fn fixture() -> AppImage {
@@ -36,6 +37,7 @@ fn fixture() -> AppImage {
             options: vec![],
             layout: None,
         }],
+        host_requests: vec![],
         root: NodeId(0),
     }
 }
@@ -173,6 +175,7 @@ fn round_trips_progress_and_switch_values() {
                 layout: None,
             },
         ],
+        host_requests: vec![],
         root: NodeId(0),
     };
     let decoded = decode(&encode(&image).unwrap()).unwrap();
@@ -181,6 +184,42 @@ fn round_trips_progress_and_switch_values() {
     assert_eq!(decoded.nodes[1].value, Some(ValueSource::Binding(FunctionId(0))));
     assert_eq!(decoded.nodes[2].kind, UiKind::Switch);
     assert_eq!(decoded.nodes[2].value, Some(ValueSource::Constant(1)));
+}
+
+#[test]
+fn round_trips_host_requests_and_host_call_instructions() {
+    let mut image = fixture();
+    image.host_requests = vec![
+        HostRequest::sync(HostCallKind::DeviceChip, vec![], Some(ScalarType::String)),
+        HostRequest::sync(
+            HostCallKind::NetWifiConnect,
+            vec![ScalarType::String, ScalarType::String],
+            None,
+        ),
+        HostRequest::async_request(
+            HostCallKind::NetScanWifi,
+            vec![],
+            FunctionId(1),
+        ),
+    ];
+    image.functions.push(Function {
+        kind: FunctionKind::Handler(micro_ir::HandlerId(1)),
+        arg_count: 1,
+        locals: 0,
+        max_stack: 1,
+        code: vec![Instruction::LoadArg, Instruction::Pop, Instruction::Return],
+    });
+    image.functions[0].code.insert(0, Instruction::HostCall(0));
+    image.functions[0].code.insert(1, Instruction::Pop);
+
+    let decoded = decode(&encode(&image).unwrap()).unwrap();
+
+    assert_eq!(decoded.host_requests, image.host_requests);
+    assert!(decoded.host_requests[0].result_kind.is_some());
+    assert_eq!(decoded.host_requests[1].arg_kinds.len(), 2);
+    assert!(decoded.host_requests[2].is_async());
+    assert!(decoded.functions[0].code.contains(&Instruction::HostCall(0)));
+    assert_eq!(decoded, image);
 }
 
 #[test]
@@ -239,7 +278,8 @@ fn rejects_bad_magic_and_version() {
 #[test]
 fn rejects_a_bad_text_style_tag() {
     let mut bytes = encode(&fixture()).unwrap();
-    let style_tag = bytes.len() - 11;
+    /* The trailing empty host_requests section adds 9 bytes (tag + length + 4-byte count). */
+    let style_tag = bytes.len() - 20;
     bytes[style_tag] = 2;
     refresh_checksum(&mut bytes);
 
@@ -257,7 +297,8 @@ fn rejects_an_unsupported_serialized_text_size() {
     let mut image = fixture();
     image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
     let mut bytes = encode(&image).unwrap();
-    let size_px = bytes.len() - 13;
+    /* The trailing empty host_requests section adds 9 bytes (tag + length + 4-byte count). */
+    let size_px = bytes.len() - 22;
     bytes[size_px] = 16;
     refresh_checksum(&mut bytes);
 
@@ -274,7 +315,8 @@ fn rejects_non_regular_serialized_font_weight() {
     let mut image = fixture();
     image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
     let mut bytes = encode(&image).unwrap();
-    let weight = bytes.len() - 12;
+    /* The trailing empty host_requests section adds 9 bytes (tag + length + 4-byte count). */
+    let weight = bytes.len() - 21;
     bytes[weight] = 1;
     refresh_checksum(&mut bytes);
     assert_eq!(
@@ -291,7 +333,8 @@ fn rejects_an_unsupported_serialized_line_height_pair() {
     let mut image = fixture();
     image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
     let mut bytes = encode(&image).unwrap();
-    let line_height_px = bytes.len() - 11;
+    /* The trailing empty host_requests section adds 9 bytes (tag + length + 4-byte count). */
+    let line_height_px = bytes.len() - 20;
     bytes[line_height_px] = 17;
     refresh_checksum(&mut bytes);
 

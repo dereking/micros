@@ -9,12 +9,60 @@ use micro_host_esp32::{
     RuntimeHost, decode_action_batch, encode_action_batch, validate_region_length,
     write_diagnostic,
 };
-use micro_ir::{FunctionId, NodeId, TextStyle, encode};
+use micro_ir::{FunctionId, HostCallKind, HostRequest, NodeId, TextStyle, encode};
 use micro_lvgl::NativeUi;
 use micro_os_core::{
     Action, AppId, AppSessionId, Backlight, ConfirmationId, Event as OsEvent, FailureReason,
     WifiFailure, WifiOperationId,
 };
+use micro_vm::{HostAccess, Value, VmError};
+
+/// A simulated host so the real counter's `device.*` / `net.*` reads succeed
+/// when the runtime runs off-device.
+#[derive(Default)]
+struct SimHost {
+    pending: Vec<(FunctionId, Value)>,
+}
+
+impl HostAccess for SimHost {
+    fn call(&mut self, request: &HostRequest, _args: &[Value]) -> Result<Option<Value>, VmError> {
+        Ok(match request.kind {
+            HostCallKind::DeviceName => Some(Value::String("micro-os".into())),
+            HostCallKind::DeviceChip => Some(Value::String("ESP32-S3 (sim)".into())),
+            HostCallKind::DeviceFlashBytes | HostCallKind::DevicePsramBytes => {
+                Some(Value::Number(8388608.0))
+            }
+            HostCallKind::DeviceResetReason => Some(Value::String("power-on (sim)".into())),
+            HostCallKind::DeviceBacklight => Some(Value::Number(3.0)),
+            HostCallKind::DeviceSetBacklight
+            | HostCallKind::NetWifiConnect
+            | HostCallKind::NetWifiDisconnect => None,
+            HostCallKind::NetWifiState => Some(Value::String("connected".into())),
+            HostCallKind::NetWifiSsid => Some(Value::String("micro-demo".into())),
+            HostCallKind::NetScanWifi | HostCallKind::NetHttpGet => {
+                self.pending.push((
+                    request.callback.unwrap(),
+                    Value::String("HTTP 200\nOK".into()),
+                ));
+                None
+            }
+        })
+    }
+
+    fn drain_results(&mut self) -> Vec<(FunctionId, Value)> {
+        std::mem::take(&mut self.pending)
+    }
+}
+
+fn counter_runtime() -> RuntimeHost<FakeNativeUi> {
+    RuntimeHost::from_owned_mbc_with_host(
+        counter_bytes(),
+        FakeNativeUi::default(),
+        10_000,
+        Box::new(SimHost::default()),
+    )
+    .unwrap()
+}
 
 #[derive(Default)]
 struct FakeNativeUi {
@@ -255,7 +303,12 @@ fn diagnostic_truncation_preserves_utf8_boundaries_and_always_terminates() {
 
 #[test]
 fn owned_mbc_constructor_accepts_the_single_owned_copy() {
-    let host = RuntimeHost::from_owned_mbc(counter_bytes(), FakeNativeUi::default(), 10_000);
+    let host = RuntimeHost::from_owned_mbc_with_host(
+        counter_bytes(),
+        FakeNativeUi::default(),
+        10_000,
+        Box::new(SimHost::default()),
+    );
     assert!(host.is_ok());
 }
 
@@ -462,13 +515,14 @@ impl NativeUi for FailingNativeUi {
 fn failed_runtime_creation_cleans_up_partially_constructed_esp_root() {
     let root_created = Rc::new(Cell::new(false));
     let destroyed = Rc::new(Cell::new(0));
-    let result = RuntimeHost::new(
+    let result = RuntimeHost::new_with_host(
         &counter_bytes(),
         FailingNativeUi {
             root_created: Rc::clone(&root_created),
             destroyed: Rc::clone(&destroyed),
         },
         10_000,
+        Box::new(SimHost::default()),
     );
     assert!(result.is_err());
     assert!(root_created.get());
@@ -495,7 +549,7 @@ fn ffi_region_lengths_reject_isize_and_element_size_overflow_before_slicing() {
 
 #[test]
 fn activations_are_fifo_and_two_clicks_render_count_two() {
-    let mut host = RuntimeHost::new(&counter_bytes(), FakeNativeUi::default(), 10_000).unwrap();
+    let mut host = counter_runtime();
     assert!(
         host.bridge()
             .styles
@@ -516,7 +570,7 @@ fn activations_are_fifo_and_two_clicks_render_count_two() {
     assert!(host.bridge().nodes.values().any(|text| text == "Count: 1"));
     assert_eq!(host.tick().unwrap_err().code(), MicroErrorCode::Runtime);
 
-    let mut host = RuntimeHost::new(&counter_bytes(), FakeNativeUi::default(), 10_000).unwrap();
+    let mut host = counter_runtime();
     let handler = host.bridge().activations[0];
     host.activate(handler).unwrap();
     host.activate(handler).unwrap();
@@ -527,7 +581,7 @@ fn activations_are_fifo_and_two_clicks_render_count_two() {
 
 #[test]
 fn stop_removes_only_the_app_root_owned_nodes() {
-    let mut host = RuntimeHost::new(&counter_bytes(), FakeNativeUi::default(), 10_000).unwrap();
+    let mut host = counter_runtime();
     assert!(!host.bridge().nodes.is_empty());
 
     host.stop().unwrap();

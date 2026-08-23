@@ -6,7 +6,7 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
     let source = include_str!("../../../apps/counter/app.ts");
     let image = compile_source("app.ts", source).unwrap();
 
-    assert_eq!(image.states.len(), 12);
+    assert_eq!(image.states.len(), 14);
     assert_eq!(
         image
             .states
@@ -21,7 +21,7 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
             .iter()
             .filter(|slot| slot.ty == ScalarType::String)
             .count(),
-        1
+        3
     );
 
     let bindings: Vec<_> = image
@@ -29,14 +29,14 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
         .iter()
         .filter(|function| matches!(function.kind, FunctionKind::Binding(_)))
         .collect();
-    assert_eq!(bindings.len(), 17);
+    assert_eq!(bindings.len(), 25);
 
     let handlers: Vec<_> = image
         .functions
         .iter()
         .filter(|function| matches!(function.kind, FunctionKind::Handler(_)))
         .collect();
-    assert_eq!(handlers.len(), 17);
+    assert_eq!(handlers.len(), 23);
 
     // The Add button's handler increments count (state 0) and presses (state 1).
     let add = image
@@ -82,9 +82,9 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
 
     let root = &image.nodes[image.root.0 as usize];
     assert_eq!(root.kind, UiKind::Tabview);
-    assert_eq!(root.children.len(), 3);
+    assert_eq!(root.children.len(), 4);
     // Tab titles are interned in the tabview's options.
-    assert_eq!(root.options.len(), 3);
+    assert_eq!(root.options.len(), 4);
     // The first tab content is a column holding the styled title and the Add
     // button (the counter family).
     let first_tab = &image.nodes[root.children[0].0 as usize];
@@ -170,6 +170,73 @@ ui.mount(ui.button("Run", { onClick: () => {
             .iter()
             .any(|op| matches!(op, Instruction::StoreState(_)))
     );
+}
+
+#[test]
+fn lowers_host_calls_into_requests_and_instructions() {
+    let source = r#"
+const list = state("");
+const note = state("");
+const refresh = state(0);
+ui.mount(ui.column([
+  ui.text(bind(() => `chip: ${device.chip()} flash: ${device.flashBytes()}`)),
+  ui.text(bind(() => `wifi: ${net.wifiState()} ${net.wifiSsid()} ${refresh.value}`)),
+  ui.button("backlight", { onClick: () => { device.setBacklight(4); } }),
+  ui.button("scan", { onClick: () => { net.scanWifi((l) => { list.value = l; }); } }),
+  ui.button("http", { onClick: () => { net.httpGet("http://x", (r) => { note.value = r; }); } }),
+]));
+"#;
+    let image = compile_source("host.ts", source).unwrap();
+
+    use micro_ir::HostCallKind;
+    let kinds: Vec<_> = image.host_requests.iter().map(|r| r.kind).collect();
+    assert!(kinds.contains(&HostCallKind::DeviceChip));
+    assert!(kinds.contains(&HostCallKind::DeviceFlashBytes));
+    assert!(kinds.contains(&HostCallKind::NetWifiState));
+    assert!(kinds.contains(&HostCallKind::NetWifiSsid));
+    assert!(kinds.contains(&HostCallKind::DeviceSetBacklight));
+    assert!(kinds.contains(&HostCallKind::NetScanWifi));
+    assert!(kinds.contains(&HostCallKind::NetHttpGet));
+
+    // Actions carry no result; async requests carry a 1-arg callback.
+    let backlight = image
+        .host_requests
+        .iter()
+        .find(|r| r.kind == HostCallKind::DeviceSetBacklight)
+        .unwrap();
+    assert_eq!(backlight.result_kind, None);
+    assert_eq!(backlight.arg_kinds, [ScalarType::Number]);
+
+    let scan = image
+        .host_requests
+        .iter()
+        .find(|r| r.kind == HostCallKind::NetScanWifi)
+        .unwrap();
+    assert!(scan.callback.is_some());
+    let callback = &image.functions[scan.callback.unwrap().0 as usize];
+    assert_eq!(callback.arg_count, 1);
+    assert!(matches!(callback.kind, FunctionKind::Handler(_)));
+
+    let http = image
+        .host_requests
+        .iter()
+        .find(|r| r.kind == HostCallKind::NetHttpGet)
+        .unwrap();
+    assert_eq!(http.arg_kinds, [ScalarType::String]);
+    assert!(http.callback.is_some());
+
+    // Every handler with a host action emits a HostCall instruction.
+    let host_callers = image
+        .functions
+        .iter()
+        .filter(|function| {
+            function
+                .code
+                .iter()
+                .any(|op| matches!(op, Instruction::HostCall(_)))
+        })
+        .count();
+    assert!(host_callers >= 3);
 }
 
 #[test]

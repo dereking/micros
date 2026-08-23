@@ -39,6 +39,57 @@ fn rejects_unsupported_constructs_with_locations() {
 }
 
 #[test]
+fn accepts_host_call_surface() {
+    let source = r#"
+const list = state("");
+const note = state("");
+const refresh = state(0);
+ui.mount(ui.column([
+  ui.text(bind(() => `chip: ${device.chip()} flash: ${device.flashBytes()}`)),
+  ui.text(bind(() => `wifi: ${net.wifiState()} ${net.wifiSsid()} ${refresh.value}`)),
+  ui.button("backlight", { onClick: () => { device.setBacklight(4); } }),
+  ui.button("connect", { onClick: () => { net.wifiConnect("SSID", "pass"); } }),
+  ui.button("off", { onClick: () => { net.wifiDisconnect(); } }),
+  ui.button("scan", { onClick: () => { net.scanWifi((l) => { list.value = l; }); } }),
+  ui.button("http", { onClick: () => { net.httpGet("http://x", (r) => { note.value = r; }); } }),
+  ui.text(bind(() => `list: ${list.value} http: ${note.value}`)),
+]));
+"#;
+    validate_source("host.ts", source).unwrap();
+}
+
+#[test]
+fn rejects_unknown_host_calls() {
+    let cases = [
+        ("device-bogus.ts", "ui.mount(ui.text(device.bogus()));", "MTS001", 1, 18),
+        ("net-bogus.ts", "ui.mount(ui.text(net.bogus()));", "MTS001", 1, 18),
+        ("net-member.ts", "const x = net.wifiState;", "MTS001", 1, 11),
+    ];
+    for (path, source, code, line, column) in cases {
+        let errors = validate_source(path, source).unwrap_err();
+        assert_eq!(errors[0].code, code, "{path}: {errors:?}");
+        assert_eq!((errors[0].line, errors[0].column), (line, column), "{path}");
+    }
+}
+
+#[test]
+fn rejects_host_call_wrong_arity() {
+    let errors = validate_source("arity.ts", "ui.mount(ui.button('x', { onClick: () => { device.setBacklight(); } }));")
+        .unwrap_err();
+    assert_eq!(errors[0].code, "MTS002");
+}
+
+#[test]
+fn rejects_async_host_call_inside_a_binding() {
+    let source = r#"
+const list = state("");
+ui.mount(ui.text(bind(() => { net.scanWifi((l) => { list.value = l; }); return "x"; })));
+"#;
+    let errors = compile_source("binding-async.ts", source).unwrap_err();
+    assert_eq!(errors[0].code, "MTS013");
+}
+
+#[test]
 fn rejects_unknown_button_props_and_multiple_mounts() {
     let unknown = r#"ui.mount(ui.button("Add", { onTap: () => 1 }));"#;
     let errors = validate_source("prop.ts", unknown).unwrap_err();

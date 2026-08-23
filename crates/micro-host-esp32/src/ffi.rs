@@ -578,7 +578,12 @@ pub unsafe extern "C" fn micro_runtime_create(
         return ptr::null_mut();
     }
     owned.extend_from_slice(unsafe { std::slice::from_raw_parts(mbc, length) });
-    match RuntimeHost::from_owned_mbc(owned, EspNativeUi, budget) {
+    match RuntimeHost::from_owned_mbc_with_host(
+        owned,
+        EspNativeUi,
+        budget,
+        Box::new(crate::host::EspHost::new()),
+    ) {
         Ok(runtime) => Box::into_raw(Box::new(runtime)).cast(),
         Err(runtime_error) => {
             write_diagnostic(error, error_length, &runtime_error.to_string());
@@ -768,10 +773,17 @@ pub unsafe extern "C" fn micro_runtime_tick(
             }
         }
     }
-    match runtime.tick() {
-        Ok(_) => MicroErrorCode::Ok as c_int,
-        Err(runtime_error) => report(runtime_error, error, error_length),
+    loop {
+        match runtime.tick() {
+            Ok(true) => {}
+            Ok(false) => break,
+            Err(runtime_error) => return report(runtime_error, error, error_length),
+        }
     }
+    /* Async host requests (net.scanWifi / net.httpGet) complete one tick
+     * later with the simulated result. */
+    runtime.enqueue_host_results();
+    MicroErrorCode::Ok as c_int
 }
 
 #[unsafe(no_mangle)]

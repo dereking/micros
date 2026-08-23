@@ -162,7 +162,9 @@ impl Validator<'_> {
             Expr::Lit(Lit::Str(_) | Lit::Bool(_) | Lit::Null(_) | Lit::Num(_)) => {}
             Expr::Ident(identifier) => {
                 let name = identifier.sym.as_ref();
-                if !self.known.contains(name) && !matches!(name, "state" | "bind" | "ui") {
+                if !self.known.contains(name)
+                    && !matches!(name, "state" | "bind" | "ui" | "device" | "net")
+                {
                     self.unsupported(identifier.span, format!("global `{name}`"));
                 }
             }
@@ -229,6 +231,11 @@ impl Validator<'_> {
             "ui.dropdown" => 2..=3,
             "ui.roller" => 2..=3,
             "ui.button" => 2..=2,
+            "device.name" | "device.chip" | "device.flashBytes" | "device.psramBytes"
+            | "device.resetReason" | "device.backlight" | "net.wifiState" | "net.wifiSsid"
+            | "net.wifiDisconnect" => 0..=0,
+            "device.setBacklight" | "net.scanWifi" => 1..=1,
+            "net.wifiConnect" | "net.httpGet" => 2..=2,
             _ => {
                 self.unsupported(call.span, format!("call `{name}`"));
                 return;
@@ -321,10 +328,34 @@ impl Validator<'_> {
             "ui.tabview" => {
                 self.tabview_tabs(&call.args[0].expr);
             }
+            _ if name.starts_with("device.") || name.starts_with("net.") => {
+                self.host_call_args(name.as_str(), &call.args);
+            }
             _ => {
                 for argument in &call.args {
                     self.expression(&argument.expr);
                 }
+            }
+        }
+    }
+
+    /// Validate `device.*` / `net.*` arguments. The async callbacks
+    /// (`net.scanWifi(onResult)` / `net.httpGet(url, onResult)`) are 1-param
+    /// arrows and must be validated through `arrow_with_params`, because
+    /// `expression()` does not accept arrow expressions.
+    fn host_call_args(&mut self, name: &str, args: &[swc_ecma_ast::ExprOrSpread]) {
+        let callback_is_last = matches!(name, "net.scanWifi" | "net.httpGet");
+        for (index, argument) in args.iter().enumerate() {
+            if callback_is_last && index == args.len() - 1 {
+                match &*argument.expr {
+                    Expr::Arrow(arrow) => self.arrow_with_params(arrow, 1),
+                    _ => self.sdk_error(
+                        argument.span(),
+                        "net callback must be an arrow function".into(),
+                    ),
+                }
+            } else {
+                self.expression(&argument.expr);
             }
         }
     }

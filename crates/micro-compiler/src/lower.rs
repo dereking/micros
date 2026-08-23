@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 
 use micro_ir::{
     AnchorSpec, AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId,
-    FunctionKind, HandlerId, Instruction, LayoutSpec, NodeId, ScalarType, StateDecl, StateId,
-    TextSource, TextStyle, UiKind, UiNodeSpec, ValueSource, validate,
+    FunctionKind, HandlerId, HostCallKind, HostRequest, Instruction, LayoutSpec, NodeId,
+    ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind, UiNodeSpec, ValueSource,
+    validate,
 };
 use swc_common::{SourceMap, Span, Spanned, sync::Lrc};
 use swc_ecma_ast::{
@@ -33,6 +34,7 @@ struct Lowerer<'a> {
     state_symbols: BTreeMap<String, (StateId, ScalarType)>,
     functions: Vec<Function>,
     nodes: Vec<UiNodeSpec>,
+    host_requests: Vec<micro_ir::HostRequest>,
     binding_count: u32,
     handler_count: u32,
 }
@@ -47,6 +49,7 @@ impl<'a> Lowerer<'a> {
             state_symbols: BTreeMap::new(),
             functions: Vec::new(),
             nodes: Vec::new(),
+            host_requests: Vec::new(),
             binding_count: 0,
             handler_count: 0,
         }
@@ -90,6 +93,7 @@ impl<'a> Lowerer<'a> {
             states: self.states,
             functions: self.functions,
             nodes: self.nodes,
+            host_requests: self.host_requests,
             root,
         };
         validate(&image)
@@ -1455,6 +1459,20 @@ impl<'a> Lowerer<'a> {
         }
     }
 
+    fn intern_host_request(&mut self, request: HostRequest) -> u32 {
+        if let Some(index) = self
+            .host_requests
+            .iter()
+            .position(|existing| existing == &request)
+        {
+            index as u32
+        } else {
+            let index = self.host_requests.len() as u32;
+            self.host_requests.push(request);
+            index
+        }
+    }
+
     fn error(&self, span: Span, code: &'static str, message: impl Into<String>) -> Diagnostic {
         diagnostic_at(self.source_map, self.path, span, code, message.into())
     }
@@ -1664,8 +1682,76 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                 self.assignment(&assign.left, &assign.right)
             }
             Expr::Paren(parenthesized) => self.expression(&parenthesized.expr),
+            Expr::Call(call) => {
+                let Some(name) = call_name(call) else {
+                    return Err(self.error(expression.span(), "unsupported function call"));
+                };
+                if !(name.starts_with("device.") || name.starts_with("net.")) {
+                    return Err(self.error(expression.span(), "unsupported function call"));
+                }
+                self.host_call(&name, call)
+            }
             _ => Err(self.error(expression.span(), "unsupported function expression")),
         }
+    }
+
+    /// Lower a `device.*` / `net.*` host call. Reads push the host value onto
+    /// the stack; actions and async requests leave a `Null` so an enclosing
+    /// statement's trailing `Pop` stays balanced.
+    fn host_call(&mut self, name: &str, call: &swc_ecma_ast::CallExpr) -> Result<ScalarType, Diagnostic> {
+        let Some((kind, arg_kinds, is_async, result_kind)) = host_call_spec(name) else {
+            return Err(self.error(call.span, format!("unsupported host call `{name}`")));
+        };
+        let expected = arg_kinds.len() + usize::from(is_async);
+        if call.args.len() != expected {
+            return Err(self.error(
+                call.span,
+                format!("`{name}` expects {expected} argument(s)"),
+            ));
+        }
+        if matches!(self.kind, FunctionKind::Binding(_)) && (is_async || result_kind.is_none()) {
+            return Err(self.error(
+                call.span,
+                format!("`{name}` is not allowed inside a binding"),
+            ));
+        }
+
+        let mut lowered_arg_kinds = Vec::new();
+        let mut callback = None;
+        for (index, argument) in call.args.iter().enumerate() {
+            if is_async && index == call.args.len() - 1 {
+                let Expr::Arrow(arrow) = &*argument.expr else {
+                    return Err(self.error(
+                        argument.span(),
+                        "net callback must be an arrow function",
+                    ));
+                };
+                callback = Some(self.parent.add_input_function(arrow, ScalarType::String)?);
+            } else {
+                let ty = self.expression(&argument.expr)?;
+                if lowered_arg_kinds.len() < arg_kinds.len() && ty != arg_kinds[lowered_arg_kinds.len()]
+                {
+                    return Err(self.error(argument.span(), "host call argument type mismatch"));
+                }
+                lowered_arg_kinds.push(ty);
+            }
+        }
+
+        let idx = self.parent.intern_host_request(HostRequest {
+            kind,
+            arg_kinds,
+            callback,
+            result_kind,
+        });
+        self.code.push(Instruction::HostCall(idx));
+        Ok(match result_kind {
+            Some(ty) => ty,
+            None => {
+                let null = self.parent.intern(Constant::Null);
+                self.code.push(Instruction::Const(null));
+                ScalarType::Null
+            }
+        })
     }
 
     fn update(&mut self, target: &Expr, op: UpdateOp) -> Result<ScalarType, Diagnostic> {
@@ -1826,6 +1912,35 @@ fn is_bootstrap_glyph(glyph: char) -> bool {
             .filter(|line| !line.starts_with('#'))
             .flat_map(str::chars)
             .any(|manifest_glyph| manifest_glyph == glyph)
+}
+
+/// The SDK host-call table: name → (kind, argument types, async?, result type).
+/// Sync reads return a scalar; actions return nothing; async requests carry a
+/// trailing 1-arg callback arrow (not counted in `arg_kinds`).
+fn host_call_spec(
+    name: &str,
+) -> Option<(HostCallKind, Vec<ScalarType>, bool, Option<ScalarType>)> {
+    Some(match name {
+        "device.name" => (HostCallKind::DeviceName, vec![], false, Some(ScalarType::String)),
+        "device.chip" => (HostCallKind::DeviceChip, vec![], false, Some(ScalarType::String)),
+        "device.flashBytes" => (HostCallKind::DeviceFlashBytes, vec![], false, Some(ScalarType::Number)),
+        "device.psramBytes" => (HostCallKind::DevicePsramBytes, vec![], false, Some(ScalarType::Number)),
+        "device.resetReason" => (HostCallKind::DeviceResetReason, vec![], false, Some(ScalarType::String)),
+        "device.backlight" => (HostCallKind::DeviceBacklight, vec![], false, Some(ScalarType::Number)),
+        "device.setBacklight" => (HostCallKind::DeviceSetBacklight, vec![ScalarType::Number], false, None),
+        "net.wifiState" => (HostCallKind::NetWifiState, vec![], false, Some(ScalarType::String)),
+        "net.wifiSsid" => (HostCallKind::NetWifiSsid, vec![], false, Some(ScalarType::String)),
+        "net.wifiConnect" => (
+            HostCallKind::NetWifiConnect,
+            vec![ScalarType::String, ScalarType::String],
+            false,
+            None,
+        ),
+        "net.wifiDisconnect" => (HostCallKind::NetWifiDisconnect, vec![], false, None),
+        "net.scanWifi" => (HostCallKind::NetScanWifi, vec![], true, None),
+        "net.httpGet" => (HostCallKind::NetHttpGet, vec![ScalarType::String], true, None),
+        _ => return None,
+    })
 }
 
 fn call_name_expr(expression: &Expr) -> Option<String> {

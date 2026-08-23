@@ -3,6 +3,8 @@
 mod bridge;
 #[cfg(target_os = "espidf")]
 mod ffi;
+#[cfg(target_os = "espidf")]
+mod host;
 #[cfg(any(target_os = "espidf", test))]
 mod native_text_style;
 
@@ -11,6 +13,7 @@ use std::fmt;
 use micro_core::{Event, Runtime, RuntimeError};
 use micro_ir::{DecodeError, FunctionId, decode};
 use micro_lvgl::{LvglRenderer, NativeUi};
+use micro_vm::{HostAccess, NullHost};
 
 pub use bridge::{
     DispatchError, MicroAction, MicroActionKind, MicroAppId, MicroBacklight, MicroErrorCode,
@@ -134,13 +137,33 @@ impl<B: NativeUi> RuntimeHost<B> {
         Self::from_owned_mbc(mbc.to_vec(), bridge, event_budget)
     }
 
+    pub fn new_with_host(
+        mbc: &[u8],
+        bridge: B,
+        event_budget: u64,
+        host: Box<dyn HostAccess>,
+    ) -> Result<Self, HostError> {
+        Self::from_owned_mbc_with_host(mbc.to_vec(), bridge, event_budget, host)
+    }
+
     pub fn from_owned_mbc(
         owned_mbc: Vec<u8>,
         bridge: B,
         event_budget: u64,
     ) -> Result<Self, HostError> {
+        Self::from_owned_mbc_with_host(owned_mbc, bridge, event_budget, Box::new(NullHost))
+    }
+
+    /// Construct with a host accessor so the App's `device.*` / `net.*` calls
+    /// can read real ESP32 hardware and the OS shell's Wi-Fi state.
+    pub fn from_owned_mbc_with_host(
+        owned_mbc: Vec<u8>,
+        bridge: B,
+        event_budget: u64,
+        host: Box<dyn HostAccess>,
+    ) -> Result<Self, HostError> {
         let image = decode(&owned_mbc)?;
-        let runtime = Runtime::new(image, LvglRenderer::new(bridge), event_budget)?;
+        let runtime = Runtime::new_with_host(image, LvglRenderer::new(bridge), event_budget, host)?;
         Ok(Self {
             runtime,
             stopped: false,
@@ -214,6 +237,12 @@ impl<B: NativeUi> RuntimeHost<B> {
             });
         }
         self.runtime.tick().map_err(Into::into)
+    }
+
+    /// Drain async host completions (`net.scanWifi` / `net.httpGet`) into the
+    /// event queue so their callbacks run on the next tick.
+    pub fn enqueue_host_results(&mut self) {
+        self.runtime.enqueue_host_results();
     }
 
     pub fn stop(&mut self) -> Result<(), HostError> {

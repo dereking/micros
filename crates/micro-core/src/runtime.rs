@@ -5,7 +5,7 @@ use micro_ir::{
     AppImage, FunctionId, FunctionKind, NodeId, StateId, TextSource, TextStyle, UiKind,
     ValidationError, ValueSource, validate,
 };
-use micro_vm::{Value, Vm, VmError};
+use micro_vm::{HostAccess, NullHost, Value, Vm, VmError};
 
 use crate::{
     Event, EventQueue, MicroUiNode, MicroUiTree, RenderError, RenderPatch, RenderPort, StateStore,
@@ -63,6 +63,7 @@ pub struct Runtime<R> {
     state: StateStore,
     events: EventQueue,
     renderer: R,
+    host: Box<dyn HostAccess>,
     event_budget: u64,
     dependencies: BTreeMap<FunctionId, BTreeSet<StateId>>,
     binding_values: BTreeMap<FunctionId, Value>,
@@ -70,6 +71,17 @@ pub struct Runtime<R> {
 
 impl<R: RenderPort> Runtime<R> {
     pub fn new(image: AppImage, renderer: R, event_budget: u64) -> Result<Self, RuntimeError> {
+        Self::new_with_host(image, renderer, event_budget, Box::new(NullHost))
+    }
+
+    /// Construct with a host accessor so `HostCall` instructions can read host
+    /// values, run host actions, and record async requests.
+    pub fn new_with_host(
+        image: AppImage,
+        renderer: R,
+        event_budget: u64,
+        host: Box<dyn HostAccess>,
+    ) -> Result<Self, RuntimeError> {
         validate(&image)?;
         let state = StateStore::from_image(&image);
         let mut runtime = Self {
@@ -77,6 +89,7 @@ impl<R: RenderPort> Runtime<R> {
             state,
             events: EventQueue::default(),
             renderer,
+            host,
             event_budget,
             dependencies: BTreeMap::new(),
             binding_values: BTreeMap::new(),
@@ -114,6 +127,7 @@ impl<R: RenderPort> Runtime<R> {
             Event::SliderChanged(id, value) => (id, Some(Value::Number(value))),
             Event::CheckedChanged(id, checked) => (id, Some(Value::Bool(checked))),
             Event::SelectionChanged(id, index) => (id, Some(Value::Number(index))),
+            Event::HostResult(id, value) => (id, Some(value)),
         };
         if !matches!(
             self.image.functions.get(function_id.0 as usize),
@@ -125,11 +139,20 @@ impl<R: RenderPort> Runtime<R> {
             return Err(RuntimeError::NotAHandler(function_id));
         }
 
-        let result =
-            Vm::new(&self.image, &mut self.state).invoke(function_id, argument, self.event_budget);
+        let result = Vm::new(&self.image, &mut self.state)
+            .invoke_with_host(function_id, argument, self.event_budget, &mut *self.host);
         self.flush_changed_bindings()?;
         result.map_err(RuntimeError::Vm)?;
         Ok(true)
+    }
+
+    /// Drain async host completions and re-enqueue them as `HostResult`
+    /// events so their 1-arg callback handlers run on the next tick. The
+    /// platform host should call this after each tick loop.
+    pub fn enqueue_host_results(&mut self) {
+        for (handler, value) in self.host.drain_results() {
+            self.events.push(Event::HostResult(handler, value));
+        }
     }
 
     pub fn renderer(&self) -> &R {
@@ -147,7 +170,7 @@ impl<R: RenderPort> Runtime<R> {
     fn evaluate_binding(&mut self, function_id: FunctionId) -> Result<Value, RuntimeError> {
         self.state.begin_tracking();
         let execution = Vm::new(&self.image, &mut self.state)
-            .invoke(function_id, None, BINDING_BUDGET)
+            .invoke_with_host(function_id, None, BINDING_BUDGET, &mut *self.host)
             .map_err(RuntimeError::Vm);
         let reads = self.state.finish_tracking();
         let value = execution?

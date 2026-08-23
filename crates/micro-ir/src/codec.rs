@@ -2,13 +2,15 @@ use std::fmt;
 
 use crate::{
     AnchorSpec, AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId,
-    FunctionKind, HandlerId, Instruction, LayoutSpec, NodeId, ScalarType, StateDecl, StateId,
-    TextSource, TextStyle, UiKind, UiNodeSpec, ValidationError, ValueSource, validate,
+    FunctionKind, HandlerId, HostCallKind, HostRequest, Instruction, LayoutSpec, NodeId,
+    ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind, UiNodeSpec, ValidationError,
+    ValueSource, validate,
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
-/// MBC v15 splits the per-node layout into ltwh base geometry + anchor edges.
-const VERSION: u16 = 15;
+/// MBC v16 adds the `host_requests` section and the `HostCall` instruction
+/// (v15 split the per-node layout into ltwh base geometry + anchor edges).
+const VERSION: u16 = 16;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +61,7 @@ pub fn encode(image: &AppImage) -> Result<Vec<u8>, EncodeError> {
     write_section(&mut payload, 2, encode_states(&image.states)?)?;
     write_section(&mut payload, 3, encode_functions(&image.functions)?)?;
     write_section(&mut payload, 4, encode_ui(&image.nodes, image.root)?)?;
+    write_section(&mut payload, 5, encode_host_requests(&image.host_requests)?)?;
     let payload_len = u32::try_from(payload.len()).map_err(|_| EncodeError::TooLarge)?;
 
     let mut bytes = Vec::with_capacity(HEADER_LEN + payload.len());
@@ -96,12 +99,14 @@ pub fn decode(bytes: &[u8]) -> Result<AppImage, DecodeError> {
     let states = decode_states(&mut section(&mut reader, 2)?)?;
     let functions = decode_functions(&mut section(&mut reader, 3)?)?;
     let (nodes, root) = decode_ui(&mut section(&mut reader, 4)?)?;
+    let host_requests = decode_host_requests(&mut section(&mut reader, 5)?)?;
     reader.finish()?;
     let image = AppImage {
         constants,
         states,
         functions,
         nodes,
+        host_requests,
         root,
     };
     validate(&image)?;
@@ -590,6 +595,114 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
     Ok((nodes, root))
 }
 
+fn encode_host_requests(requests: &[HostRequest]) -> Result<Vec<u8>, EncodeError> {
+    let mut out = Vec::new();
+    put_u32(&mut out, requests.len())?;
+    for request in requests {
+        out.push(host_call_kind_tag(request.kind));
+        out.push(u8::try_from(request.arg_kinds.len()).map_err(|_| EncodeError::TooLarge)?);
+        for arg in &request.arg_kinds {
+            out.push(scalar_tag(*arg));
+        }
+        match request.callback {
+            None => out.push(0),
+            Some(callback) => {
+                out.push(1);
+                out.extend_from_slice(&callback.0.to_le_bytes());
+            }
+        }
+        match request.result_kind {
+            None => out.push(0),
+            Some(result) => {
+                out.push(1);
+                out.push(scalar_tag(result));
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn decode_host_requests(reader: &mut Reader<'_>) -> Result<Vec<HostRequest>, DecodeError> {
+    let count = reader.u32()? as usize;
+    let mut requests = Vec::with_capacity(count);
+    for _ in 0..count {
+        let kind = decode_host_call_kind(reader.u8()?)?;
+        let arg_count = reader.u8()? as usize;
+        let mut arg_kinds = Vec::with_capacity(arg_count);
+        for _ in 0..arg_count {
+            arg_kinds.push(decode_scalar(reader.u8()?)?);
+        }
+        let callback = match reader.u8()? {
+            0 => None,
+            1 => Some(FunctionId(reader.u32()?)),
+            tag => {
+                return Err(DecodeError::InvalidTag {
+                    section: "host callback",
+                    tag,
+                });
+            }
+        };
+        let result_kind = match reader.u8()? {
+            0 => None,
+            1 => Some(decode_scalar(reader.u8()?)?),
+            tag => {
+                return Err(DecodeError::InvalidTag {
+                    section: "host result",
+                    tag,
+                });
+            }
+        };
+        requests.push(HostRequest {
+            kind,
+            arg_kinds,
+            callback,
+            result_kind,
+        });
+    }
+    reader.finish()?;
+    Ok(requests)
+}
+
+fn host_call_kind_tag(kind: HostCallKind) -> u8 {
+    match kind {
+        HostCallKind::DeviceName => 0,
+        HostCallKind::DeviceChip => 1,
+        HostCallKind::DeviceFlashBytes => 2,
+        HostCallKind::DevicePsramBytes => 3,
+        HostCallKind::DeviceResetReason => 4,
+        HostCallKind::DeviceBacklight => 5,
+        HostCallKind::DeviceSetBacklight => 6,
+        HostCallKind::NetWifiState => 7,
+        HostCallKind::NetWifiSsid => 8,
+        HostCallKind::NetWifiConnect => 9,
+        HostCallKind::NetWifiDisconnect => 10,
+        HostCallKind::NetScanWifi => 11,
+        HostCallKind::NetHttpGet => 12,
+    }
+}
+
+fn decode_host_call_kind(tag: u8) -> Result<HostCallKind, DecodeError> {
+    match tag {
+        0 => Ok(HostCallKind::DeviceName),
+        1 => Ok(HostCallKind::DeviceChip),
+        2 => Ok(HostCallKind::DeviceFlashBytes),
+        3 => Ok(HostCallKind::DevicePsramBytes),
+        4 => Ok(HostCallKind::DeviceResetReason),
+        5 => Ok(HostCallKind::DeviceBacklight),
+        6 => Ok(HostCallKind::DeviceSetBacklight),
+        7 => Ok(HostCallKind::NetWifiState),
+        8 => Ok(HostCallKind::NetWifiSsid),
+        9 => Ok(HostCallKind::NetWifiConnect),
+        10 => Ok(HostCallKind::NetWifiDisconnect),
+        11 => Ok(HostCallKind::NetScanWifi),
+        12 => Ok(HostCallKind::NetHttpGet),
+        tag => Err(DecodeError::InvalidTag {
+            section: "host call kind",
+            tag,
+        }),
+    }
+}
+
 fn encode_instruction(out: &mut Vec<u8>, instruction: &Instruction) {
     let (tag, u32_operand, u16_operand) = match instruction {
         Instruction::Const(value) => (0, Some(*value), None),
@@ -614,6 +727,7 @@ fn encode_instruction(out: &mut Vec<u8>, instruction: &Instruction) {
         Instruction::JumpIfFalse(value) => (18, Some(*value), None),
         Instruction::Return => (19, None, None),
         Instruction::LoadArg => (20, None, None),
+        Instruction::HostCall(value) => (22, Some(*value), None),
     };
     out.push(tag);
     if let Some(value) = u32_operand {
@@ -648,6 +762,7 @@ fn decode_instruction(reader: &mut Reader<'_>) -> Result<Instruction, DecodeErro
         18 => Instruction::JumpIfFalse(reader.u32()?),
         19 => Instruction::Return,
         20 => Instruction::LoadArg,
+        22 => Instruction::HostCall(reader.u32()?),
         tag => {
             return Err(DecodeError::InvalidTag {
                 section: "instruction",

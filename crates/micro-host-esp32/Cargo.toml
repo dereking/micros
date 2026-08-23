@@ -12,6 +12,7 @@ micro-core.workspace = true
 micro-ir.workspace = true
 micro-lvgl = { path = "../micro-lvgl" }
 micro-os-core.workspace = true
+micro-vm.workspace = true
 
 [dev-dependencies]
 micro-compiler = { path = "../micro-compiler" }

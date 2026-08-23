@@ -127,6 +127,84 @@ pub enum ValueSource {
     Binding(FunctionId),
 }
 
+/// The host-provided capabilities an App can call. Each maps to one of the
+/// `device.*` / `net.*` SDK functions; hosts that cannot service a call (e.g.
+/// a pure simulator that has not wired the value yet) return a simulated
+/// scalar via `HostAccess`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostCallKind {
+    /// `device.name()` → App name string.
+    DeviceName,
+    /// `device.chip()` → chip model string (e.g. `"ESP32-S3"`).
+    DeviceChip,
+    /// `device.flashBytes()` → flash size in bytes.
+    DeviceFlashBytes,
+    /// `device.psramBytes()` → PSRAM size in bytes.
+    DevicePsramBytes,
+    /// `device.resetReason()` → reset reason string (e.g. `"power-on"`).
+    DeviceResetReason,
+    /// `device.backlight()` → current backlight level (0..4).
+    DeviceBacklight,
+    /// `device.setBacklight(level)` — fire-and-forget backlight action.
+    DeviceSetBacklight,
+    /// `net.wifiState()` → `"off"|"connecting"|"connected"|"error"`.
+    NetWifiState,
+    /// `net.wifiSsid()` → connected SSID string (empty when not connected).
+    NetWifiSsid,
+    /// `net.wifiConnect(ssid, password)` — fire-and-forget connect action.
+    NetWifiConnect,
+    /// `net.wifiDisconnect()` — fire-and-forget disconnect action.
+    NetWifiDisconnect,
+    /// `net.scanWifi(onResult)` — async; host calls back with a `\n`-joined
+    /// SSID list.
+    NetScanWifi,
+    /// `net.httpGet(url, onResult)` — async; host calls back with the response
+    /// body string.
+    NetHttpGet,
+}
+
+/// A single host call referenced by `Instruction::HostCall`. Sync reads carry
+/// a `result_kind`; actions carry none; async requests carry a 1-arg
+/// `callback` handler that the host invokes with the result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostRequest {
+    pub kind: HostCallKind,
+    /// Argument types in source order (0..=2 for the current SDK surface).
+    pub arg_kinds: Vec<ScalarType>,
+    /// Async requests: the 1-arg Handler the host invokes with the result.
+    pub callback: Option<FunctionId>,
+    /// Sync reads: the scalar type the host returns.
+    pub result_kind: Option<ScalarType>,
+}
+
+impl HostRequest {
+    pub fn sync(
+        kind: HostCallKind,
+        arg_kinds: Vec<ScalarType>,
+        result_kind: Option<ScalarType>,
+    ) -> Self {
+        Self {
+            kind,
+            arg_kinds,
+            callback: None,
+            result_kind,
+        }
+    }
+
+    pub fn async_request(kind: HostCallKind, arg_kinds: Vec<ScalarType>, callback: FunctionId) -> Self {
+        Self {
+            kind,
+            arg_kinds,
+            callback: Some(callback),
+            result_kind: None,
+        }
+    }
+
+    pub fn is_async(&self) -> bool {
+        self.callback.is_some()
+    }
+}
+
 /// Per-node layout hints, set via `ui.place(widget, { left, top, width, height,
 /// anchor })`.
 ///
@@ -315,6 +393,7 @@ pub struct AppImage {
     pub states: Vec<StateDecl>,
     pub functions: Vec<Function>,
     pub nodes: Vec<UiNodeSpec>,
+    pub host_requests: Vec<HostRequest>,
     pub root: NodeId,
 }
 
@@ -355,6 +434,36 @@ pub fn validate(image: &AppImage) -> Result<(), ValidationError> {
 
     for (index, function) in image.functions.iter().enumerate() {
         validate_function(image, index, function)?;
+    }
+
+    for (index, request) in image.host_requests.iter().enumerate() {
+        if request.arg_kinds.len() > 2 {
+            return Err(invalid(format!(
+                "host request {index} has too many arguments"
+            )));
+        }
+        if let Some(callback) = request.callback {
+            match image.functions.get(callback.0 as usize) {
+                Some(Function {
+                    kind: FunctionKind::Handler(_),
+                    arg_count: 1,
+                    ..
+                }) => {}
+                _ => {
+                    return Err(invalid(format!(
+                        "host request {index} has an invalid async callback"
+                    )));
+                }
+            }
+        }
+        if request
+            .result_kind
+            .is_some_and(|result| !matches!(result, ScalarType::Number | ScalarType::String))
+        {
+            return Err(invalid(format!(
+                "host request {index} has a non-scalar result type"
+            )));
+        }
     }
 
     for (index, node) in image.nodes.iter().enumerate() {
@@ -449,7 +558,7 @@ fn validate_function(
         depths[pc] = Some(depth);
         let instruction = &function.code[pc];
         validate_operand(image, function, index, instruction)?;
-        let (required, delta) = stack_effect(instruction);
+        let (required, delta) = stack_effect(image, instruction);
         if depth < required {
             return Err(invalid(format!("function {index} underflows its stack")));
         }
@@ -522,11 +631,14 @@ fn validate_operand(
         Instruction::LoadArg if function.arg_count < 1 => {
             Err(invalid(format!("function {index} uses LoadArg without an argument")))
         }
+        Instruction::HostCall(idx) if *idx as usize >= image.host_requests.len() => {
+            Err(invalid(format!("function {index} has an invalid host call")))
+        }
         _ => Ok(()),
     }
 }
 
-fn stack_effect(instruction: &Instruction) -> (i32, i32) {
+fn stack_effect(image: &AppImage, instruction: &Instruction) -> (i32, i32) {
     match instruction {
         Instruction::Const(_)
         | Instruction::LoadLocal(_)
@@ -546,5 +658,20 @@ fn stack_effect(instruction: &Instruction) -> (i32, i32) {
         Instruction::JumpIfFalse(_) => (1, -1),
         Instruction::Dup => (1, 1),
         Instruction::Jump(_) | Instruction::Return => (0, 0),
+        /* HostCall pops its argument count; a sync read pushes one value back
+         * (net +1), actions and async requests push nothing (net −args). */
+        Instruction::HostCall(idx) => {
+            let arg_count = image
+                .host_requests
+                .get(*idx as usize)
+                .map_or(0, |request| request.arg_kinds.len());
+            let result = image
+                .host_requests
+                .get(*idx as usize)
+                .is_some_and(|request| request.result_kind.is_some());
+            let required = arg_count as i32;
+            let delta = i32::from(result) - required;
+            (required, delta)
+        }
     }
 }

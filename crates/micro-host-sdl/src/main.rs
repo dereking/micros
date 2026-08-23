@@ -4,7 +4,7 @@ use std::time::Duration;
 #[cfg(feature = "native")]
 use micro_core::{Event, Runtime};
 #[cfg(feature = "native")]
-use micro_host_sdl::NativeBridge;
+use micro_host_sdl::{NativeBridge, host::NativeHost};
 #[cfg(feature = "native")]
 use micro_ir::{StateId, decode};
 #[cfg(feature = "native")]
@@ -45,7 +45,8 @@ fn run() -> Result<(), String> {
         });
     let bridge = NativeBridge::create(480, 320, smoke)?;
     let renderer = LvglRenderer::new(bridge);
-    let mut runtime = Runtime::new(image, renderer, 10_000).map_err(|error| error.to_string())?;
+    let mut runtime = Runtime::new_with_host(image, renderer, 10_000, Box::new(NativeHost::new()))
+        .map_err(|error| error.to_string())?;
 
     if smoke {
         let (button, _handler) =
@@ -82,6 +83,9 @@ fn host_iteration(runtime: &mut Runtime<LvglRenderer<NativeBridge>>) -> Result<(
             Err(error) => eprintln!("micro runtime event error: {error}"),
         }
     }
+    /* Async host requests (net.scanWifi / net.httpGet) complete one tick
+     * later with the simulated result. */
+    runtime.enqueue_host_results();
     let _ = runtime.renderer_mut().bridge_mut().timer();
     Ok(())
 }

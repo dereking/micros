@@ -1,6 +1,6 @@
 use micro_ir::{AppImage, FunctionId, FunctionKind, Instruction, StateId};
 
-use crate::{StateError, Value, VmError};
+use crate::{HostAccess, NullHost, StateError, Value, VmError};
 
 pub trait StateAccess {
     fn read(&mut self, id: StateId) -> Result<Value, StateError>;
@@ -28,6 +28,18 @@ impl<'image, 'state, S: StateAccess> Vm<'image, 'state, S> {
         function_id: FunctionId,
         argument: Option<Value>,
         budget: u64,
+    ) -> Result<Execution, VmError> {
+        self.invoke_with_host(function_id, argument, budget, &mut NullHost)
+    }
+
+    /// Run with a host accessor so `HostCall` instructions can read host
+    /// values, run host actions, and record async requests.
+    pub fn invoke_with_host(
+        &mut self,
+        function_id: FunctionId,
+        argument: Option<Value>,
+        budget: u64,
+        host: &mut dyn HostAccess,
     ) -> Result<Execution, VmError> {
         let function = self
             .image
@@ -64,6 +76,21 @@ impl<'image, 'state, S: StateAccess> Vm<'image, 'state, S> {
                 }
                 Instruction::LoadArg => {
                     stack.push(argument.clone().ok_or(VmError::MissingArgument)?);
+                }
+                Instruction::HostCall(idx) => {
+                    let request = self
+                        .image
+                        .host_requests
+                        .get(*idx as usize)
+                        .ok_or(VmError::InvalidReference("host request"))?;
+                    let mut args = Vec::with_capacity(request.arg_kinds.len());
+                    for _ in 0..request.arg_kinds.len() {
+                        args.push(pop(&mut stack)?);
+                    }
+                    args.reverse();
+                    if let Some(value) = host.call(request, &args)? {
+                        stack.push(value);
+                    }
                 }
                 Instruction::LoadLocal(id) => stack.push(
                     locals

@@ -16,3 +16,4 @@ path = "src/bin/microc.rs"
 
 [dev-dependencies]
 micro-core.workspace = true
+micro-vm.workspace = true

@@ -46,6 +46,7 @@ Python venv 缺失时用 `IDF_PYTHON_ENV_PATH` 指向 `work/toolchains/espressif
   - 复位+读日志:`python -m esptool --chip esp32s3 --port <PORT> --after hard_reset run`,然后用 pyserial 读 115200;
   - 或 `script -q <file> <idf_monitor.py 参数>` 分配 PTY。
 - 验证 MBC 加载成功的日志特征:`micro_os: MBC header: magic OK, version=<N>` + `micro runtime created`。
+- 现在的启动流程是 **OS shell**:先进入 C/LVGL launcher(状态栏 + Counter/Settings 入口),点 Counter 才创建 Rust runtime 跑 MBC,BOOT 按钮(GPIO0)当 Back。启动日志特征:`OS shell ready` → launcher;点 Counter 后 `loaded MBC` + `micro runtime created; app session <N>`。`device.*`/`net.*` 宿主值由 `micro_esp_host_*` 提供(真机读 IDF;wifi 为模拟状态)。
 
 ## 相关 npm / 测试脚本
 

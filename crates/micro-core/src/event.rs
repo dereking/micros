@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use micro_ir::FunctionId;
+use micro_vm::Value;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
@@ -16,6 +17,9 @@ pub enum Event {
     /// A selection widget (ui.dropdown / ui.roller) changed; the handler
     /// receives the newly selected option index.
     SelectionChanged(FunctionId, f64),
+    /// An async host request (`net.scanWifi` / `net.httpGet`) completed; the
+    /// 1-arg callback handler receives the result value.
+    HostResult(FunctionId, Value),
 }
 
 #[derive(Debug, Default)]

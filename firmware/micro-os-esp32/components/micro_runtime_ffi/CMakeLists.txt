@@ -2,14 +2,17 @@
 # https://github.com/esp-rs/esp-idf-template/tree/08115a069d167a5ee37363e84f168a565f17bbca/cmake/components
 set(RUST_DEPS "pthread" "newlib" "lvgl__lvgl" "espressif__esp_lvgl_port")
 
+# micro_esp_host.c reads real IDF values (Flash/PSRAM size, reset reason).
+set(ESP_HOST_DEPS "esp_psram" "esp_system" "spi_flash")
+
 # pinyin_table.h is generated from assets/fonts/ui-sans-common.txt and consumed
 # by the on-screen IME in placeholder.c.
 set(MICRO_FONT_ASSET_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../assets/fonts")
 
 idf_component_register(
-  SRCS "placeholder.c"
+  SRCS "placeholder.c" "micro_esp_host.c"
   INCLUDE_DIRS "include" "${MICRO_FONT_ASSET_DIR}"
-  PRIV_REQUIRES "${RUST_DEPS}"
+  PRIV_REQUIRES "${RUST_DEPS}" "${ESP_HOST_DEPS}"
 )
 
 if(NOT CONFIG_IDF_TARGET_ESP32S3)
@@ -78,4 +81,5 @@ add_prebuilt_library(micro_host_esp32_rust "${RUST_STATIC_LIBRARY}"
 add_dependencies(micro_host_esp32_rust project_micro_host_esp32)
 target_link_libraries(${COMPONENT_LIB} PRIVATE micro_host_esp32_rust)
 target_link_options(${COMPONENT_LIB} INTERFACE
-                    "LINKER:--undefined=micro_runtime_ffi_keepalive")
+                    "LINKER:--undefined=micro_runtime_ffi_keepalive"
+                    "LINKER:--undefined=micro_esp_host_keepalive")

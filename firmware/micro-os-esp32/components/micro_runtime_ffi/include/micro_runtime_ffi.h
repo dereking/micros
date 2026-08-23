@@ -277,6 +277,31 @@ micro_error_t micro_os_dispatch(micro_os_t *os, const micro_event_t *event,
 micro_state_t micro_os_state(const micro_os_t *os);
 void micro_os_destroy(micro_os_t *os);
 
+/*
+ * App SDK host capabilities (`device.*` / `net.*`). These read real IDF
+ * values and plain C globals mirrored by the OS shell; none take the LVGL
+ * lock, so the app runtime can call them from inside micro_runtime_tick.
+ */
+int micro_esp_host_device_name(char *buf, size_t cap);
+int micro_esp_host_device_chip(char *buf, size_t cap);
+int micro_esp_host_device_flash_bytes(uint32_t *out);
+int micro_esp_host_device_psram_bytes(uint32_t *out);
+int micro_esp_host_device_reset_reason(char *buf, size_t cap);
+int micro_esp_host_backlight(uint32_t *out);
+int micro_esp_host_set_backlight(uint32_t level);
+void micro_esp_host_mirror_backlight(uint32_t level);
+int micro_esp_host_wifi_state(char *buf, size_t cap);
+int micro_esp_host_wifi_ssid(char *buf, size_t cap);
+int micro_esp_host_wifi_connect(const uint8_t *ssid, size_t ssid_len,
+                                const uint8_t *pass, size_t pass_len);
+int micro_esp_host_wifi_disconnect(void);
+/* OS-shell accessors: drain the app's pending intents into the reducer. */
+uint32_t micro_esp_host_take_backlight_intent(uint32_t *level);
+uint32_t micro_esp_host_take_wifi_connect(char *ssid, size_t ssid_cap,
+                                          char *pass, size_t pass_cap);
+uint32_t micro_esp_host_take_wifi_disconnect(void);
+void micro_esp_host_set_wifi_state(const char *state, const char *ssid);
+
 int micro_esp_ui_create_column(uint32_t node, uint32_t parent);
 int micro_esp_ui_create_row(uint32_t node, uint32_t parent);
 int micro_esp_ui_create_list(uint32_t node, uint32_t parent);

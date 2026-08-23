@@ -15,6 +15,8 @@ const size = state(1);
 const powerOn = state(0);
 const loading = state(0);
 const gauge = state(50);
+const wifiList = state("");
+const httpRes = state("");
 
 ui.mount(
   ui.tabview([
@@ -150,6 +152,45 @@ ui.mount(
           { text: "double count", onClick: () => { count.value = count.value * 2; } },
           { text: "level up", onClick: () => { if (level.value < 10) { level.value = level.value + 1; } } },
         ]), { height: 131, anchor: { left: 0, right: 0, bottom: 0 } }),
+      ]),
+    },
+    {
+      title: "system",
+      content: ui.column([
+        ui.place(ui.text(bind(() => `chip: ${device.chip()}`)),
+          { height: 24, anchor: { left: 0, right: 0, top: 0 } }),
+        ui.place(ui.text(bind(() => `flash: ${device.flashBytes()} B`)),
+          { height: 24, anchor: { left: 0, right: 0, top: 28 } }),
+        ui.place(ui.text(bind(() => `psram: ${device.psramBytes()} B`)),
+          { height: 24, anchor: { left: 0, right: 0, top: 56 } }),
+        ui.place(ui.text(bind(() => `reset: ${device.resetReason()}`)),
+          { height: 24, anchor: { left: 0, right: 0, top: 84 } }),
+        ui.place(ui.text(bind(() => `backlight: ${device.backlight()}`)),
+          { height: 24, anchor: { left: 0, right: 0, top: 112 } }),
+        ui.place(ui.row([
+          ui.place(ui.button("dim", {
+            onClick: () => { device.setBacklight(1); },
+          }), { left: 0, width: 68, height: 40 }),
+          ui.place(ui.button("bright", {
+            onClick: () => { device.setBacklight(4); },
+          }), { left: 76, width: 84, height: 40 }),
+          ui.place(ui.button("scan", {
+            onClick: () => {
+              net.scanWifi((list) => { wifiList.value = list; });
+            },
+          }), { left: 168, width: 84, height: 40 }),
+          ui.place(ui.button("http", {
+            onClick: () => {
+              net.httpGet("http://example.com", (res) => { httpRes.value = res; });
+            },
+          }), { left: 260, width: 84, height: 40 }),
+        ]), { top: 144, height: 40, anchor: { left: 0, right: 0 } }),
+        ui.place(ui.text(bind(() => `wifi: ${net.wifiState()} ${net.wifiSsid()}`)),
+          { height: 24, anchor: { left: 0, right: 0, top: 190 } }),
+        ui.place(ui.text(bind(() => `APs: ${wifiList.value}`)),
+          { height: 48, anchor: { left: 0, right: 0, top: 218 } }),
+        ui.place(ui.text(bind(() => `http: ${httpRes.value}`)),
+          { height: 48, anchor: { left: 0, right: 0, top: 270 } }),
       ]),
     },
   ]),

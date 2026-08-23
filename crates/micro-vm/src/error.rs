@@ -28,6 +28,8 @@ pub enum VmError {
     DivisionByZero,
     MissingArgument,
     State(StateError),
+    /// A host call failed or ran on a host without host support.
+    Host(String),
 }
 
 impl fmt::Display for VmError {
