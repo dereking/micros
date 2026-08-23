@@ -761,8 +761,9 @@ int micro_esp_ui_create_progress(uint32_t node, uint32_t parent, double fraction
                           lv_obj_get_style_flex_flow(parent_for_grow, LV_PART_MAIN)
                               == LV_FLEX_FLOW_ROW;
             if (in_row) {
-                lv_obj_set_height(bar, 12);
-                lv_obj_set_flex_grow(bar, 1);
+                /* Fixed width so the row layout never re-solves (flex_grow
+                 * here made the row relayout and the -/+ buttons flicker). */
+                lv_obj_set_size(bar, 120, 12);
             } else {
                 lv_obj_set_size(bar, LV_PCT(100), 12);
             }
