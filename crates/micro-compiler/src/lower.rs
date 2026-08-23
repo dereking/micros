@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use micro_ir::{
     AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId, FunctionKind,
-    HandlerId, Instruction, LayoutAlign, LayoutSpec, NodeId, ScalarType, StateDecl, StateId,
-    TextSource, TextStyle, UiKind, UiNodeSpec, ValueSource, validate,
+    HandlerId, Instruction, LayoutSpec, NodeId, ScalarType, StateDecl, StateId, TextSource,
+    TextStyle, UiKind, UiNodeSpec, ValueSource, validate,
 };
 use swc_common::{SourceMap, Span, Spanned, sync::Lrc};
 use swc_ecma_ast::{
@@ -625,9 +625,11 @@ impl<'a> Lowerer<'a> {
                 "ui.place layout must be an object",
             ));
         };
-        let mut align = LayoutAlign::None;
-        let mut left = 0.0;
-        let mut top = 0.0;
+        let mut align_name: Option<(String, Span)> = None;
+        let mut left = None;
+        let mut top = None;
+        let mut right = None;
+        let mut bottom = None;
         for property in &object.props {
             let PropOrSpread::Prop(property) = property else {
                 return Err(self.error(
@@ -659,25 +661,16 @@ impl<'a> Lowerer<'a> {
                             "ui.place align must be a string",
                         ));
                     };
-                    let align_name = value.value.as_str().unwrap_or("");
-                    align = match align_name {
-                        "none" => LayoutAlign::None,
-                        "top" => LayoutAlign::Top,
-                        "bottom" => LayoutAlign::Bottom,
-                        "left" => LayoutAlign::Left,
-                        "right" => LayoutAlign::Right,
-                        "client" => LayoutAlign::Client,
-                        other => {
-                            return Err(self.error(
-                                property.value.span(),
-                                "MTS012",
-                                format!("unknown ui.place align `{other}`"),
-                            ));
-                        }
-                    };
+                    align_name = Some((value.value.as_str().unwrap_or("").to_string(), property.value.span()));
                 }
-                "left" => left = self.numeric_option(property.value.span(), &property.value)?,
-                "top" => top = self.numeric_option(property.value.span(), &property.value)?,
+                "left" => left = Some(self.numeric_option(property.value.span(), &property.value)?),
+                "top" => top = Some(self.numeric_option(property.value.span(), &property.value)?),
+                "right" => {
+                    right = Some(self.numeric_option(property.value.span(), &property.value)?)
+                }
+                "bottom" => {
+                    bottom = Some(self.numeric_option(property.value.span(), &property.value)?)
+                }
                 _ => {
                     return Err(self.error(
                         property.key.span(),
@@ -687,7 +680,52 @@ impl<'a> Lowerer<'a> {
                 }
             }
         }
-        Ok(LayoutSpec { align, left, top })
+        /* `align` seeds the default LTRB combo (Delphi Align); explicit LTRB
+         * offsets override per edge (Delphi Anchors). */
+        if let Some((name, span)) = align_name {
+            match name.as_str() {
+                "none" => {}
+                "top" => {
+                    left.get_or_insert(0.0);
+                    right.get_or_insert(0.0);
+                    top.get_or_insert(0.0);
+                }
+                "bottom" => {
+                    left.get_or_insert(0.0);
+                    right.get_or_insert(0.0);
+                    bottom.get_or_insert(0.0);
+                }
+                "left" => {
+                    left.get_or_insert(0.0);
+                    top.get_or_insert(0.0);
+                    bottom.get_or_insert(0.0);
+                }
+                "right" => {
+                    right.get_or_insert(0.0);
+                    top.get_or_insert(0.0);
+                    bottom.get_or_insert(0.0);
+                }
+                "client" => {
+                    left.get_or_insert(0.0);
+                    top.get_or_insert(0.0);
+                    right.get_or_insert(0.0);
+                    bottom.get_or_insert(0.0);
+                }
+                other => {
+                    return Err(self.error(
+                        span,
+                        "MTS012",
+                        format!("unknown ui.place align `{other}`"),
+                    ));
+                }
+            }
+        }
+        Ok(LayoutSpec {
+            left,
+            top,
+            right,
+            bottom,
+        })
     }
 
     fn lower_string_array(

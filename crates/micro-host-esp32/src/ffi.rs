@@ -75,7 +75,14 @@ unsafe extern "C" {
         index: f64,
         handler: u32,
     ) -> c_int;
-    fn micro_esp_ui_set_layout_spec(node: u32, align: u32, left: f64, top: f64) -> c_int;
+    fn micro_esp_ui_set_layout_spec(
+        node: u32,
+        mask: u32,
+        left: f64,
+        top: f64,
+        right: f64,
+        bottom: f64,
+    ) -> c_int;
     fn micro_esp_ui_apply_delphi_layout(
         container: u32,
         child_ids: *const u32,
@@ -333,19 +340,18 @@ impl NativeUi for EspNativeUi {
         node: NodeId,
         layout: micro_ir::LayoutSpec,
     ) -> Result<(), String> {
+        let mask = layout.left.map_or(0, |_| 1)
+            | layout.top.map_or(0, |_| 2)
+            | layout.right.map_or(0, |_| 4)
+            | layout.bottom.map_or(0, |_| 8);
         native_result(unsafe {
             micro_esp_ui_set_layout_spec(
                 node.0,
-                match layout.align {
-                    micro_ir::LayoutAlign::None => 0,
-                    micro_ir::LayoutAlign::Top => 1,
-                    micro_ir::LayoutAlign::Bottom => 2,
-                    micro_ir::LayoutAlign::Left => 3,
-                    micro_ir::LayoutAlign::Right => 4,
-                    micro_ir::LayoutAlign::Client => 5,
-                },
-                layout.left,
-                layout.top,
+                mask,
+                layout.left.unwrap_or(0.0),
+                layout.top.unwrap_or(0.0),
+                layout.right.unwrap_or(0.0),
+                layout.bottom.unwrap_or(0.0),
             )
         })
     }

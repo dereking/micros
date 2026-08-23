@@ -100,7 +100,7 @@ unsafe extern "C" {
         index: f64,
         handler: c_uint,
     ) -> c_int;
-    fn micro_native_set_layout_spec(native: *mut c_void, node: c_uint, align: c_uint, left: f64, top: f64) -> c_int;
+    fn micro_native_set_layout_spec(native: *mut c_void, node: c_uint, mask: c_uint, left: f64, top: f64, right: f64, bottom: f64) -> c_int;
     fn micro_native_apply_delphi_layout(native: *mut c_void, container: c_uint, child_ids: *const c_uint, child_count: c_uint) -> c_int;
     fn micro_native_create_led(native: *mut c_void, node: c_uint, parent: c_uint, on: c_int) -> c_int;
     fn micro_native_set_led(native: *mut c_void, node: c_uint, on: c_int) -> c_int;
@@ -315,6 +315,40 @@ impl NativeUi for NativeBridge {
         native_result(
             unsafe { micro_native_create_row(self.raw.as_ptr(), node.0, parent_id(parent)) },
             "create row",
+        )
+    }
+
+    fn create_list(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_create_list(self.raw.as_ptr(), node.0, parent_id(parent)) },
+            "create list",
+        )
+    }
+
+    fn create_tabview(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        titles: &[String],
+    ) -> Result<(), String> {
+        let joined = c_string(&titles.join("\n"))?;
+        native_result(
+            unsafe {
+                micro_native_create_tabview(
+                    self.raw.as_ptr(),
+                    node.0,
+                    parent_id(parent),
+                    joined.as_ptr(),
+                )
+            },
+            "create tabview",
+        )
+    }
+
+    fn create_tab_content(&mut self, index: u32) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_create_tab_content(self.raw.as_ptr(), index) },
+            "create tab content",
         )
     }
 
@@ -548,21 +582,20 @@ impl NativeUi for NativeBridge {
     }
 
     fn set_layout_spec(&mut self, node: NodeId, layout: micro_ir::LayoutSpec) -> Result<(), String> {
+        let mask = layout.left.map_or(0, |_| 1)
+            | layout.top.map_or(0, |_| 2)
+            | layout.right.map_or(0, |_| 4)
+            | layout.bottom.map_or(0, |_| 8);
         native_result(
             unsafe {
                 micro_native_set_layout_spec(
                     self.raw.as_ptr(),
                     node.0,
-                    match layout.align {
-                        micro_ir::LayoutAlign::None => 0,
-                        micro_ir::LayoutAlign::Top => 1,
-                        micro_ir::LayoutAlign::Bottom => 2,
-                        micro_ir::LayoutAlign::Left => 3,
-                        micro_ir::LayoutAlign::Right => 4,
-                        micro_ir::LayoutAlign::Client => 5,
-                    },
-                    layout.left,
-                    layout.top,
+                    mask,
+                    layout.left.unwrap_or(0.0),
+                    layout.top.unwrap_or(0.0),
+                    layout.right.unwrap_or(0.0),
+                    layout.bottom.unwrap_or(0.0),
                 )
             },
             "set layout spec",

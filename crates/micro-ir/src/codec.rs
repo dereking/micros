@@ -2,13 +2,13 @@ use std::fmt;
 
 use crate::{
     AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId, FunctionKind,
-    HandlerId, Instruction, LayoutAlign, LayoutSpec, NodeId, ScalarType, StateDecl, StateId,
-    TextSource, TextStyle, UiKind, UiNodeSpec, ValidationError, ValueSource, validate,
+    HandlerId, Instruction, LayoutSpec, NodeId, ScalarType, StateDecl, StateId, TextSource,
+    TextStyle, UiKind, UiNodeSpec, ValidationError, ValueSource, validate,
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
-/// MBC v12 adds the per-node `layout` (Delphi-style dock) hint.
-const VERSION: u16 = 12;
+/// MBC v13 adds the per-node `layout` as explicit LTRB offsets.
+const VERSION: u16 = 13;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -368,16 +368,27 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
             None => out.push(0),
             Some(layout) => {
                 out.push(1);
-                out.push(match layout.align {
-                    LayoutAlign::None => 0,
-                    LayoutAlign::Top => 1,
-                    LayoutAlign::Bottom => 2,
-                    LayoutAlign::Left => 3,
-                    LayoutAlign::Right => 4,
-                    LayoutAlign::Client => 5,
-                });
-                out.extend_from_slice(&layout.left.to_le_bytes());
-                out.extend_from_slice(&layout.top.to_le_bytes());
+                /* Mask bit0=left, bit1=top, bit2=right, bit3=bottom; the set
+                 * offsets follow in L, T, R, B order. */
+                let mut mask = 0u8;
+                if layout.left.is_some() {
+                    mask |= 1;
+                }
+                if layout.top.is_some() {
+                    mask |= 2;
+                }
+                if layout.right.is_some() {
+                    mask |= 4;
+                }
+                if layout.bottom.is_some() {
+                    mask |= 8;
+                }
+                out.push(mask);
+                for value in [layout.left, layout.top, layout.right, layout.bottom] {
+                    if let Some(value) = value {
+                        out.extend_from_slice(&value.to_le_bytes());
+                    }
+                }
             }
         }
     }
@@ -514,23 +525,23 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
         let layout = match reader.u8()? {
             0 => None,
             1 => {
-                let align = match reader.u8()? {
-                    0 => LayoutAlign::None,
-                    1 => LayoutAlign::Top,
-                    2 => LayoutAlign::Bottom,
-                    3 => LayoutAlign::Left,
-                    4 => LayoutAlign::Right,
-                    5 => LayoutAlign::Client,
-                    tag => {
-                        return Err(DecodeError::InvalidTag {
-                            section: "layout align",
-                            tag,
-                        });
-                    }
+                let mask = reader.u8()?;
+                if mask & !0x0F != 0 {
+                    return Err(DecodeError::InvalidTag {
+                        section: "layout mask",
+                        tag: mask,
+                    });
+                }
+                let mut next = || -> Result<Option<f64>, DecodeError> {
+                    let value = f64::from_le_bytes(reader.take(8)?.try_into().unwrap());
+                    Ok(Some(value))
                 };
-                let left = f64::from_le_bytes(reader.take(8)?.try_into().unwrap());
-                let top = f64::from_le_bytes(reader.take(8)?.try_into().unwrap());
-                Some(LayoutSpec { align, left, top })
+                Some(LayoutSpec {
+                    left: if mask & 1 != 0 { next()? } else { None },
+                    top: if mask & 2 != 0 { next()? } else { None },
+                    right: if mask & 4 != 0 { next()? } else { None },
+                    bottom: if mask & 8 != 0 { next()? } else { None },
+                })
             }
             tag => {
                 return Err(DecodeError::InvalidTag {

@@ -1,7 +1,7 @@
 use micro_ir::{
     AppImage, BindingId, Constant, DecodeError, FontFamily, FontWeight, Function, FunctionId,
-    FunctionKind, Instruction, NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle,
-    TextStyleError, UiKind, UiNodeSpec, ValueSource, decode, encode, validate,
+    FunctionKind, Instruction, LayoutSpec, NodeId, ScalarType, StateDecl, StateId, TextSource,
+    TextStyle, TextStyleError, UiKind, UiNodeSpec, ValueSource, decode, encode, validate,
 };
 
 fn fixture() -> AppImage {
@@ -56,6 +56,43 @@ fn round_trips_an_exact_text_style() {
 
     assert_eq!(decoded.nodes[0].text_style, image.nodes[0].text_style);
     assert_eq!(decoded, image);
+}
+
+#[test]
+fn round_trips_sparse_ltrb_layouts() {
+    let specs = [
+        LayoutSpec {
+            left: Some(0.0),
+            top: None,
+            right: Some(0.0),
+            bottom: Some(0.0),
+        },
+        LayoutSpec {
+            left: Some(10.5),
+            top: Some(20.0),
+            right: None,
+            bottom: None,
+        },
+        LayoutSpec {
+            left: Some(0.0),
+            top: Some(0.0),
+            right: Some(0.0),
+            bottom: Some(0.0),
+        },
+        LayoutSpec {
+            left: None,
+            top: None,
+            right: None,
+            bottom: None,
+        },
+    ];
+    for spec in specs {
+        let mut image = fixture();
+        image.nodes[0].layout = Some(spec);
+        let decoded = decode(&encode(&image).unwrap()).unwrap();
+        assert_eq!(decoded.nodes[0].layout, Some(spec));
+        assert_eq!(decoded, image);
+    }
 }
 
 #[test]

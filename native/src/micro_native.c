@@ -44,10 +44,11 @@ typedef struct micro_dropdown_change {
 } micro_dropdown_change_t;
 
 typedef struct micro_layout_spec {
-    uint8_t used;
-    uint8_t align;
+    uint8_t mask; /* bit0=left, bit1=top, bit2=right, bit3=bottom */
     double left;
     double top;
+    double right;
+    double bottom;
 } micro_layout_spec_t;
 
 typedef struct micro_roller_change {
@@ -68,6 +69,9 @@ struct micro_native {
     bool quit;
     lv_obj_t *objects[MICRO_MAX_NODES];
     lv_obj_t *text_targets[MICRO_MAX_NODES];
+    lv_obj_t *needles[MICRO_MAX_NODES];
+    lv_obj_t *tabview;
+    lv_obj_t *tab_target;
     micro_click_context_t clicks[MICRO_MAX_NODES];
     uint32_t activations[MICRO_EVENT_CAPACITY];
     unsigned activation_read;
@@ -654,44 +658,125 @@ int micro_native_create_dropdown(micro_native_t *native, uint32_t node_id, uint3
 
 static uint32_t s_delphi_layout_id = LV_LAYOUT_NONE;
 
+static uint8_t layout_mask(const micro_native_t *native, uint32_t node)
+{
+    return (native != NULL && node < MICRO_MAX_NODES) ? native->layout_specs[node].mask : 0;
+}
+
 static void delphi_layout_update_cb(lv_obj_t *container, void *user_data)
 {
-    (void)user_data;
+    micro_native_t *native = (micro_native_t *)user_data;
     lv_coord_t avail_w = lv_obj_get_content_width(container);
     lv_coord_t avail_h = lv_obj_get_content_height(container);
-    lv_coord_t top_y = 0, bottom_y = avail_h, left_x = 0, right_x = avail_w;
+    lv_coord_t row_gap = lv_obj_get_style_pad_row(container, LV_PART_MAIN);
     uint32_t count = lv_obj_get_child_count(container);
+    lv_coord_t top_y = 0, bottom_y = avail_h, bottom_stack_top = avail_h;
+
+    /* Pass 1 — stack top/bottom docked children; vertical fills deferred. */
     for (uint32_t i = 0; i < count; ++i) {
         lv_obj_t *child = lv_obj_get_child(container, i);
         uint32_t node = (uint32_t)(uintptr_t)lv_obj_get_user_data(child);
-        micro_native_t *native = (micro_native_t *)user_data;
-        uint8_t align = (native != NULL && node < MICRO_MAX_NODES && native->layout_specs[node].used)
-                            ? native->layout_specs[node].align : 1;
+        uint8_t mask = layout_mask(native, node);
         lv_obj_update_layout(child);
         lv_coord_t w = lv_obj_get_width(child), h = lv_obj_get_height(child);
-        switch (align) {
-            case 0: lv_obj_set_pos(child, (lv_coord_t)native->layout_specs[node].left, (lv_coord_t)native->layout_specs[node].top); break;
-            case 1: lv_obj_set_width(child, avail_w); lv_obj_set_pos(child, 0, top_y); top_y += h; break;
-            case 2: lv_obj_set_width(child, avail_w); bottom_y -= h; lv_obj_set_pos(child, 0, bottom_y); break;
-            case 3: lv_obj_set_height(child, avail_h); lv_obj_set_pos(child, left_x, 0); left_x += w; break;
-            case 4: lv_obj_set_height(child, avail_h); right_x -= w; lv_obj_set_pos(child, right_x, 0); break;
-            case 5: lv_obj_set_pos(child, left_x, top_y); lv_obj_set_size(child, right_x - left_x, bottom_y - top_y); break;
-            default: break;
+        lv_coord_t x;
+        if ((mask & 1) && (mask & 4)) {
+            x = (lv_coord_t)native->layout_specs[node].left;
+            lv_obj_set_width(child, avail_w - (lv_coord_t)native->layout_specs[node].left
+                                       - (lv_coord_t)native->layout_specs[node].right);
+        } else if (mask & 1) {
+            x = (lv_coord_t)native->layout_specs[node].left;
+            lv_obj_set_width(child, w);
+        } else if (mask & 4) {
+            lv_obj_set_width(child, w);
+            x = avail_w - w - (lv_coord_t)native->layout_specs[node].right;
+        } else {
+            x = 0;
+            lv_obj_set_width(child, avail_w);
         }
+        if ((mask & 2) && (mask & 8)) continue;
+        if (mask & 8) {
+            bottom_y -= h;
+            lv_coord_t y = bottom_y - (lv_coord_t)native->layout_specs[node].bottom;
+            lv_obj_set_pos(child, x, y);
+            bottom_y = y - row_gap;
+            if (y < bottom_stack_top) bottom_stack_top = y;
+        } else {
+            lv_coord_t y = top_y + ((mask & 2) ? (lv_coord_t)native->layout_specs[node].top : 0);
+            lv_obj_set_pos(child, x, y);
+            top_y = y + h + row_gap;
+        }
+    }
+
+    /* Pass 2 — vertical fills span between the two stacks. */
+    for (uint32_t i = 0; i < count; ++i) {
+        lv_obj_t *child = lv_obj_get_child(container, i);
+        uint32_t node = (uint32_t)(uintptr_t)lv_obj_get_user_data(child);
+        uint8_t mask = layout_mask(native, node);
+        if (!((mask & 2) && (mask & 8))) continue;
+        lv_coord_t h = bottom_stack_top - top_y;
+        if (h < 0) h = 0;
+        lv_coord_t w = lv_obj_get_width(child);
+        lv_coord_t x;
+        if ((mask & 1) && (mask & 4)) {
+            x = (lv_coord_t)native->layout_specs[node].left;
+            lv_obj_set_width(child, avail_w - (lv_coord_t)native->layout_specs[node].left
+                                       - (lv_coord_t)native->layout_specs[node].right);
+        } else if (mask & 1) {
+            x = (lv_coord_t)native->layout_specs[node].left;
+            lv_obj_set_width(child, w);
+        } else if (mask & 4) {
+            lv_obj_set_width(child, w);
+            x = avail_w - w - (lv_coord_t)native->layout_specs[node].right;
+        } else {
+            x = 0;
+            lv_obj_set_width(child, avail_w);
+        }
+        lv_obj_set_pos(child, x, top_y);
+        lv_obj_set_height(child, h);
     }
 }
 
-int micro_native_set_layout_spec(micro_native_t *native, uint32_t node_id, uint32_t align,
-                                 double left, double top) {
+int micro_native_set_layout_spec(micro_native_t *native, uint32_t node_id, uint32_t mask,
+                                 double left, double top, double right, double bottom) {
     if (native == NULL || node_id >= MICRO_MAX_NODES) return 0;
-    native->layout_specs[node_id].used = 1;
-    native->layout_specs[node_id].align = (uint8_t)align;
+    native->layout_specs[node_id].mask = (uint8_t)mask;
     native->layout_specs[node_id].left = left;
     native->layout_specs[node_id].top = top;
+    native->layout_specs[node_id].right = right;
+    native->layout_specs[node_id].bottom = bottom;
     if (native->objects[node_id] != NULL) {
         lv_obj_set_user_data(native->objects[node_id], (void *)(uintptr_t)node_id);
     }
     return 1;
+}
+
+static bool delphi_get_min_size_cb(lv_obj_t *container, int32_t *req_size,
+                                    bool width, void *user_data) {
+    micro_native_t *native = (micro_native_t *)user_data;
+    if (width) { *req_size = lv_obj_get_content_width(container); return true; }
+    int32_t top_extent = 0, bottom_extent = 0, fill_floor = 0;
+    int32_t top_count = 0, bottom_count = 0;
+    lv_coord_t row_gap = lv_obj_get_style_pad_row(container, LV_PART_MAIN);
+    uint32_t count = lv_obj_get_child_count(container);
+    for (uint32_t i = 0; i < count; ++i) {
+        lv_obj_t *child = lv_obj_get_child(container, i);
+        uint32_t node = (uint32_t)(uintptr_t)lv_obj_get_user_data(child);
+        uint8_t mask = layout_mask(native, node);
+        int32_t h = lv_obj_get_height(child);
+        if ((mask & 2) && (mask & 8)) { if (h > fill_floor) fill_floor = h; continue; }
+        if (mask & 8) { bottom_extent += h + (int32_t)native->layout_specs[node].bottom; bottom_count++; }
+        else { top_extent += h + ((mask & 2) ? (int32_t)native->layout_specs[node].top : 0); top_count++; }
+    }
+    int32_t gaps = (top_count ? top_count - 1 : 0)
+                 + (bottom_count ? bottom_count - 1 : 0)
+                 + (top_count && bottom_count ? 1 : 0);
+    int32_t content = top_extent + bottom_extent + gaps * row_gap;
+    if (fill_floor > content) content = fill_floor;
+    *req_size = content
+              + lv_obj_get_style_space_top(container, LV_PART_MAIN)
+              + lv_obj_get_style_space_bottom(container, LV_PART_MAIN);
+    return true;
 }
 
 int micro_native_apply_delphi_layout(micro_native_t *native, uint32_t container,
@@ -699,10 +784,10 @@ int micro_native_apply_delphi_layout(micro_native_t *native, uint32_t container,
     (void)child_ids; (void)child_count;
     if (native == NULL || container >= MICRO_MAX_NODES || native->objects[container] == NULL) return 0;
     lv_obj_t *obj = native->objects[container];
-    lv_obj_set_size(obj, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_size(obj, LV_PCT(100), LV_SIZE_CONTENT);
     if (s_delphi_layout_id == LV_LAYOUT_NONE) {
         lv_layout_callbacks_t callbacks = { .layout_update_cb = delphi_layout_update_cb,
-                                            .get_min_size_cb = NULL };
+                                            .get_min_size_cb = delphi_get_min_size_cb };
         s_delphi_layout_id = lv_layout_create(callbacks, native);
     }
     lv_obj_set_layout(obj, s_delphi_layout_id);

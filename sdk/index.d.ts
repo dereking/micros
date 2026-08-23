@@ -60,9 +60,25 @@ declare const ui: {
   place(
     widget: UiNode,
     layout: {
+      /**
+       * Dock the widget to an edge (Delphi Align). Seeds the default LTRB
+       * combo; explicit LTRB offsets below override individual edges.
+       * - "top": `{ left: 0, right: 0, top: 0 }`
+       * - "bottom": `{ left: 0, right: 0, bottom: 0 }`
+       * - "left": `{ left: 0, top: 0, bottom: 0 }`
+       * - "right": `{ right: 0, top: 0, bottom: 0 }`
+       * - "client": `{ left: 0, top: 0, right: 0, bottom: 0 }`
+       * - "none": no anchors (default flow)
+       */
       align?: "top" | "bottom" | "left" | "right" | "client" | "none";
+      /** Distance from the parent's left edge; paired with `right` it stretches. */
       left?: number;
+      /** Distance from the parent's top edge; paired with `bottom` it stretches. */
       top?: number;
+      /** Distance from the parent's right edge; paired with `left` it stretches. */
+      right?: number;
+      /** Distance from the parent's bottom edge; paired with `top` it stretches. */
+      bottom?: number;
     },
   ): UiNode;
   mount(root: UiNode): void;

@@ -171,3 +171,35 @@ ui.mount(ui.button("Run", { onClick: () => {
             .any(|op| matches!(op, Instruction::StoreState(_)))
     );
 }
+
+#[test]
+fn expands_align_to_ltrb_and_lets_explicit_offsets_override() {
+    let source = r#"
+const x = state(0);
+ui.mount(ui.column([
+  ui.place(ui.text("a"), { align: "bottom" }),
+  ui.place(ui.text("b"), { align: "bottom", bottom: 8 }),
+  ui.place(ui.text("c"), { left: 16, top: 20 }),
+  ui.place(ui.text("d"), { align: "client" }),
+  ui.place(ui.text("e"), { left: 0, right: 0, bottom: 0 }),
+]));
+"#;
+    let image = compile_source("place.ts", source).unwrap();
+    let layouts = image
+        .nodes
+        .iter()
+        .filter_map(|node| node.layout)
+        .collect::<Vec<_>>();
+    use micro_ir::LayoutSpec;
+    let expected = [
+        LayoutSpec { left: Some(0.0), top: None, right: Some(0.0), bottom: Some(0.0) }, // align bottom
+        LayoutSpec { left: Some(0.0), top: None, right: Some(0.0), bottom: Some(8.0) }, // align bottom + bottom:8
+        LayoutSpec { left: Some(16.0), top: Some(20.0), right: None, bottom: None }, // left+top only
+        LayoutSpec { left: Some(0.0), top: Some(0.0), right: Some(0.0), bottom: Some(0.0) }, // align client
+        LayoutSpec { left: Some(0.0), top: None, right: Some(0.0), bottom: Some(0.0) }, // explicit l/r/b
+    ];
+    for spec in expected {
+        assert!(layouts.contains(&spec), "missing {spec:?} in {layouts:?}");
+    }
+    assert_eq!(layouts.len(), expected.len());
+}

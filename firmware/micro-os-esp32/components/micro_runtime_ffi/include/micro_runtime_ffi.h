@@ -323,10 +323,13 @@ int micro_esp_ui_create_checkbox(uint32_t node, uint32_t parent,
 int micro_esp_ui_create_dropdown(uint32_t node, uint32_t parent,
                                  const uint8_t *options, size_t options_len,
                                  double index, uint32_t handler);
-/* Delphi-style docking layout. align: 0 none,1 top,2 bottom,3 left,
- * 4 right, 5 client. Positions/ sizes the container's children. */
-int micro_esp_ui_set_layout_spec(uint32_t node, uint32_t align,
-                                 double left, double top);
+/* Delphi-style anchor layout. `mask` bit0=left, bit1=top, bit2=right,
+ * bit3=bottom; a set edge pins the child's side to the parent's corresponding
+ * side at that offset. Both opposite edges set stretches the child along that
+ * axis. Positions/sizes the container's children. */
+int micro_esp_ui_set_layout_spec(uint32_t node, uint32_t mask,
+                                 double left, double top,
+                                 double right, double bottom);
 int micro_esp_ui_apply_delphi_layout(uint32_t container,
                                      const uint32_t *child_ids, uint32_t child_count);
 /* LED indicator. `on` sets full/off brightness. */

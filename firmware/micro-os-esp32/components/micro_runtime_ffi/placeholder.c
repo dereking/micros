@@ -81,11 +81,16 @@ struct micro_roller_change {
     double index;
 };
 
+/* Per-child LTRB anchor offsets. `mask` bit0=left, bit1=top, bit2=right,
+ * bit3=bottom; a set edge pins the child's side to the parent's corresponding
+ * side at that offset. mask == 0 means no spec (default: top dock, full
+ * width). */
 struct micro_layout_spec {
-    uint8_t used;
-    uint8_t align;
+    uint8_t mask;
     double left;
     double top;
+    double right;
+    double bottom;
 };
 
 static lv_obj_t *objects[MICRO_UI_MAX_NODES];
@@ -1082,68 +1087,156 @@ static void delphi_layout_update_cb(lv_obj_t *container, void *user_data)
     (void)user_data;
     lv_coord_t avail_w = lv_obj_get_content_width(container);
     lv_coord_t avail_h = lv_obj_get_content_height(container);
+    lv_coord_t row_gap = lv_obj_get_style_pad_row(container, LV_PART_MAIN);
+    uint32_t count = lv_obj_get_child_count(container);
     lv_coord_t top_y = 0;
     lv_coord_t bottom_y = avail_h;
-    lv_coord_t left_x = 0;
-    lv_coord_t right_x = avail_w;
-    uint32_t count = lv_obj_get_child_count(container);
+    lv_coord_t bottom_stack_top = avail_h;
+
+    /* Pass 1 — stack top/bottom docked children; vertical fills are deferred
+     * so their height is not computed before the stacks are known. */
     for (uint32_t i = 0; i < count; ++i) {
         lv_obj_t *child = lv_obj_get_child(container, i);
         uint32_t node = (uint32_t)(uintptr_t)lv_obj_get_user_data(child);
-        uint8_t align = (node < MICRO_UI_MAX_NODES && layout_specs[node].used)
-                            ? layout_specs[node].align : 1; /* default: top */
+        uint8_t mask = (node < MICRO_UI_MAX_NODES) ? layout_specs[node].mask : 0;
         lv_obj_update_layout(child);
         lv_coord_t w = lv_obj_get_width(child);
         lv_coord_t h = lv_obj_get_height(child);
-        switch (align) {
-            case 0: /* none */
-                lv_obj_set_pos(child, (lv_coord_t)layout_specs[node].left,
-                               (lv_coord_t)layout_specs[node].top);
-                break;
-            case 1: /* top */
-                lv_obj_set_width(child, avail_w);
-                lv_obj_set_pos(child, 0, top_y);
-                top_y += h;
-                break;
-            case 2: /* bottom */
-                lv_obj_set_width(child, avail_w);
-                bottom_y -= h;
-                lv_obj_set_pos(child, 0, bottom_y);
-                break;
-            case 3: /* left */
-                lv_obj_set_height(child, avail_h);
-                lv_obj_set_pos(child, left_x, 0);
-                left_x += w;
-                break;
-            case 4: /* right */
-                lv_obj_set_height(child, avail_h);
-                right_x -= w;
-                lv_obj_set_pos(child, right_x, 0);
-                break;
-            case 5: /* client */
-                lv_obj_set_pos(child, left_x, top_y);
-                lv_obj_set_size(child, right_x - left_x, bottom_y - top_y);
-                break;
-            default:
-                break;
+        /* Horizontal role: left+right stretch, one pin, else full width. */
+        lv_coord_t x;
+        if ((mask & 1) && (mask & 4)) {
+            x = (lv_coord_t)layout_specs[node].left;
+            lv_obj_set_width(child, avail_w - (lv_coord_t)layout_specs[node].left
+                                       - (lv_coord_t)layout_specs[node].right);
+        } else if (mask & 1) {
+            x = (lv_coord_t)layout_specs[node].left;
+            lv_obj_set_width(child, w);
+        } else if (mask & 4) {
+            lv_obj_set_width(child, w);
+            x = avail_w - w - (lv_coord_t)layout_specs[node].right;
+        } else {
+            x = 0;
+            lv_obj_set_width(child, avail_w);
         }
+        /* Vertical role: top+bottom fill (pass 2), bottom dock, else top. */
+        if ((mask & 2) && (mask & 8)) {
+            continue;
+        }
+        if (mask & 8) {
+            /* Bottom dock: the child's bottom edge stays `bottom` above the
+             * parent's bottom edge, whatever the parent's size. */
+            bottom_y -= h;
+            lv_coord_t y = bottom_y - (lv_coord_t)layout_specs[node].bottom;
+            lv_obj_set_pos(child, x, y);
+            bottom_y = y - row_gap;
+            if (y < bottom_stack_top) bottom_stack_top = y;
+        } else {
+            /* Top dock (default). */
+            lv_coord_t y = top_y
+                           + ((mask & 2) ? (lv_coord_t)layout_specs[node].top : 0);
+            lv_obj_set_pos(child, x, y);
+            top_y = y + h + row_gap;
+        }
+    }
+
+    /* Pass 2 — vertical fills span the space between the two stacks. */
+    for (uint32_t i = 0; i < count; ++i) {
+        lv_obj_t *child = lv_obj_get_child(container, i);
+        uint32_t node = (uint32_t)(uintptr_t)lv_obj_get_user_data(child);
+        uint8_t mask = (node < MICRO_UI_MAX_NODES) ? layout_specs[node].mask : 0;
+        if (!((mask & 2) && (mask & 8))) continue;
+        lv_coord_t h = bottom_stack_top - top_y;
+        if (h < 0) h = 0;
+        lv_coord_t w = lv_obj_get_width(child);
+        lv_coord_t x;
+        if ((mask & 1) && (mask & 4)) {
+            x = (lv_coord_t)layout_specs[node].left;
+            lv_obj_set_width(child, avail_w - (lv_coord_t)layout_specs[node].left
+                                       - (lv_coord_t)layout_specs[node].right);
+        } else if (mask & 1) {
+            x = (lv_coord_t)layout_specs[node].left;
+            lv_obj_set_width(child, w);
+        } else if (mask & 4) {
+            lv_obj_set_width(child, w);
+            x = avail_w - w - (lv_coord_t)layout_specs[node].right;
+        } else {
+            x = 0;
+            lv_obj_set_width(child, avail_w);
+        }
+        lv_obj_set_pos(child, x, top_y);
+        lv_obj_set_height(child, h);
     }
 }
 
-int micro_esp_ui_set_layout_spec(uint32_t node, uint32_t align,
-                                 double left, double top)
+int micro_esp_ui_set_layout_spec(uint32_t node, uint32_t mask,
+                                 double left, double top,
+                                 double right, double bottom)
 {
     if (node >= MICRO_UI_MAX_NODES) return -1;
-    layout_specs[node].used = 1;
-    layout_specs[node].align = (uint8_t)align;
+    layout_specs[node].mask = (uint8_t)mask;
     layout_specs[node].left = left;
     layout_specs[node].top = top;
+    layout_specs[node].right = right;
+    layout_specs[node].bottom = bottom;
     /* Tag the object with its node id so the layout callback can look up its
      * spec. Object user_data does not collide with event-callback user_data. */
     if (objects[node] != NULL) {
         lv_obj_set_user_data(objects[node], (void *)(uintptr_t)node);
     }
     return 0;
+}
+
+static bool delphi_get_min_size_cb(lv_obj_t *container, int32_t *req_size,
+                                    bool width, void *user_data)
+{
+    (void)user_data;
+    if (width) {
+        *req_size = lv_obj_get_content_width(container);
+        return true;
+    }
+    /* Required height = top stack + bottom stack, plus the padding and the
+     * row gaps the layout callback applies, so a content-sized container is
+     * exactly as tall as its positioned children. Vertical-fill children
+     * (top+bottom anchored) take the space between the stacks and impose a
+     * natural-height floor so e.g. a left/right docked bar does not collapse.
+     * When content overflows the page, the container grows and the scrollable
+     * tab page can scroll to reveal the docked bottom. */
+    int32_t top_extent = 0;
+    int32_t bottom_extent = 0;
+    int32_t fill_floor = 0;
+    int32_t top_count = 0;
+    int32_t bottom_count = 0;
+    lv_coord_t row_gap = lv_obj_get_style_pad_row(container, LV_PART_MAIN);
+    uint32_t count = lv_obj_get_child_count(container);
+    for (uint32_t i = 0; i < count; ++i) {
+        lv_obj_t *child = lv_obj_get_child(container, i);
+        uint32_t node = (uint32_t)(uintptr_t)lv_obj_get_user_data(child);
+        uint8_t mask = (node < MICRO_UI_MAX_NODES) ? layout_specs[node].mask : 0;
+        int32_t h = lv_obj_get_height(child);
+        if ((mask & 2) && (mask & 8)) {
+            /* Vertical fill: spans the space between the stacks. */
+            if (h > fill_floor) fill_floor = h;
+            continue;
+        }
+        if (mask & 8) {
+            /* Bottom dock: reserves its height plus the bottom offset. */
+            bottom_extent += h + (int32_t)layout_specs[node].bottom;
+            bottom_count++;
+        } else {
+            /* Top dock (default): reserves its height plus the top offset. */
+            top_extent += h + ((mask & 2) ? (int32_t)layout_specs[node].top : 0);
+            top_count++;
+        }
+    }
+    int32_t gaps = (top_count ? top_count - 1 : 0)
+                 + (bottom_count ? bottom_count - 1 : 0)
+                 + (top_count && bottom_count ? 1 : 0);
+    int32_t content = top_extent + bottom_extent + gaps * row_gap;
+    if (fill_floor > content) content = fill_floor;
+    *req_size = content
+              + lv_obj_get_style_space_top(container, LV_PART_MAIN)
+              + lv_obj_get_style_space_bottom(container, LV_PART_MAIN);
+    return true;
 }
 
 int micro_esp_ui_apply_delphi_layout(uint32_t container,
@@ -1157,13 +1250,13 @@ int micro_esp_ui_apply_delphi_layout(uint32_t container,
         return -1;
     }
     lv_obj_t *obj = objects[container];
-    /* A content-sized container collapses to height 0 with a custom layout,
-     * so fill the parent; the callback docks children at the next layout. */
-    lv_obj_set_size(obj, LV_PCT(100), LV_PCT(100));
+    /* Width fills the parent; height is content-driven so a tall docked stack
+     * grows the container and the scrollable page can reveal it. */
+    lv_obj_set_size(obj, LV_PCT(100), LV_SIZE_CONTENT);
     if (s_delphi_layout_id == LV_LAYOUT_NONE) {
         lv_layout_callbacks_t callbacks = {
             .layout_update_cb = delphi_layout_update_cb,
-            .get_min_size_cb = NULL,
+            .get_min_size_cb = delphi_get_min_size_cb,
         };
         s_delphi_layout_id = lv_layout_create(callbacks, NULL);
     }

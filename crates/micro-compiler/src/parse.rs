@@ -438,7 +438,7 @@ impl Validator<'_> {
                 self.unsupported(property.key.span(), "computed layout property");
                 continue;
             };
-            if !matches!(name.sym.as_ref(), "align" | "left" | "top") {
+            if !matches!(name.sym.as_ref(), "align" | "left" | "top" | "right" | "bottom") {
                 self.errors.push(diagnostic_at(
                     self.source_map,
                     self.path,

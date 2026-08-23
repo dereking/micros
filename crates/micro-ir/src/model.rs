@@ -127,25 +127,18 @@ pub enum ValueSource {
     Binding(FunctionId),
 }
 
-/// Delphi-style docking align for a child inside its container.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LayoutAlign {
-    /// No docking; placed at an explicit (left, top) offset.
-    None,
-    Top,
-    Bottom,
-    Left,
-    Right,
-    /// Fill whatever space remains after the docked siblings.
-    Client,
-}
-
-/// Per-node layout hints, set via `ui.place(widget, { align, left, top })`.
+/// Per-node layout hints, set via `ui.place(widget, { left, top, right, bottom })`.
+///
+/// A set edge pins the child's side to the parent's corresponding edge at that
+/// offset; the distance stays constant as the parent resizes (Delphi anchor
+/// semantics). `left + right` set stretches the child horizontally, `top +
+/// bottom` set stretches it vertically. An unset edge leaves that side free.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LayoutSpec {
-    pub align: LayoutAlign,
-    pub left: f64,
-    pub top: f64,
+    pub left: Option<f64>,
+    pub top: Option<f64>,
+    pub right: Option<f64>,
+    pub bottom: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
