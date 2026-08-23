@@ -619,8 +619,10 @@ int micro_esp_ui_create_column(uint32_t node, uint32_t parent)
             lv_obj_set_style_pad_top(column, 12, LV_PART_MAIN);
             lv_obj_set_style_pad_bottom(column, 12, LV_PART_MAIN);
             lv_obj_set_style_pad_row(column, 8, LV_PART_MAIN);
-            /* No scrollbar chrome; manual touch scrolling still works. */
-            lv_obj_set_scrollbar_mode(column, LV_SCROLLBAR_MODE_OFF);
+            /* Columns never scroll internally (the tabview / page owns
+             * navigation); a scrollable column overflows into a slow full-area
+             * redraw that trips the task watchdog. */
+            lv_obj_remove_flag(column, LV_OBJ_FLAG_SCROLLABLE);
             objects[node] = column;
             if (parent == MICRO_UI_NO_PARENT) app_root = column;
         }
@@ -1206,6 +1208,8 @@ int micro_esp_ui_set_spinner(uint32_t node, int active)
         lv_obj_check_type(objects[node], &lv_spinner_class)) {
         if (active) {
             lv_obj_clear_flag(objects[node], LV_OBJ_FLAG_HIDDEN);
+            /* Recreate the spinner arc animation after it was stopped. */
+            lv_spinner_set_anim_params(objects[node], 1000, 300);
         } else {
             lv_obj_add_flag(objects[node], LV_OBJ_FLAG_HIDDEN);
             lv_anim_del(objects[node], NULL);
