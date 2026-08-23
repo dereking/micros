@@ -70,6 +70,7 @@ struct micro_native {
     lv_obj_t *objects[MICRO_MAX_NODES];
     lv_obj_t *text_targets[MICRO_MAX_NODES];
     lv_obj_t *needles[MICRO_MAX_NODES];
+    lv_obj_t *arcs[MICRO_MAX_NODES];
     lv_obj_t *tabview;
     lv_obj_t *tab_target;
     micro_click_context_t clicks[MICRO_MAX_NODES];
@@ -861,10 +862,12 @@ int micro_native_apply_delphi_layout(micro_native_t *native, uint32_t container,
         s_delphi_layout_id = lv_layout_create(callbacks, native);
     }
     lv_obj_set_layout(obj, s_delphi_layout_id);
-    /* Resolve children synchronously, then pin the container to its exact
-     * content height so the first render cannot collapse the top rows. */
+    /* Resolve children, pin the container to its exact content height, then
+     * settle the layout once more so the first render cannot race the
+     * re-layout and leave the top rows undrawn. */
     lv_obj_update_layout(obj);
     lv_obj_set_height(obj, delphi_content_height(native, obj));
+    lv_obj_update_layout(obj);
     return 1;
 }
 
@@ -910,10 +913,49 @@ int micro_native_create_scale(micro_native_t *native, uint32_t node_id, uint32_t
     lv_obj_t *scale = lv_scale_create(parent);
     lv_scale_set_mode(scale, LV_SCALE_MODE_ROUND_INNER);
     lv_scale_set_range(scale, (int32_t)min, (int32_t)max);
+    lv_scale_set_angle_range(scale, 270);
+    lv_scale_set_rotation(scale, 135);
+    lv_scale_set_total_tick_count(scale, 11);
+    lv_scale_set_major_tick_every(scale, 5);
+    lv_scale_set_label_show(scale, true);
     lv_obj_set_size(scale, 100, 100);
+    /* No padding: the needle pivot and the arc both use outer width/2,
+     * which must equal the gauge center. */
+    lv_obj_set_style_pad_all(scale, 0, LV_PART_MAIN);
+    /* Outer ring (LV_PART_MAIN arc). */
+    lv_obj_set_style_arc_color(scale, lv_color_hex(0x9E9E9E), LV_PART_MAIN);
+    lv_obj_set_style_arc_width(scale, 3, LV_PART_MAIN);
+    /* Minor ticks (LV_PART_ITEMS): gray. */
+    lv_obj_set_style_line_color(scale, lv_color_hex(0x8A8A8A), LV_PART_ITEMS);
+    lv_obj_set_style_line_width(scale, 1, LV_PART_ITEMS);
+    lv_obj_set_style_length(scale, 6, LV_PART_ITEMS);
+    /* Major ticks + labels (LV_PART_INDICATOR): white. */
+    lv_obj_set_style_line_color(scale, lv_color_hex(0xFFFFFF), LV_PART_INDICATOR);
+    lv_obj_set_style_line_width(scale, 2, LV_PART_INDICATOR);
+    lv_obj_set_style_length(scale, 11, LV_PART_INDICATOR);
+    lv_obj_set_style_text_color(scale, lv_color_hex(0xFFFFFF), LV_PART_INDICATOR);
+    /* Colored value arc, overlaid on the outer ring. Created before the
+     * needle so the needle draws on top. */
+    lv_obj_t *arc = lv_arc_create(scale);
+    lv_obj_remove_style_all(arc);
+    lv_obj_set_size(arc, 100, 100);
+    lv_obj_align(arc, LV_ALIGN_CENTER, 0, 0);
+    lv_arc_set_rotation(arc, 135);
+    lv_arc_set_bg_angles(arc, 0, 270);
+    lv_arc_set_range(arc, (int32_t)min, (int32_t)max);
+    lv_arc_set_value(arc, (int32_t)value);
+    lv_obj_remove_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
+    lv_obj_set_style_arc_opa(arc, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(0x2196F3), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(arc, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(arc, false, LV_PART_INDICATOR);
+    native->arcs[node_id] = arc;
     lv_obj_t *needle = lv_line_create(scale);
     lv_point_precise_t points[2] = {{0, 0}, {0, -40}};
     lv_line_set_points(needle, points, 2);
+    lv_obj_set_style_line_width(needle, 3, LV_PART_MAIN);
+    lv_obj_set_style_line_color(needle, lv_color_hex(0x101820), LV_PART_MAIN);
     lv_scale_set_line_needle_value(scale, needle, 40, (int32_t)value);
     native->needles[node_id] = needle;
     native->objects[node_id] = scale;
@@ -922,8 +964,9 @@ int micro_native_create_scale(micro_native_t *native, uint32_t node_id, uint32_t
 
 int micro_native_set_scale_value(micro_native_t *native, uint32_t node_id, double value) {
     if (native == NULL || node_id >= MICRO_MAX_NODES || native->objects[node_id] == NULL ||
-        native->needles[node_id] == NULL) return 0;
-    lv_scale_set_line_needle_value(native->objects[node_id], native->needles[node_id], 60, (int32_t)value);
+        native->needles[node_id] == NULL || native->arcs[node_id] == NULL) return 0;
+    lv_scale_set_line_needle_value(native->objects[node_id], native->needles[node_id], 40, (int32_t)value);
+    lv_arc_set_value(native->arcs[node_id], (int32_t)value);
     return 1;
 }
 

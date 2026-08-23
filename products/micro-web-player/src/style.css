@@ -41,17 +41,42 @@ h1 { max-width: 7ch; margin: 0; font-size: clamp(2.3rem, 6vw, 5.2rem); line-heig
 .app-shell, .app-screen { width: 100%; height: 100%; min-height: 0; }
 .app-screen { display: grid; place-items: center; }
 .app-back { position: absolute; z-index: 2; top: 12px; left: 12px; border: 1px solid #648472; border-radius: 99px; padding: 6px 9px; background: #f5f8efdd; color: #173128; cursor: pointer; font-size: 9px; }
-.micro-column { display: flex; align-items: center; flex-direction: column; gap: 16px; }
-.micro-row { display: flex; align-items: center; flex-direction: row; gap: 16px; }
+.micro-column { display: flex; align-items: flex-start; flex-direction: column; gap: 6px; padding: 6px 16px; width: 100%; min-width: 0; }
+.micro-row { display: flex; align-items: center; flex-direction: row; gap: 16px; width: 100%; min-width: 0; }
 .micro-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .micro-list-row { min-width: 0; padding: 9px 12px; border: 1px solid #63816e; border-radius: 4px; background: #eaf1e8; color: #173128; cursor: pointer; font: 400 14px/18px "MicroUiSans", sans-serif; text-align: left; white-space: pre-wrap; }
 .micro-text { font: 400 24px/32px "MicroUiSans", sans-serif; white-space: pre-wrap; }
-.micro-button { min-width: 128px; padding: 13px 22px; border: 0; border-radius: 5px; background: #1e7256; box-shadow: 0 8px 16px #1e725644; color: #fff; cursor: pointer; font: 400 14px/18px "MicroUiSans", sans-serif; white-space: pre-wrap; }
-.micro-progress { flex: 1; min-width: 0; height: 12px; accent-color: #1e7256; }
+.micro-button { padding: 13px 22px; border: 0; border-radius: 5px; background: #1e7256; box-shadow: 0 8px 16px #1e725644; color: #fff; cursor: pointer; font: 400 14px/18px "MicroUiSans", sans-serif; white-space: pre-wrap; }
+.micro-progress { width: 100%; height: 12px; accent-color: #1e7256; }
+.micro-row > .micro-progress { flex: 0 0 auto; width: 120px; }
 .micro-switch { position: relative; width: 52px; height: 30px; padding: 0; border: 0; border-radius: 99px; background: #84937d; cursor: pointer; appearance: none; }
 .micro-switch::after { position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; content: ""; transition: transform .15s ease; }
 .micro-switch[aria-checked="true"] { background: #1e7256; }
 .micro-switch[aria-checked="true"]::after { transform: translateX(22px); }
+.micro-input { width: 100%; padding: 8px; border: 2px solid #888; border-radius: 4px; background: #fff; color: #101820; }
+.micro-slider { width: 100%; height: 22px; accent-color: #1e7256; }
+.micro-checkbox { display: flex; align-items: center; gap: 8px; color: #101820; font: 400 24px/32px "MicroUiSans", sans-serif; cursor: pointer; }
+.micro-checkbox input { width: 20px; height: 20px; accent-color: #1e7256; }
+.micro-dropdown, .micro-roller { width: 100%; padding: 8px; border: 2px solid #888; border-radius: 4px; background: #fff; color: #101820; font: 400 24px/32px "MicroUiSans", sans-serif; }
+.micro-led { display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: #84937d; box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .18); }
+.micro-led[data-on="1"] { background: #2fce5f; box-shadow: 0 0 8px #2fce5f99, inset 0 0 0 2px rgba(0, 0, 0, .12); }
+.micro-spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid #d6ddc7; border-top-color: #1e7256; border-radius: 50%; box-sizing: border-box; }
+.micro-spinner[data-active] { animation: micro-spin .8s linear infinite; }
+.micro-spinner:not([data-active]) { display: none; }
+@keyframes micro-spin { to { transform: rotate(360deg); } }
+.micro-scale { --micro-scale: 0.5; position: relative; width: 120px; height: 120px; border-radius: 50%; background: radial-gradient(circle at center, #eaf1e8 0 56%, #fff 58% 60%, #d6ddc7 62% 64%, #eaf1e8 66% 100%); box-shadow: inset 0 0 0 1px #b8bfb4; }
+.micro-scale::before { content: ""; position: absolute; left: calc(50% - 1.5px); bottom: 50%; width: 3px; height: 42px; background: #1e7256; transform-origin: 50% 100%; transform: rotate(calc(135deg + var(--micro-scale) * 270deg)); }
+.micro-scale::after { content: ""; position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; border-radius: 50%; background: #1e7256; transform: translate(-50%, -50%); }
+.micro-tabview { display: grid; grid-template-rows: auto minmax(0, 1fr); width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; background: #f2f4f0; border: 1px solid #d6ddc7; border-radius: 8px; }
+.micro-tab-bar { grid-row: 1; display: flex; gap: 2px; padding: 6px 6px 0; background: #f2f4f0; border-bottom: 1px solid #d6ddc7; }
+.micro-tab-title { flex: 1 1 0; min-width: 0; padding: 9px 0; border: 0; border-bottom: 2px solid transparent; background: none; color: #49705e; font: 400 13px/18px "MicroUiSans", sans-serif; cursor: pointer; }
+.micro-tab-title.micro-tab-active { color: #1e7256; border-bottom-color: #1e7256; font-weight: 700; }
+/* Pages stack in one grid cell; inactive pages hide via visibility (not
+ * display:none) so they keep their layout. The delphi engine measures child
+ * heights at mount time, and display:none pages measure 0 — visibility keeps
+ * them measurable, mirroring LVGL's layout-independent measurement. */
+.micro-tab-page { grid-row: 2; grid-column: 1; min-width: 0; min-height: 0; overflow-y: auto; visibility: hidden; }
+.micro-tab-page.micro-tab-page-active { visibility: visible; }
 .monitor { align-self: stretch; display: flex; min-width: 0; flex-direction: column; border: 1px solid #d6ddc744; border-radius: .6rem; background: #17221fca; padding: 1.2rem; }
 .monitor-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .monitor-heading strong { color: #a7cf84; font-size: .58rem; white-space: nowrap; }

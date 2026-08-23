@@ -96,6 +96,7 @@ struct micro_layout_spec {
 static lv_obj_t *objects[MICRO_UI_MAX_NODES];
 static lv_obj_t *text_targets[MICRO_UI_MAX_NODES];
 static lv_obj_t *needles[MICRO_UI_MAX_NODES];
+static lv_obj_t *arcs[MICRO_UI_MAX_NODES];
 static lv_obj_t *app_root;
 static struct micro_click_context click_contexts[MICRO_UI_MAX_NODES];
 static uint32_t activations[MICRO_UI_ACTIVATION_CAPACITY];
@@ -1353,12 +1354,17 @@ int micro_esp_ui_apply_delphi_layout(uint32_t container,
     }
     lv_obj_set_layout(obj, s_delphi_layout_id);
     /* Resolve every child's natural size synchronously, then pin the container
-     * to its exact content height. Computing the height explicitly (instead of
-     * relying on the min-size callback on the first refresh) avoids a
-     * timing-dependent collapse where the top rows read as 0-height and get
-     * clipped, leaving only the docked list visible. */
+     * to its exact content height, then settle the layout once more. Both
+     * passes happen before the first render, so the top rows are positioned at
+     * their final spot before anything is drawn. */
     lv_obj_update_layout(obj);
     lv_obj_set_height(obj, delphi_content_height(obj));
+    lv_obj_update_layout(obj);
+    /* Force the whole container (including the docked top rows) to be drawn
+     * into the current framebuffer. With the RGB panel's two framebuffers,
+     * a flip can otherwise land on a buffer that only had the bottom-docked
+     * list redrawn into it, leaving the top rows blank on the panel. */
+    lv_obj_invalidate(obj);
     lvgl_port_unlock();
     return 0;
 }
@@ -1455,11 +1461,40 @@ int micro_esp_ui_create_scale(uint32_t node, uint32_t parent,
             lv_scale_set_rotation(scale, 135);
             lv_scale_set_total_tick_count(scale, 11);
             lv_scale_set_major_tick_every(scale, 5);
-            lv_scale_set_label_show(scale, true);
+            lv_scale_set_label_show(scale, false); /* TEST: disable rotated-label layers */
             lv_obj_set_size(scale, 120, 120);
             /* No padding: the needle pivot uses outer width/2, which must equal
              * the gauge center. */
             lv_obj_set_style_pad_all(scale, 0, LV_PART_MAIN);
+            /* Outer ring (LV_PART_MAIN arc). */
+            lv_obj_set_style_arc_color(scale, lv_color_hex(0x9E9E9E), LV_PART_MAIN);
+            lv_obj_set_style_arc_width(scale, 3, LV_PART_MAIN);
+            /* Minor ticks (LV_PART_ITEMS): gray. */
+            lv_obj_set_style_line_color(scale, lv_color_hex(0x8A8A8A), LV_PART_ITEMS);
+            lv_obj_set_style_line_width(scale, 1, LV_PART_ITEMS);
+            lv_obj_set_style_length(scale, 6, LV_PART_ITEMS);
+            /* Major ticks + labels (LV_PART_INDICATOR): white. */
+            lv_obj_set_style_line_color(scale, lv_color_hex(0xFFFFFF), LV_PART_INDICATOR);
+            lv_obj_set_style_line_width(scale, 2, LV_PART_INDICATOR);
+            lv_obj_set_style_length(scale, 11, LV_PART_INDICATOR);
+            lv_obj_set_style_text_color(scale, lv_color_hex(0xFFFFFF), LV_PART_INDICATOR);
+            /* Colored value arc, overlaid on the outer ring. Created before the
+             * needle so the needle draws on top. */
+            lv_obj_t *arc = lv_arc_create(scale);
+            lv_obj_remove_style_all(arc);
+            lv_obj_set_size(arc, 120, 120);
+            lv_obj_align(arc, LV_ALIGN_CENTER, 0, 0);
+            lv_arc_set_rotation(arc, 135);
+            lv_arc_set_bg_angles(arc, 0, 270);
+            lv_arc_set_range(arc, (int32_t)min, (int32_t)max);
+            lv_arc_set_value(arc, (int32_t)value);
+            lv_obj_remove_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
+            lv_obj_set_style_arc_opa(arc, LV_OPA_TRANSP, LV_PART_MAIN);
+            lv_obj_set_style_arc_color(arc, lv_color_hex(0x2196F3), LV_PART_INDICATOR);
+            lv_obj_set_style_arc_width(arc, 6, LV_PART_INDICATOR);
+            lv_obj_set_style_arc_rounded(arc, false, LV_PART_INDICATOR);
+            arcs[node] = arc;
             lv_obj_t *needle = lv_line_create(scale);
             lv_point_precise_t points[2] = {{0, 0}, {0, -40}};
             lv_line_set_points(needle, points, 2);
@@ -1480,8 +1515,10 @@ int micro_esp_ui_set_scale_value(uint32_t node, double value)
     if (!lvgl_port_lock(0)) return -3;
     int result = -1;
     if (node < MICRO_UI_MAX_NODES && objects[node] != NULL &&
-        lv_obj_check_type(objects[node], &lv_scale_class) && needles[node] != NULL) {
+        lv_obj_check_type(objects[node], &lv_scale_class) && needles[node] != NULL &&
+        arcs[node] != NULL) {
         lv_scale_set_line_needle_value(objects[node], needles[node], 40, (int32_t)value);
+        lv_arc_set_value(arcs[node], (int32_t)value);
         result = 0;
     }
     lvgl_port_unlock();

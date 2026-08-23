@@ -83,9 +83,10 @@ impl DomBridge {
             None => &self.container,
         };
         let target = if parent.class_name() == "micro-tabview" {
-            /* Tab content children land on the page for the active tab. */
+            /* Tab content children land on the page for the active tab. The
+             * tab bar is child 0; page i is child i+1. */
             if let Some(index) = self.active_tab {
-                let page_index = index as usize * 2 + 1;
+                let page_index = index + 1;
                 if let Some(page) = parent
                     .clone()
                     .unchecked_into::<web_sys::Node>()
@@ -117,6 +118,110 @@ impl DomBridge {
             .set_attribute("style", &style)
             .map_err(|error| format!("set text style: {error:?}"))
     }
+
+    /* Shared <select> builder for dropdown and roller (a DOM-native roller
+     * adaptation). `class` lets each keep its own styling surface. */
+    fn create_select(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        options: &[String],
+        index: f64,
+        handler: Option<FunctionId>,
+        class: &str,
+    ) -> Result<(), String> {
+        let element = self.create_element("select", node, class)?;
+        for (i, option) in options.iter().enumerate() {
+            let opt = self
+                .document
+                .create_element("option")
+                .map_err(|error| format!("create dropdown option: {error:?}"))?;
+            opt.set_text_content(Some(option));
+            opt.set_attribute("value", &i.to_string())
+                .map_err(|error| format!("set dropdown option value: {error:?}"))?;
+            element
+                .append_child(&opt)
+                .map_err(|error| format!("append dropdown option: {error:?}"))?;
+        }
+        element
+            .set_attribute("value", &index.to_string())
+            .map_err(|error| format!("set dropdown value: {error:?}"))?;
+        if let Some(handler) = handler {
+            let selection_changes = self.selection_changes.clone();
+            let callback = Closure::wrap(Box::new(move |event: Event| {
+                if let Some(index) = event
+                    .target()
+                    .and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok())
+                    .and_then(|sel| sel.value().parse::<f64>().ok())
+                {
+                    selection_changes.push(handler, index);
+                }
+            }) as Box<dyn FnMut(Event)>);
+            element
+                .add_event_listener_with_callback("change", callback.as_ref().unchecked_ref())
+                .map_err(|error| format!("listen for dropdown change: {error:?}"))?;
+            self.click_handlers.push(callback);
+        }
+        self.append(node, parent, element)
+    }
+}
+
+/* Show the page at `index` and highlight its title, hiding the rest. The tab
+ * bar is child 0; page i is child i+1, both built with append_child only, so
+ * there are no text nodes between them and child_nodes() ordering is stable. */
+fn activate_tab(tabview: &Element, index: u32) {
+    let tabview_node = tabview.clone().unchecked_into::<web_sys::Node>();
+    let children = tabview_node.child_nodes();
+    let count = children.length();
+    for position in 1..count {
+        if let Some(node) = children.item(position) {
+            if let Ok(page) = node.dyn_into::<Element>() {
+                let class = if position == index + 1 {
+                    "micro-tab-page micro-tab-page-active"
+                } else {
+                    "micro-tab-page"
+                };
+                let _ = page.set_attribute("class", class);
+            }
+        }
+    }
+    if let Some(bar_node) = children.item(0) {
+        if let Ok(bar) = bar_node.dyn_into::<Element>() {
+            let titles = bar.clone().unchecked_into::<web_sys::Node>().child_nodes();
+            for position in 0..titles.length() {
+                if let Some(title_node) = titles.item(position) {
+                    if let Ok(title) = title_node.dyn_into::<Element>() {
+                        let class = if position == index {
+                            "micro-tab-title micro-tab-active"
+                        } else {
+                            "micro-tab-title"
+                        };
+                        let _ = title.set_attribute("class", class);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* Map a gauge value within [min, max] to a 0..1 fraction for the needle. */
+fn scale_fraction(value: f64, min: f64, max: f64) -> f64 {
+    if max <= min {
+        return 0.0;
+    }
+    ((value - min) / (max - min)).clamp(0.0, 1.0)
+}
+
+fn scale_range(element: &Element) -> (f64, f64) {
+    let min = element
+        .get_attribute("data-min")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
+    let max = element
+        .get_attribute("data-max")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100.0);
+    (min, max)
 }
 
 impl WebDom for DomBridge {
@@ -298,6 +403,7 @@ impl WebDom for DomBridge {
                 .map_err(|error| format!("listen for input change: {error:?}"))?;
             self.click_handlers.push(callback);
         }
+        Self::apply_text_style(&element, style)?;
         self.append(node, parent, element)
     }
 
@@ -370,39 +476,7 @@ impl WebDom for DomBridge {
         index: f64,
         handler: Option<FunctionId>,
     ) -> Result<(), String> {
-        let element = self.create_element("select", node, "micro-dropdown")?;
-        for (i, option) in options.iter().enumerate() {
-            let opt = self
-                .document
-                .create_element("option")
-                .map_err(|error| format!("create dropdown option: {error:?}"))?;
-            opt.set_text_content(Some(option));
-            opt.set_attribute("value", &i.to_string())
-                .map_err(|error| format!("set dropdown option value: {error:?}"))?;
-            element
-                .append_child(&opt)
-                .map_err(|error| format!("append dropdown option: {error:?}"))?;
-        }
-        element
-            .set_attribute("value", &index.to_string())
-            .map_err(|error| format!("set dropdown value: {error:?}"))?;
-        if let Some(handler) = handler {
-            let selection_changes = self.selection_changes.clone();
-            let callback = Closure::wrap(Box::new(move |event: Event| {
-                if let Some(index) = event
-                    .target()
-                    .and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok())
-                    .and_then(|sel| sel.value().parse::<f64>().ok())
-                {
-                    selection_changes.push(handler, index);
-                }
-            }) as Box<dyn FnMut(Event)>);
-            element
-                .add_event_listener_with_callback("change", callback.as_ref().unchecked_ref())
-                .map_err(|error| format!("listen for dropdown change: {error:?}"))?;
-            self.click_handlers.push(callback);
-        }
-        self.append(node, parent, element)
+        self.create_select(node, parent, options, index, handler, "micro-dropdown")
     }
 
     fn create_roller(
@@ -413,7 +487,7 @@ impl WebDom for DomBridge {
         index: f64,
         handler: Option<FunctionId>,
     ) -> Result<(), String> {
-        self.create_dropdown(node, parent, options, index, handler)
+        self.create_select(node, parent, options, index, handler, "micro-roller")
     }
 
     fn create_list(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
@@ -428,26 +502,65 @@ impl WebDom for DomBridge {
         titles: &[String],
     ) -> Result<(), String> {
         let element = self.create_element("div", node, "micro-tabview")?;
-        for title in titles {
+        /* One tab bar holding every title, then one page per tab. Keeping the
+         * bar a single child means pages are stable children 1..n, which both
+         * append() routing and activate_tab() rely on. */
+        let bar = self
+            .document
+            .create_element("div")
+            .map_err(|error| format!("create tab bar: {error:?}"))?;
+        bar.set_attribute("class", "micro-tab-bar")
+            .map_err(|error| format!("set tab bar class: {error:?}"))?;
+        element
+            .append_child(&bar)
+            .map_err(|error| format!("append tab bar: {error:?}"))?;
+
+        for (index, title) in titles.iter().enumerate() {
             let tab = self
                 .document
                 .create_element("button")
                 .map_err(|error| format!("create tab: {error:?}"))?;
-            tab.set_attribute("class", "micro-tab-title")
-                .map_err(|error| format!("set tab class: {error:?}"))?;
+            tab.set_attribute("type", "button")
+                .map_err(|error| format!("set tab type: {error:?}"))?;
+            tab.set_attribute(
+                "class",
+                if index == 0 {
+                    "micro-tab-title micro-tab-active"
+                } else {
+                    "micro-tab-title"
+                },
+            )
+            .map_err(|error| format!("set tab class: {error:?}"))?;
             tab.set_text_content(Some(title));
-            element
-                .append_child(&tab)
+            bar.append_child(&tab)
                 .map_err(|error| format!("append tab: {error:?}"))?;
+
             let page = self
                 .document
                 .create_element("div")
                 .map_err(|error| format!("create tab page: {error:?}"))?;
-            page.set_attribute("class", "micro-tab-page")
-                .map_err(|error| format!("set tab page class: {error:?}"))?;
+            page.set_attribute(
+                "class",
+                if index == 0 {
+                    "micro-tab-page micro-tab-page-active"
+                } else {
+                    "micro-tab-page"
+                },
+            )
+            .map_err(|error| format!("set tab page class: {error:?}"))?;
             element
                 .append_child(&page)
                 .map_err(|error| format!("append tab page: {error:?}"))?;
+
+            /* Clicking a title shows its page and marks the title active. */
+            let tabview = element.clone();
+            let tab_index = index as u32;
+            let callback = Closure::wrap(Box::new(move |_event: Event| {
+                activate_tab(&tabview, tab_index);
+            }) as Box<dyn FnMut(Event)>);
+            tab.add_event_listener_with_callback("click", callback.as_ref().unchecked_ref())
+                .map_err(|error| format!("listen for tab click: {error:?}"))?;
+            self.click_handlers.push(callback);
         }
         self.append(node, parent, element)
     }
@@ -482,7 +595,7 @@ impl WebDom for DomBridge {
         let width = container_el.client_width() as f64;
         /* Match the web column's CSS gap so the computed height lines up with
          * how the in-flow (un-placed) children are already spaced. */
-        let row_gap = 16.0;
+        let row_gap = 6.0;
 
         /* Pass 1 — measure every child so the container (and the scrollable
          * page) grows to hold the docked children, mirroring the C engine. */
@@ -572,11 +685,9 @@ impl WebDom for DomBridge {
     }
 
     fn create_tab_content(&mut self, index: u32) -> Result<(), String> {
-        /* Children of a tabview are appended after the title/page pairs: the
-         * last page is at position 2*index+1 within the tabview, but the child
-         * itself is appended by the generic append(). We just record the
-         * current page count for ordering via a data attribute on the element
-         * the child will land in. */
+        /* Record the active tab so the generic append() routes subsequent
+         * children into that tab's page (page i is tabview child i+1, after
+         * the tab bar at child 0). */
         self.active_tab = Some(index);
         Ok(())
     }
@@ -638,15 +749,18 @@ impl WebDom for DomBridge {
         range: Option<(f64, f64)>,
     ) -> Result<(), String> {
         let (min, max) = range.unwrap_or((0.0, 100.0));
-        let element = self.create_element("meter", node, "micro-scale")?;
+        let element = self.create_element("div", node, "micro-scale")?;
         element
-            .set_attribute("min", &min.to_string())
+            .set_attribute("data-min", &min.to_string())
             .map_err(|error| format!("set scale min: {error:?}"))?;
         element
-            .set_attribute("max", &max.to_string())
+            .set_attribute("data-max", &max.to_string())
             .map_err(|error| format!("set scale max: {error:?}"))?;
         element
-            .set_attribute("value", &value.to_string())
+            .set_attribute(
+                "style",
+                &format!("--micro-scale:{};", scale_fraction(value, min, max)),
+            )
             .map_err(|error| format!("set scale value: {error:?}"))?;
         self.append(node, parent, element)
     }
@@ -656,8 +770,12 @@ impl WebDom for DomBridge {
             .elements
             .get(&node.0)
             .ok_or_else(|| format!("node {} is missing", node.0))?;
+        let (min, max) = scale_range(element);
         element
-            .set_attribute("value", &value.to_string())
+            .set_attribute(
+                "style",
+                &format!("--micro-scale:{};", scale_fraction(value, min, max)),
+            )
             .map_err(|error| format!("set scale value: {error:?}"))
     }
 
