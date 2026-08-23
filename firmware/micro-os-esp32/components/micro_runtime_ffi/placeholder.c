@@ -622,9 +622,16 @@ int micro_esp_ui_create_column(uint32_t node, uint32_t parent)
             lv_obj_set_style_pad_top(column, 6, LV_PART_MAIN);
             lv_obj_set_style_pad_bottom(column, 6, LV_PART_MAIN);
             lv_obj_set_style_pad_row(column, 6, LV_PART_MAIN);
-            /* Flat containers avoid the LVGL layer-buffer path that a rounded
-             * clipped container forces on every redraw (slow on scroll). */
+            /* Blend into the parent so the layout container shows no visible
+             * box or border, yet stays OPAQUE (matching the parent's color).
+             * A fully transparent container changes LVGL's draw path and made
+             * the top rows intermittently vanish on the display tab. */
             lv_obj_set_style_radius(column, 0, LV_PART_MAIN);
+            lv_obj_set_style_border_width(column, 0, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(column,
+                                      lv_obj_get_style_bg_color(parent_obj, LV_PART_MAIN),
+                                      LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(column, LV_OPA_COVER, LV_PART_MAIN);
             /* The tab page owns scrolling; a column is a plain content stack. */
             lv_obj_remove_flag(column, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_set_scrollbar_mode(column, LV_SCROLLBAR_MODE_OFF);
@@ -652,6 +659,11 @@ int micro_esp_ui_create_row(uint32_t node, uint32_t parent)
             lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
             lv_obj_set_style_pad_column(row, 16, LV_PART_MAIN);
             lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
+            lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(row,
+                                      lv_obj_get_style_bg_color(parent_obj, LV_PART_MAIN),
+                                      LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
             objects[node] = row;
             if (parent == MICRO_UI_NO_PARENT) app_root = row;
         }
@@ -671,6 +683,14 @@ int micro_esp_ui_create_list(uint32_t node, uint32_t parent)
         else {
             lv_obj_set_size(list, LV_PCT(100), LV_SIZE_CONTENT);
             lv_obj_set_style_pad_row(list, 4, LV_PART_MAIN);
+            /* Soft card: borderless, light rounded background so the docked
+             * list reads as a deliberate footer group rather than a boxed
+             * rectangle from the default theme. */
+            lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(list, lv_color_hex(0xEFF2EC), LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(list, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_radius(list, 12, LV_PART_MAIN);
+            lv_obj_set_style_pad_all(list, 8, LV_PART_MAIN);
             /* Let the outer column own scrolling. */
             lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
             lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLLABLE);
@@ -707,11 +727,17 @@ int micro_esp_ui_create_tabview(uint32_t node, uint32_t parent,
                 lv_tabview_add_tab(tabview, token);
             }
             /* The tab page is the single scroll container; keep its scrollbar
-             * visible so the user can tell content scrolls. */
+             * visible so the user can tell content scrolls. Strip the default
+             * theme borders from the content panel, the tab bar and each page
+             * so the tab body reads as one clean surface. */
             lv_obj_t *tab_content = lv_tabview_get_content(tabview);
+            lv_obj_set_style_border_width(tab_content, 0, LV_PART_MAIN);
+            lv_obj_t *tab_bar = lv_tabview_get_tab_bar(tabview);
+            lv_obj_set_style_border_width(tab_bar, 0, LV_PART_MAIN);
             uint32_t page_count = tab_content == NULL ? 0 : lv_obj_get_child_count(tab_content);
             for (uint32_t pi = 0; pi < page_count; ++pi) {
                 lv_obj_t *page = lv_obj_get_child(tab_content, pi);
+                lv_obj_set_style_border_width(page, 0, LV_PART_MAIN);
                 lv_obj_set_scrollbar_mode(page, LV_SCROLLBAR_MODE_AUTO);
             }
             s_tabview = tabview;
@@ -1239,6 +1265,46 @@ static bool delphi_get_min_size_cb(lv_obj_t *container, int32_t *req_size,
     return true;
 }
 
+/* Required height = top stack + bottom stack, plus padding and the row gaps
+ * the layout callback applies. Runs after a synchronous layout so every
+ * child's natural height is resolved, making the container height
+ * deterministic instead of depending on min-size callback timing. */
+static lv_coord_t delphi_content_height(lv_obj_t *container)
+{
+    int32_t top_extent = 0;
+    int32_t bottom_extent = 0;
+    int32_t fill_floor = 0;
+    int32_t top_count = 0;
+    int32_t bottom_count = 0;
+    lv_coord_t row_gap = lv_obj_get_style_pad_row(container, LV_PART_MAIN);
+    uint32_t count = lv_obj_get_child_count(container);
+    for (uint32_t i = 0; i < count; ++i) {
+        lv_obj_t *child = lv_obj_get_child(container, i);
+        uint32_t node = (uint32_t)(uintptr_t)lv_obj_get_user_data(child);
+        uint8_t mask = (node < MICRO_UI_MAX_NODES) ? layout_specs[node].mask : 0;
+        int32_t h = lv_obj_get_height(child);
+        if ((mask & 2) && (mask & 8)) {
+            if (h > fill_floor) fill_floor = h;
+            continue;
+        }
+        if (mask & 8) {
+            bottom_extent += h + (int32_t)layout_specs[node].bottom;
+            bottom_count++;
+        } else {
+            top_extent += h + ((mask & 2) ? (int32_t)layout_specs[node].top : 0);
+            top_count++;
+        }
+    }
+    int32_t gaps = (top_count ? top_count - 1 : 0)
+                 + (bottom_count ? bottom_count - 1 : 0)
+                 + (top_count && bottom_count ? 1 : 0);
+    int32_t content = top_extent + bottom_extent + gaps * row_gap;
+    if (fill_floor > content) content = fill_floor;
+    return (lv_coord_t)(content
+                        + lv_obj_get_style_space_top(container, LV_PART_MAIN)
+                        + lv_obj_get_style_space_bottom(container, LV_PART_MAIN));
+}
+
 int micro_esp_ui_apply_delphi_layout(uint32_t container,
                                      const uint32_t *child_ids, uint32_t child_count)
 {
@@ -1250,9 +1316,6 @@ int micro_esp_ui_apply_delphi_layout(uint32_t container,
         return -1;
     }
     lv_obj_t *obj = objects[container];
-    /* Width fills the parent; height is content-driven so a tall docked stack
-     * grows the container and the scrollable page can reveal it. */
-    lv_obj_set_size(obj, LV_PCT(100), LV_SIZE_CONTENT);
     if (s_delphi_layout_id == LV_LAYOUT_NONE) {
         lv_layout_callbacks_t callbacks = {
             .layout_update_cb = delphi_layout_update_cb,
@@ -1261,6 +1324,13 @@ int micro_esp_ui_apply_delphi_layout(uint32_t container,
         s_delphi_layout_id = lv_layout_create(callbacks, NULL);
     }
     lv_obj_set_layout(obj, s_delphi_layout_id);
+    /* Resolve every child's natural size synchronously, then pin the container
+     * to its exact content height. Computing the height explicitly (instead of
+     * relying on the min-size callback on the first refresh) avoids a
+     * timing-dependent collapse where the top rows read as 0-height and get
+     * clipped, leaving only the docked list visible. */
+    lv_obj_update_layout(obj);
+    lv_obj_set_height(obj, delphi_content_height(obj));
     lvgl_port_unlock();
     return 0;
 }

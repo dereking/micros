@@ -395,6 +395,11 @@ int micro_native_create_column(micro_native_t *native, uint32_t node_id, uint32_
     lv_obj_set_layout(object, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(object, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(object, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_border_width(object, 0, LV_PART_MAIN);
+    /* Blend into the parent: invisible but opaque (a transparent container
+     * changed LVGL's draw path and intermittently hid the top rows). */
+    lv_obj_set_style_bg_color(object, lv_obj_get_style_bg_color(parent, LV_PART_MAIN), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(object, LV_OPA_COVER, LV_PART_MAIN);
     if (parent_id == MICRO_NO_PARENT) lv_obj_center(object);
     native->objects[node_id] = object;
     return 1;
@@ -410,6 +415,9 @@ int micro_native_create_row(micro_native_t *native, uint32_t node_id, uint32_t p
     lv_obj_set_flex_flow(object, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(object, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(object, 16, LV_PART_MAIN);
+    lv_obj_set_style_border_width(object, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(object, lv_obj_get_style_bg_color(parent, LV_PART_MAIN), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(object, LV_OPA_COVER, LV_PART_MAIN);
     native->objects[node_id] = object;
     return 1;
 }
@@ -421,6 +429,12 @@ int micro_native_create_list(micro_native_t *native, uint32_t node_id, uint32_t 
     lv_obj_t *list = lv_list_create(parent);
     lv_obj_set_size(list, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_style_pad_row(list, 4, LV_PART_MAIN);
+    /* Soft card: borderless, light rounded background. */
+    lv_obj_set_style_border_width(list, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(list, lv_color_hex(0xEFF2EC), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(list, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(list, 12, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(list, 8, LV_PART_MAIN);
     native->objects[node_id] = list;
     return 1;
 }
@@ -443,6 +457,16 @@ int micro_native_create_tabview(micro_native_t *native, uint32_t node_id, uint32
             lv_tabview_add_tab(tabview, token);
         }
         free(copy);
+    }
+    /* Strip the default theme borders from the content panel, tab bar and
+     * each page so the tab body reads as one clean surface. */
+    lv_obj_t *tab_content = lv_tabview_get_content(tabview);
+    lv_obj_set_style_border_width(tab_content, 0, LV_PART_MAIN);
+    lv_obj_t *tab_bar = lv_tabview_get_tab_bar(tabview);
+    lv_obj_set_style_border_width(tab_bar, 0, LV_PART_MAIN);
+    uint32_t page_count = tab_content == NULL ? 0 : lv_obj_get_child_count(tab_content);
+    for (uint32_t pi = 0; pi < page_count; ++pi) {
+        lv_obj_set_style_border_width(lv_obj_get_child(tab_content, pi), 0, LV_PART_MAIN);
     }
     native->tabview = tabview;
     native->tab_target = NULL;
@@ -779,18 +803,46 @@ static bool delphi_get_min_size_cb(lv_obj_t *container, int32_t *req_size,
     return true;
 }
 
+static lv_coord_t delphi_content_height(const micro_native_t *native, lv_obj_t *container)
+{
+    int32_t top_extent = 0, bottom_extent = 0, fill_floor = 0;
+    int32_t top_count = 0, bottom_count = 0;
+    lv_coord_t row_gap = lv_obj_get_style_pad_row(container, LV_PART_MAIN);
+    uint32_t count = lv_obj_get_child_count(container);
+    for (uint32_t i = 0; i < count; ++i) {
+        lv_obj_t *child = lv_obj_get_child(container, i);
+        uint32_t node = (uint32_t)(uintptr_t)lv_obj_get_user_data(child);
+        uint8_t mask = layout_mask(native, node);
+        int32_t h = lv_obj_get_height(child);
+        if ((mask & 2) && (mask & 8)) { if (h > fill_floor) fill_floor = h; continue; }
+        if (mask & 8) { bottom_extent += h + (int32_t)native->layout_specs[node].bottom; bottom_count++; }
+        else { top_extent += h + ((mask & 2) ? (int32_t)native->layout_specs[node].top : 0); top_count++; }
+    }
+    int32_t gaps = (top_count ? top_count - 1 : 0)
+                 + (bottom_count ? bottom_count - 1 : 0)
+                 + (top_count && bottom_count ? 1 : 0);
+    int32_t content = top_extent + bottom_extent + gaps * row_gap;
+    if (fill_floor > content) content = fill_floor;
+    return (lv_coord_t)(content
+              + lv_obj_get_style_space_top(container, LV_PART_MAIN)
+              + lv_obj_get_style_space_bottom(container, LV_PART_MAIN));
+}
+
 int micro_native_apply_delphi_layout(micro_native_t *native, uint32_t container,
                                      const uint32_t *child_ids, uint32_t child_count) {
     (void)child_ids; (void)child_count;
     if (native == NULL || container >= MICRO_MAX_NODES || native->objects[container] == NULL) return 0;
     lv_obj_t *obj = native->objects[container];
-    lv_obj_set_size(obj, LV_PCT(100), LV_SIZE_CONTENT);
     if (s_delphi_layout_id == LV_LAYOUT_NONE) {
         lv_layout_callbacks_t callbacks = { .layout_update_cb = delphi_layout_update_cb,
                                             .get_min_size_cb = delphi_get_min_size_cb };
         s_delphi_layout_id = lv_layout_create(callbacks, native);
     }
     lv_obj_set_layout(obj, s_delphi_layout_id);
+    /* Resolve children synchronously, then pin the container to its exact
+     * content height so the first render cannot collapse the top rows. */
+    lv_obj_update_layout(obj);
+    lv_obj_set_height(obj, delphi_content_height(native, obj));
     return 1;
 }
 

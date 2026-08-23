@@ -86,7 +86,12 @@ impl DomBridge {
             /* Tab content children land on the page for the active tab. */
             if let Some(index) = self.active_tab {
                 let page_index = index as usize * 2 + 1;
-                if let Some(page) = parent.child_nodes().item(page_index as u32) {
+                if let Some(page) = parent
+                    .clone()
+                    .unchecked_into::<web_sys::Node>()
+                    .child_nodes()
+                    .item(page_index as u32)
+                {
                     page.dyn_into::<web_sys::Element>().unwrap_or_else(|_| parent.clone())
                 } else {
                     parent.clone()
