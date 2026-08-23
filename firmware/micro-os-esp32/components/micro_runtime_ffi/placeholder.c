@@ -678,12 +678,12 @@ int micro_esp_ui_create_tabview(uint32_t node, uint32_t parent,
         lv_obj_t *tabview = lv_tabview_create(parent_obj);
         if (tabview == NULL) result = -4;
         else {
-            /* Bounded height so the tabview sits inside the scrollable
-     * column without filling the screen, blocking column scroll,
-     * or driving a layout feedback loop that flickers. */
-            lv_obj_set_size(tabview, LV_PCT(100), 280);
-            /* Titles arrive '
-'-joined; add one tab per title. */
+            /* As the root (parent == screen) fill the display; as a child of
+             * a scrollable column keep a bounded height so the column can
+             * scroll past it. */
+            lv_obj_set_size(tabview, LV_PCT(100),
+                            parent == MICRO_UI_NO_PARENT ? LV_PCT(100) : 280);
+            /* Titles arrive '\n'-joined; add one tab per title. */
             char *cursor = copy;
             char *save = NULL;
             for (char *token = strtok_r(cursor, "\n", &save); token != NULL;
