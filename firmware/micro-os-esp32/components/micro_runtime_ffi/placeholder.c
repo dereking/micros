@@ -1085,8 +1085,12 @@ int micro_esp_ui_apply_delphi_layout(uint32_t container,
         return -1;
     }
     lv_obj_t *obj = objects[container];
-    /* Manual docking replaces the container's flex layout. */
+    /* Manual docking replaces the container's flex layout. A flex container
+     * sized LV_SIZE_CONTENT collapses to height 0 without flex, so fill the
+     * parent (the docked children need the full area to be visible). */
     lv_obj_set_layout(obj, LV_LAYOUT_NONE);
+    lv_obj_set_size(obj, LV_PCT(100), LV_PCT(100));
+    lv_obj_update_layout(obj);
     lv_coord_t avail_w = lv_obj_get_content_width(obj);
     lv_coord_t avail_h = lv_obj_get_content_height(obj);
     lv_coord_t top_y = 0;

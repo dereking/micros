@@ -668,6 +668,8 @@ int micro_native_apply_delphi_layout(micro_native_t *native, uint32_t container,
         native->objects[container] == NULL || child_ids == NULL) return 0;
     lv_obj_t *obj = native->objects[container];
     lv_obj_set_layout(obj, LV_LAYOUT_NONE);
+    lv_obj_set_size(obj, LV_PCT(100), LV_PCT(100));
+    lv_obj_update_layout(obj);
     lv_coord_t avail_w = lv_obj_get_content_width(obj);
     lv_coord_t avail_h = lv_obj_get_content_height(obj);
     lv_coord_t top_y = 0, bottom_y = avail_h, left_x = 0, right_x = avail_w;
