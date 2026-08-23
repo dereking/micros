@@ -121,12 +121,12 @@ ui.mount(
     {
       title: "display",
       content: ui.column([
-        ui.row([
+        ui.place(ui.row([
           ui.led(bind(() => powerOn.value === 1)),
           ui.spinner(bind(() => loading.value === 1)),
           ui.scale(bind(() => gauge.value), { min: 0, max: 100 }),
-        ]),
-        ui.row([
+        ]), { height: 160, anchor: { left: 0, right: 0, top: 0 } }),
+        ui.place(ui.row([
           ui.button("power", {
             onClick: () => { powerOn.value = 1 - powerOn.value; },
           }),
@@ -136,12 +136,12 @@ ui.mount(
           ui.button("gauge", {
             onClick: () => { gauge.value = (gauge.value + 10) % 100; },
           }),
-        ]),
-        ui.list([
+        ]), { top: 166, height: 80, anchor: { left: 0, right: 0, top: 166 } }),
+        ui.place(ui.list([
           { text: "reset count", onClick: () => { count.value = 0; } },
           { text: "double count", onClick: () => { count.value = count.value * 2; } },
           { text: "level up", onClick: () => { if (level.value < 10) { level.value = level.value + 1; } } },
-        ]),
+        ]), { height: 131, anchor: { left: 0, right: 0, bottom: 0 } }),
       ]),
     },
   ]),

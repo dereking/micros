@@ -60,30 +60,45 @@ fn round_trips_an_exact_text_style() {
 
 #[test]
 fn round_trips_sparse_ltrb_layouts() {
+    use micro_ir::AnchorSpec;
     let specs = [
         LayoutSpec {
-            left: Some(0.0),
+            left: None,
             top: None,
-            right: Some(0.0),
-            bottom: Some(0.0),
+            width: None,
+            height: None,
+            anchor: AnchorSpec {
+                left: Some(0.0),
+                top: None,
+                right: Some(0.0),
+                bottom: Some(0.0),
+            },
         },
         LayoutSpec {
             left: Some(10.5),
             top: Some(20.0),
-            right: None,
-            bottom: None,
+            width: Some(100.0),
+            height: Some(40.0),
+            anchor: AnchorSpec::default(),
         },
         LayoutSpec {
             left: Some(0.0),
             top: Some(0.0),
-            right: Some(0.0),
-            bottom: Some(0.0),
+            width: Some(0.0),
+            height: Some(0.0),
+            anchor: AnchorSpec {
+                left: Some(0.0),
+                top: Some(0.0),
+                right: Some(0.0),
+                bottom: Some(0.0),
+            },
         },
         LayoutSpec {
             left: None,
             top: None,
-            right: None,
-            bottom: None,
+            width: None,
+            height: None,
+            anchor: AnchorSpec::default(),
         },
     ];
     for spec in specs {

@@ -1,14 +1,14 @@
 use std::fmt;
 
 use crate::{
-    AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId, FunctionKind,
-    HandlerId, Instruction, LayoutSpec, NodeId, ScalarType, StateDecl, StateId, TextSource,
-    TextStyle, UiKind, UiNodeSpec, ValidationError, ValueSource, validate,
+    AnchorSpec, AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId,
+    FunctionKind, HandlerId, Instruction, LayoutSpec, NodeId, ScalarType, StateDecl, StateId,
+    TextSource, TextStyle, UiKind, UiNodeSpec, ValidationError, ValueSource, validate,
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
-/// MBC v13 adds the per-node `layout` as explicit LTRB offsets.
-const VERSION: u16 = 13;
+/// MBC v15 splits the per-node layout into ltwh base geometry + anchor edges.
+const VERSION: u16 = 15;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -368,8 +368,9 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
             None => out.push(0),
             Some(layout) => {
                 out.push(1);
-                /* Mask bit0=left, bit1=top, bit2=right, bit3=bottom; the set
-                 * offsets follow in L, T, R, B order. */
+                /* Mask bit0=left, bit1=top, bit2=width, bit3=height,
+                 * bit4=anchor_left, bit5=anchor_top, bit6=anchor_right,
+                 * bit7=anchor_bottom; the set values follow in that order. */
                 let mut mask = 0u8;
                 if layout.left.is_some() {
                     mask |= 1;
@@ -377,14 +378,35 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
                 if layout.top.is_some() {
                     mask |= 2;
                 }
-                if layout.right.is_some() {
+                if layout.width.is_some() {
                     mask |= 4;
                 }
-                if layout.bottom.is_some() {
+                if layout.height.is_some() {
                     mask |= 8;
                 }
+                if layout.anchor.left.is_some() {
+                    mask |= 16;
+                }
+                if layout.anchor.top.is_some() {
+                    mask |= 32;
+                }
+                if layout.anchor.right.is_some() {
+                    mask |= 64;
+                }
+                if layout.anchor.bottom.is_some() {
+                    mask |= 128;
+                }
                 out.push(mask);
-                for value in [layout.left, layout.top, layout.right, layout.bottom] {
+                for value in [
+                    layout.left,
+                    layout.top,
+                    layout.width,
+                    layout.height,
+                    layout.anchor.left,
+                    layout.anchor.top,
+                    layout.anchor.right,
+                    layout.anchor.bottom,
+                ] {
                     if let Some(value) = value {
                         out.extend_from_slice(&value.to_le_bytes());
                     }
@@ -526,12 +548,6 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             0 => None,
             1 => {
                 let mask = reader.u8()?;
-                if mask & !0x0F != 0 {
-                    return Err(DecodeError::InvalidTag {
-                        section: "layout mask",
-                        tag: mask,
-                    });
-                }
                 let mut next = || -> Result<Option<f64>, DecodeError> {
                     let value = f64::from_le_bytes(reader.take(8)?.try_into().unwrap());
                     Ok(Some(value))
@@ -539,8 +555,14 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
                 Some(LayoutSpec {
                     left: if mask & 1 != 0 { next()? } else { None },
                     top: if mask & 2 != 0 { next()? } else { None },
-                    right: if mask & 4 != 0 { next()? } else { None },
-                    bottom: if mask & 8 != 0 { next()? } else { None },
+                    width: if mask & 4 != 0 { next()? } else { None },
+                    height: if mask & 8 != 0 { next()? } else { None },
+                    anchor: AnchorSpec {
+                        left: if mask & 16 != 0 { next()? } else { None },
+                        top: if mask & 32 != 0 { next()? } else { None },
+                        right: if mask & 64 != 0 { next()? } else { None },
+                        bottom: if mask & 128 != 0 { next()? } else { None },
+                    },
                 })
             }
             tag => {

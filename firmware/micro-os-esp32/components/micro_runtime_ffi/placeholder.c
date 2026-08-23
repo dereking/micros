@@ -81,16 +81,20 @@ struct micro_roller_change {
     double index;
 };
 
-/* Per-child LTRB anchor offsets. `mask` bit0=left, bit1=top, bit2=right,
- * bit3=bottom; a set edge pins the child's side to the parent's corresponding
- * side at that offset. mask == 0 means no spec (default: top dock, full
- * width). */
+/* Per-child Delphi layout. `mask` bit0=left, bit1=top, bit2=width, bit3=height,
+ * bit4=anchor_left, bit5=anchor_top, bit6=anchor_right, bit7=anchor_bottom.
+ * `left/top/width/height` are the child's base geometry; an anchor edge takes
+ * priority and pins/stretches to the parent's edge. */
 struct micro_layout_spec {
     uint8_t mask;
     double left;
     double top;
-    double right;
-    double bottom;
+    double width;
+    double height;
+    double anchor_left;
+    double anchor_top;
+    double anchor_right;
+    double anchor_bottom;
 };
 
 static lv_obj_t *objects[MICRO_UI_MAX_NODES];
@@ -116,6 +120,11 @@ static unsigned dropdown_read;
 static unsigned dropdown_write;
 static struct micro_roller_change roller_changes[MICRO_UI_ROLLER_CAPACITY];
 static struct micro_layout_spec layout_specs[MICRO_UI_MAX_NODES];
+/* Natural (LV_SIZE_CONTENT) height of vertical-fill children, captured on the
+ * first layout pass so the container's min-size stays stable. Without this, a
+ * fill child's own fill-applied height feeds back into min-size and collapses
+ * it toward 0 over successive passes. */
+static lv_coord_t fill_natural_h[MICRO_UI_MAX_NODES];
 static unsigned roller_read;
 static unsigned roller_write;
 static lv_obj_t *s_keyboard;
@@ -1148,8 +1157,9 @@ static void delphi_layout_update_cb(lv_obj_t *container, void *user_data)
     lv_coord_t bottom_y = avail_h;
     lv_coord_t bottom_stack_top = avail_h;
 
-    /* Pass 1 — stack top/bottom docked children; vertical fills are deferred
-     * so their height is not computed before the stacks are known. */
+    /* Absolute positioning: every child is placed by its base left/top/width/
+     * height, adjusted by edge anchors (Delphi model). No stacking — the
+     * container is sized by delphi_content_height so anchors resolve. */
     for (uint32_t i = 0; i < count; ++i) {
         lv_obj_t *child = lv_obj_get_child(container, i);
         uint32_t node = (uint32_t)(uintptr_t)lv_obj_get_user_data(child);
@@ -1157,82 +1167,56 @@ static void delphi_layout_update_cb(lv_obj_t *container, void *user_data)
         lv_obj_update_layout(child);
         lv_coord_t w = lv_obj_get_width(child);
         lv_coord_t h = lv_obj_get_height(child);
-        /* Horizontal role: left+right stretch, one pin, else full width. */
+        lv_coord_t ew = (mask & 4) ? (lv_coord_t)layout_specs[node].width : w;
+        lv_coord_t eh = (mask & 8) ? (lv_coord_t)layout_specs[node].height : h;
+        /* Horizontal: anchor left+right stretch, anchor right pin, else
+         * base left + width. */
         lv_coord_t x;
-        if ((mask & 1) && (mask & 4)) {
-            x = (lv_coord_t)layout_specs[node].left;
-            lv_obj_set_width(child, avail_w - (lv_coord_t)layout_specs[node].left
-                                       - (lv_coord_t)layout_specs[node].right);
-        } else if (mask & 1) {
-            x = (lv_coord_t)layout_specs[node].left;
-            lv_obj_set_width(child, w);
-        } else if (mask & 4) {
-            lv_obj_set_width(child, w);
-            x = avail_w - w - (lv_coord_t)layout_specs[node].right;
+        if ((mask & 16) && (mask & 64)) {
+            x = (lv_coord_t)layout_specs[node].anchor_left;
+            lv_obj_set_width(child, avail_w - (lv_coord_t)layout_specs[node].anchor_left
+                                       - (lv_coord_t)layout_specs[node].anchor_right);
+        } else if (mask & 64) {
+            lv_obj_set_width(child, ew);
+            x = avail_w - ew - (lv_coord_t)layout_specs[node].anchor_right;
         } else {
-            x = 0;
-            lv_obj_set_width(child, avail_w);
+            x = (mask & 1) ? (lv_coord_t)layout_specs[node].left : 0;
+            lv_obj_set_width(child, ew);
         }
-        /* Vertical role: top+bottom fill (pass 2), bottom dock, else top. */
-        if ((mask & 2) && (mask & 8)) {
-            continue;
-        }
-        if (mask & 8) {
-            /* Bottom dock: the child's bottom edge stays `bottom` above the
-             * parent's bottom edge, whatever the parent's size. */
-            bottom_y -= h;
-            lv_coord_t y = bottom_y - (lv_coord_t)layout_specs[node].bottom;
-            lv_obj_set_pos(child, x, y);
-            bottom_y = y - row_gap;
-            if (y < bottom_stack_top) bottom_stack_top = y;
+        /* Vertical: anchor top+bottom stretch, anchor bottom pin, else base
+         * top + height. */
+        lv_coord_t y;
+        if ((mask & 32) && (mask & 128)) {
+            lv_obj_set_height(child, avail_h - (lv_coord_t)layout_specs[node].anchor_top
+                                     - (lv_coord_t)layout_specs[node].anchor_bottom);
+            y = (lv_coord_t)layout_specs[node].anchor_top;
+        } else if (mask & 128) {
+            lv_obj_set_height(child, eh);
+            y = avail_h - eh - (lv_coord_t)layout_specs[node].anchor_bottom;
         } else {
-            /* Top dock (default). */
-            lv_coord_t y = top_y
-                           + ((mask & 2) ? (lv_coord_t)layout_specs[node].top : 0);
-            lv_obj_set_pos(child, x, y);
-            top_y = y + h + row_gap;
+            lv_obj_set_height(child, eh);
+            y = (mask & 2) ? (lv_coord_t)layout_specs[node].top : 0;
         }
-    }
-
-    /* Pass 2 — vertical fills span the space between the two stacks. */
-    for (uint32_t i = 0; i < count; ++i) {
-        lv_obj_t *child = lv_obj_get_child(container, i);
-        uint32_t node = (uint32_t)(uintptr_t)lv_obj_get_user_data(child);
-        uint8_t mask = (node < MICRO_UI_MAX_NODES) ? layout_specs[node].mask : 0;
-        if (!((mask & 2) && (mask & 8))) continue;
-        lv_coord_t h = bottom_stack_top - top_y;
-        if (h < 0) h = 0;
-        lv_coord_t w = lv_obj_get_width(child);
-        lv_coord_t x;
-        if ((mask & 1) && (mask & 4)) {
-            x = (lv_coord_t)layout_specs[node].left;
-            lv_obj_set_width(child, avail_w - (lv_coord_t)layout_specs[node].left
-                                       - (lv_coord_t)layout_specs[node].right);
-        } else if (mask & 1) {
-            x = (lv_coord_t)layout_specs[node].left;
-            lv_obj_set_width(child, w);
-        } else if (mask & 4) {
-            lv_obj_set_width(child, w);
-            x = avail_w - w - (lv_coord_t)layout_specs[node].right;
-        } else {
-            x = 0;
-            lv_obj_set_width(child, avail_w);
-        }
-        lv_obj_set_pos(child, x, top_y);
-        lv_obj_set_height(child, h);
+        lv_obj_set_pos(child, x, y);
     }
 }
 
 int micro_esp_ui_set_layout_spec(uint32_t node, uint32_t mask,
                                  double left, double top,
-                                 double right, double bottom)
+                                 double width, double height,
+                                 double anchor_left, double anchor_top,
+                                 double anchor_right, double anchor_bottom)
 {
     if (node >= MICRO_UI_MAX_NODES) return -1;
     layout_specs[node].mask = (uint8_t)mask;
     layout_specs[node].left = left;
     layout_specs[node].top = top;
-    layout_specs[node].right = right;
-    layout_specs[node].bottom = bottom;
+    layout_specs[node].width = width;
+    layout_specs[node].height = height;
+    layout_specs[node].anchor_left = anchor_left;
+    layout_specs[node].anchor_top = anchor_top;
+    layout_specs[node].anchor_right = anchor_right;
+    layout_specs[node].anchor_bottom = anchor_bottom;
     /* Tag the object with its node id so the layout callback can look up its
      * spec. Object user_data does not collide with event-callback user_data. */
     if (objects[node] != NULL) {
@@ -1268,25 +1252,32 @@ static bool delphi_get_min_size_cb(lv_obj_t *container, int32_t *req_size,
         uint32_t node = (uint32_t)(uintptr_t)lv_obj_get_user_data(child);
         uint8_t mask = (node < MICRO_UI_MAX_NODES) ? layout_specs[node].mask : 0;
         int32_t h = lv_obj_get_height(child);
-        if ((mask & 2) && (mask & 8)) {
-            /* Vertical fill: spans the space between the stacks. */
-            if (h > fill_floor) fill_floor = h;
+        if ((mask & 8) && node < MICRO_UI_MAX_NODES) {
+            h = (int32_t)layout_specs[node].height; /* explicit height wins */
+        }
+        if ((mask & 32) && (mask & 128)) {
+            /* Vertical fill (anchor top+bottom): its natural height (captured
+             * once) is the floor so it cannot feed back and collapse. */
+            if (node < MICRO_UI_MAX_NODES) {
+                if (fill_natural_h[node] == 0) fill_natural_h[node] = (lv_coord_t)h;
+                if (fill_natural_h[node] > fill_floor) fill_floor = fill_natural_h[node];
+            }
             continue;
         }
-        if (mask & 8) {
-            /* Bottom dock: reserves its height plus the bottom offset. */
-            bottom_extent += h + (int32_t)layout_specs[node].bottom;
+        if (mask & 128) {
+            /* Bottom-anchored: reserves its height plus the bottom offset. */
+            bottom_extent += h + (int32_t)layout_specs[node].anchor_bottom;
             bottom_count++;
         } else {
-            /* Top dock (default): reserves its height plus the top offset. */
-            top_extent += h + ((mask & 2) ? (int32_t)layout_specs[node].top : 0);
+            /* Top/positioned: occupies top..top+height; container must reach it. */
+            int32_t top_edge = (mask & 32) ? (int32_t)layout_specs[node].anchor_top
+                             : (mask & 2) ? (int32_t)layout_specs[node].top : 0;
+            int32_t bottom_edge = top_edge + h;
+            if (bottom_edge > top_extent) top_extent = bottom_edge;
             top_count++;
         }
     }
-    int32_t gaps = (top_count ? top_count - 1 : 0)
-                 + (bottom_count ? bottom_count - 1 : 0)
-                 + (top_count && bottom_count ? 1 : 0);
-    int32_t content = top_extent + bottom_extent + gaps * row_gap;
+    int32_t content = top_extent + bottom_extent;
     if (fill_floor > content) content = fill_floor;
     *req_size = content
               + lv_obj_get_style_space_top(container, LV_PART_MAIN)
@@ -1295,39 +1286,43 @@ static bool delphi_get_min_size_cb(lv_obj_t *container, int32_t *req_size,
 }
 
 /* Required height = top stack + bottom stack, plus padding and the row gaps
- * the layout callback applies. Runs after a synchronous layout so every
- * child's natural height is resolved, making the container height
- * deterministic instead of depending on min-size callback timing. */
+ * the layout callback applies. Computed explicitly (not via the min-size
+ * callback) so the container height is pinned deterministically before the
+ * first render instead of being recomputed during refresh, where it races the
+ * RGB panel's frame scan. */
 static lv_coord_t delphi_content_height(lv_obj_t *container)
 {
     int32_t top_extent = 0;
     int32_t bottom_extent = 0;
     int32_t fill_floor = 0;
-    int32_t top_count = 0;
-    int32_t bottom_count = 0;
-    lv_coord_t row_gap = lv_obj_get_style_pad_row(container, LV_PART_MAIN);
     uint32_t count = lv_obj_get_child_count(container);
     for (uint32_t i = 0; i < count; ++i) {
         lv_obj_t *child = lv_obj_get_child(container, i);
         uint32_t node = (uint32_t)(uintptr_t)lv_obj_get_user_data(child);
         uint8_t mask = (node < MICRO_UI_MAX_NODES) ? layout_specs[node].mask : 0;
         int32_t h = lv_obj_get_height(child);
-        if ((mask & 2) && (mask & 8)) {
-            if (h > fill_floor) fill_floor = h;
+        if ((mask & 8) && node < MICRO_UI_MAX_NODES) {
+            h = (int32_t)layout_specs[node].height; /* explicit height wins */
+        }
+        if ((mask & 32) && (mask & 128)) {
+            /* Vertical fill (anchor top+bottom): its natural height (captured
+             * once) is the floor so it cannot feed back and collapse. */
+            if (node < MICRO_UI_MAX_NODES) {
+                if (fill_natural_h[node] == 0) fill_natural_h[node] = (lv_coord_t)h;
+                if (fill_natural_h[node] > fill_floor) fill_floor = fill_natural_h[node];
+            }
             continue;
         }
-        if (mask & 8) {
-            bottom_extent += h + (int32_t)layout_specs[node].bottom;
-            bottom_count++;
+        if (mask & 128) {
+            bottom_extent += h + (int32_t)layout_specs[node].anchor_bottom;
         } else {
-            top_extent += h + ((mask & 2) ? (int32_t)layout_specs[node].top : 0);
-            top_count++;
+            int32_t top_edge = (mask & 32) ? (int32_t)layout_specs[node].anchor_top
+                             : (mask & 2) ? (int32_t)layout_specs[node].top : 0;
+            int32_t bottom_edge = top_edge + h;
+            if (bottom_edge > top_extent) top_extent = bottom_edge;
         }
     }
-    int32_t gaps = (top_count ? top_count - 1 : 0)
-                 + (bottom_count ? bottom_count - 1 : 0)
-                 + (top_count && bottom_count ? 1 : 0);
-    int32_t content = top_extent + bottom_extent + gaps * row_gap;
+    int32_t content = top_extent + bottom_extent;
     if (fill_floor > content) content = fill_floor;
     return (lv_coord_t)(content
                         + lv_obj_get_style_space_top(container, LV_PART_MAIN)
@@ -1355,16 +1350,11 @@ int micro_esp_ui_apply_delphi_layout(uint32_t container,
     lv_obj_set_layout(obj, s_delphi_layout_id);
     /* Resolve every child's natural size synchronously, then pin the container
      * to its exact content height, then settle the layout once more. Both
-     * passes happen before the first render, so the top rows are positioned at
-     * their final spot before anything is drawn. */
+     * passes happen before the first render, so the container height is
+     * deterministic and cannot race the RGB panel's frame scan. */
     lv_obj_update_layout(obj);
     lv_obj_set_height(obj, delphi_content_height(obj));
     lv_obj_update_layout(obj);
-    /* Force the whole container (including the docked top rows) to be drawn
-     * into the current framebuffer. With the RGB panel's two framebuffers,
-     * a flip can otherwise land on a buffer that only had the bottom-docked
-     * list redrawn into it, leaving the top rows blank on the panel. */
-    lv_obj_invalidate(obj);
     lvgl_port_unlock();
     return 0;
 }
@@ -1615,6 +1605,7 @@ int micro_esp_ui_destroy_app_root(void)
     memset(text_targets, 0, sizeof text_targets);
     memset(needles, 0, sizeof needles);
     memset(layout_specs, 0, sizeof layout_specs);
+    memset(fill_natural_h, 0, sizeof fill_natural_h);
     activation_read = 0;
     activation_write = 0;
     input_read = 0;

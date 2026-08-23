@@ -18,8 +18,8 @@ pub struct DomBridge {
     checkbox_changes: CheckboxChangeQueue,
     selection_changes: SelectionChangeQueue,
     active_tab: Option<u32>,
-    /* (mask, left, top, right, bottom); mask bit0=left, bit1=top, bit2=right, bit3=bottom. */
-    layout_specs: std::collections::BTreeMap<u32, (u8, f64, f64, f64, f64)>,
+    /* (mask, l, t, w, h, al, at, ar, ab); mask bit0..7 = left,top,width,height,anchor_l,t,r,b. */
+    layout_specs: std::collections::BTreeMap<u32, (u8, f64, f64, f64, f64, f64, f64, f64, f64)>,
     click_handlers: Vec<Closure<dyn FnMut(Event)>>,
 }
 
@@ -568,16 +568,24 @@ impl WebDom for DomBridge {
     fn set_layout_spec(&mut self, node: NodeId, layout: LayoutSpec) -> Result<(), String> {
         let mask = layout.left.map_or(0, |_| 1)
             | layout.top.map_or(0, |_| 2)
-            | layout.right.map_or(0, |_| 4)
-            | layout.bottom.map_or(0, |_| 8);
+            | layout.width.map_or(0, |_| 4)
+            | layout.height.map_or(0, |_| 8)
+            | layout.anchor.left.map_or(0, |_| 16)
+            | layout.anchor.top.map_or(0, |_| 32)
+            | layout.anchor.right.map_or(0, |_| 64)
+            | layout.anchor.bottom.map_or(0, |_| 128);
         self.layout_specs.insert(
             node.0,
             (
                 mask,
                 layout.left.unwrap_or(0.0),
                 layout.top.unwrap_or(0.0),
-                layout.right.unwrap_or(0.0),
-                layout.bottom.unwrap_or(0.0),
+                layout.width.unwrap_or(0.0),
+                layout.height.unwrap_or(0.0),
+                layout.anchor.left.unwrap_or(0.0),
+                layout.anchor.top.unwrap_or(0.0),
+                layout.anchor.right.unwrap_or(0.0),
+                layout.anchor.bottom.unwrap_or(0.0),
             ),
         );
         Ok(())
@@ -593,16 +601,13 @@ impl WebDom for DomBridge {
             .get(&container.0)
             .ok_or_else(|| format!("container node {} is missing", container.0))?;
         let width = container_el.client_width() as f64;
-        /* Match the web column's CSS gap so the computed height lines up with
-         * how the in-flow (un-placed) children are already spaced. */
-        let row_gap = 6.0;
 
-        /* Pass 1 — measure every child so the container (and the scrollable
-         * page) grows to hold the docked children, mirroring the C engine. */
+        /* Pass 1 — measure every child so the container grows to hold the
+         * absolutely-positioned children (mirroring the C engine). Mask bits:
+         * 0=lt-left,1=lt-top,2=wh-width,3=wh-height,4=anchor_l,5=anchor_t,
+         * 6=anchor_r,7=anchor_b. */
         let mut top_extent = 0.0;
         let mut bottom_extent = 0.0;
-        let mut top_count = 0usize;
-        let mut bottom_count = 0usize;
         for child in children {
             let el = self
                 .elements
@@ -611,28 +616,35 @@ impl WebDom for DomBridge {
             let h = el.client_height() as f64;
             match self.layout_specs.get(&child.0).copied() {
                 None => {
-                    /* Un-placed child stays in flow, behaving as a top dock. */
-                    top_extent += h;
-                    top_count += 1;
+                    /* Un-placed child stays in flow at the top. */
+                    if h > top_extent {
+                        top_extent = h;
+                    }
                 }
-                Some((mask, _l, _t, _r, b)) => {
-                    if mask & 2 != 0 && mask & 8 != 0 {
+                Some((mask, _l, _t, _w, _h, _al, at, _ar, ab)) => {
+                    let eh = if mask & 8 != 0 { _h } else { h }; /* explicit ?: content */
+                    if mask & 32 != 0 && mask & 128 != 0 {
                         continue; /* vertical fill takes whatever remains */
                     }
-                    if mask & 8 != 0 {
-                        bottom_extent += h + b;
-                        bottom_count += 1;
+                    if mask & 128 != 0 {
+                        bottom_extent += eh + ab;
                     } else {
-                        top_extent += h + if mask & 2 != 0 { _t } else { 0.0 };
-                        top_count += 1;
+                        let top = if mask & 32 != 0 {
+                            at
+                        } else if mask & 2 != 0 {
+                            _t
+                        } else {
+                            0.0
+                        };
+                        let bottom = top + eh;
+                        if bottom > top_extent {
+                            top_extent = bottom;
+                        }
                     }
                 }
             }
         }
-        let gaps = (top_count.saturating_sub(1) + bottom_count.saturating_sub(1)
-            + usize::from(top_count > 0 && bottom_count > 0)) as f64
-            * row_gap;
-        let avail_h = top_extent + bottom_extent + gaps;
+        let avail_h = top_extent + bottom_extent;
         container_el
             .set_attribute(
                 "style",
@@ -640,39 +652,35 @@ impl WebDom for DomBridge {
             )
             .map_err(|error| format!("size delphi container: {error:?}"))?;
 
-        /* Pass 2 — position each placed child by its LTRB role. */
-        let mut top_y = 0.0;
-        let mut bottom_y = avail_h;
+        /* Pass 2 — position each placed child absolutely by lt/wh + anchors. */
         for child in children {
-            let Some((mask, l, t, r, b)) = self.layout_specs.get(&child.0).copied() else {
+            let Some((mask, l, t, w, h, al, at, ar, ab)) =
+                self.layout_specs.get(&child.0).copied()
+            else {
                 continue;
             };
             let el = self
                 .elements
                 .get(&child.0)
                 .ok_or_else(|| format!("child node {} is missing", child.0))?;
-            let w = el.client_width() as f64;
-            let h = el.client_height() as f64;
-            let (x, style_w) = if mask & 1 != 0 && mask & 4 != 0 {
-                (l, width - l - r)
-            } else if mask & 1 != 0 {
-                (l, w)
-            } else if mask & 4 != 0 {
-                (width - w - r, w)
+            let cw = el.client_width() as f64;
+            let ch = el.client_height() as f64;
+            /* Explicit width/height win over content size when set. */
+            let ew = if mask & 4 != 0 { w } else { cw };
+            let eh = if mask & 8 != 0 { h } else { ch };
+            let (x, style_w) = if mask & 16 != 0 && mask & 64 != 0 {
+                (al, width - al - ar)
+            } else if mask & 64 != 0 {
+                (width - ew - ar, ew)
             } else {
-                (0.0, width)
+                (if mask & 1 != 0 { l } else { 0.0 }, ew)
             };
-            let (y, style_h) = if mask & 2 != 0 && mask & 8 != 0 {
-                (top_y, (bottom_y - top_y).max(0.0))
-            } else if mask & 8 != 0 {
-                bottom_y -= h;
-                let y = bottom_y - b;
-                bottom_y = y - row_gap;
-                (y, h)
+            let (y, style_h) = if mask & 32 != 0 && mask & 128 != 0 {
+                (at, (avail_h - at - ab).max(0.0))
+            } else if mask & 128 != 0 {
+                (avail_h - eh - ab, eh)
             } else {
-                let y = top_y + if mask & 2 != 0 { t } else { 0.0 };
-                top_y = y + h + row_gap;
-                (y, h)
+                (if mask & 2 != 0 { t } else { 0.0 }, eh)
             };
             let style = format!(
                 "position:absolute;left:{}px;top:{}px;width:{}px;height:{}px;",

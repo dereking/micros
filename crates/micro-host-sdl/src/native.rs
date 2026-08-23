@@ -100,7 +100,7 @@ unsafe extern "C" {
         index: f64,
         handler: c_uint,
     ) -> c_int;
-    fn micro_native_set_layout_spec(native: *mut c_void, node: c_uint, mask: c_uint, left: f64, top: f64, right: f64, bottom: f64) -> c_int;
+    fn micro_native_set_layout_spec(native: *mut c_void, node: c_uint, mask: c_uint, left: f64, top: f64, width: f64, height: f64, anchor_left: f64, anchor_top: f64, anchor_right: f64, anchor_bottom: f64) -> c_int;
     fn micro_native_apply_delphi_layout(native: *mut c_void, container: c_uint, child_ids: *const c_uint, child_count: c_uint) -> c_int;
     fn micro_native_create_led(native: *mut c_void, node: c_uint, parent: c_uint, on: c_int) -> c_int;
     fn micro_native_set_led(native: *mut c_void, node: c_uint, on: c_int) -> c_int;
@@ -584,8 +584,12 @@ impl NativeUi for NativeBridge {
     fn set_layout_spec(&mut self, node: NodeId, layout: micro_ir::LayoutSpec) -> Result<(), String> {
         let mask = layout.left.map_or(0, |_| 1)
             | layout.top.map_or(0, |_| 2)
-            | layout.right.map_or(0, |_| 4)
-            | layout.bottom.map_or(0, |_| 8);
+            | layout.width.map_or(0, |_| 4)
+            | layout.height.map_or(0, |_| 8)
+            | layout.anchor.left.map_or(0, |_| 16)
+            | layout.anchor.top.map_or(0, |_| 32)
+            | layout.anchor.right.map_or(0, |_| 64)
+            | layout.anchor.bottom.map_or(0, |_| 128);
         native_result(
             unsafe {
                 micro_native_set_layout_spec(
@@ -594,8 +598,12 @@ impl NativeUi for NativeBridge {
                     mask,
                     layout.left.unwrap_or(0.0),
                     layout.top.unwrap_or(0.0),
-                    layout.right.unwrap_or(0.0),
-                    layout.bottom.unwrap_or(0.0),
+                    layout.width.unwrap_or(0.0),
+                    layout.height.unwrap_or(0.0),
+                    layout.anchor.left.unwrap_or(0.0),
+                    layout.anchor.top.unwrap_or(0.0),
+                    layout.anchor.right.unwrap_or(0.0),
+                    layout.anchor.bottom.unwrap_or(0.0),
                 )
             },
             "set layout spec",

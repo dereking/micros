@@ -127,18 +127,44 @@ pub enum ValueSource {
     Binding(FunctionId),
 }
 
-/// Per-node layout hints, set via `ui.place(widget, { left, top, right, bottom })`.
+/// Per-node layout hints, set via `ui.place(widget, { left, top, width, height,
+/// anchor })`.
 ///
-/// A set edge pins the child's side to the parent's corresponding edge at that
-/// offset; the distance stays constant as the parent resizes (Delphi anchor
-/// semantics). `left + right` set stretches the child horizontally, `top +
-/// bottom` set stretches it vertically. An unset edge leaves that side free.
+/// Mirrors Delphi: `left`/`top`/`width`/`height` are the child's base geometry
+/// (position and size), and `anchor` pins edges to the parent's edges — an
+/// anchored edge takes priority over the base position for that side, and both
+/// opposite edges anchored stretches the child along that axis. An unset
+/// `width`/`height` falls back to the content size.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LayoutSpec {
+    /// Base left position (used when the left edge is not anchored).
+    pub left: Option<f64>,
+    /// Base top position (used when the top edge is not anchored).
+    pub top: Option<f64>,
+    /// Base width (used when the horizontal axis is not stretched).
+    pub width: Option<f64>,
+    /// Base height (used when the vertical axis is not stretched).
+    pub height: Option<f64>,
+    /// Edge anchors: an offset pins that edge to the parent's edge.
+    pub anchor: AnchorSpec,
+}
+
+/// Edge anchors for `LayoutSpec`. Each offset pins the child's corresponding
+/// side to the parent's side at that distance; both opposite edges set
+/// stretches the child along that axis. Higher priority than the base
+/// left/top/width/height.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct AnchorSpec {
     pub left: Option<f64>,
     pub top: Option<f64>,
     pub right: Option<f64>,
     pub bottom: Option<f64>,
+}
+
+impl AnchorSpec {
+    pub const fn is_empty(&self) -> bool {
+        self.left.is_none() && self.top.is_none() && self.right.is_none() && self.bottom.is_none()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

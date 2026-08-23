@@ -80,8 +80,12 @@ unsafe extern "C" {
         mask: u32,
         left: f64,
         top: f64,
-        right: f64,
-        bottom: f64,
+        width: f64,
+        height: f64,
+        anchor_left: f64,
+        anchor_top: f64,
+        anchor_right: f64,
+        anchor_bottom: f64,
     ) -> c_int;
     fn micro_esp_ui_apply_delphi_layout(
         container: u32,
@@ -342,16 +346,24 @@ impl NativeUi for EspNativeUi {
     ) -> Result<(), String> {
         let mask = layout.left.map_or(0, |_| 1)
             | layout.top.map_or(0, |_| 2)
-            | layout.right.map_or(0, |_| 4)
-            | layout.bottom.map_or(0, |_| 8);
+            | layout.width.map_or(0, |_| 4)
+            | layout.height.map_or(0, |_| 8)
+            | layout.anchor.left.map_or(0, |_| 16)
+            | layout.anchor.top.map_or(0, |_| 32)
+            | layout.anchor.right.map_or(0, |_| 64)
+            | layout.anchor.bottom.map_or(0, |_| 128);
         native_result(unsafe {
             micro_esp_ui_set_layout_spec(
                 node.0,
                 mask,
                 layout.left.unwrap_or(0.0),
                 layout.top.unwrap_or(0.0),
-                layout.right.unwrap_or(0.0),
-                layout.bottom.unwrap_or(0.0),
+                layout.width.unwrap_or(0.0),
+                layout.height.unwrap_or(0.0),
+                layout.anchor.left.unwrap_or(0.0),
+                layout.anchor.top.unwrap_or(0.0),
+                layout.anchor.right.unwrap_or(0.0),
+                layout.anchor.bottom.unwrap_or(0.0),
             )
         })
     }

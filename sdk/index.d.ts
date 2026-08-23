@@ -60,25 +60,33 @@ declare const ui: {
   place(
     widget: UiNode,
     layout: {
+      /** Base left position (used when the left edge is not anchored). */
+      left?: number;
+      /** Base top position (used when the top edge is not anchored). */
+      top?: number;
+      /** Base width (used when the horizontal axis is not stretched by anchors). */
+      width?: number;
+      /** Base height (used when the vertical axis is not stretched by anchors). */
+      height?: number;
+      /** Edge anchors: an offset pins that edge to the parent's edge, taking
+       * priority over the base position; both opposite edges set stretches. */
+      anchor?: {
+        left?: number;
+        top?: number;
+        right?: number;
+        bottom?: number;
+      };
       /**
-       * Dock the widget to an edge (Delphi Align). Seeds the default LTRB
-       * combo; explicit LTRB offsets below override individual edges.
+       * Dock the widget to an edge (Delphi Align) — seeds the default anchor
+       * combo; explicit `anchor` edges override per edge.
        * - "top": `{ left: 0, right: 0, top: 0 }`
        * - "bottom": `{ left: 0, right: 0, bottom: 0 }`
        * - "left": `{ left: 0, top: 0, bottom: 0 }`
        * - "right": `{ right: 0, top: 0, bottom: 0 }`
        * - "client": `{ left: 0, top: 0, right: 0, bottom: 0 }`
-       * - "none": no anchors (default flow)
+       * - "none": no anchors (base ltwh positioning)
        */
       align?: "top" | "bottom" | "left" | "right" | "client" | "none";
-      /** Distance from the parent's left edge; paired with `right` it stretches. */
-      left?: number;
-      /** Distance from the parent's top edge; paired with `bottom` it stretches. */
-      top?: number;
-      /** Distance from the parent's right edge; paired with `left` it stretches. */
-      right?: number;
-      /** Distance from the parent's bottom edge; paired with `top` it stretches. */
-      bottom?: number;
     },
   ): UiNode;
   mount(root: UiNode): void;

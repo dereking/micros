@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use micro_ir::{
-    AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId, FunctionKind,
-    HandlerId, Instruction, LayoutSpec, NodeId, ScalarType, StateDecl, StateId, TextSource,
-    TextStyle, UiKind, UiNodeSpec, ValueSource, validate,
+    AnchorSpec, AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId,
+    FunctionKind, HandlerId, Instruction, LayoutSpec, NodeId, ScalarType, StateDecl, StateId,
+    TextSource, TextStyle, UiKind, UiNodeSpec, ValueSource, validate,
 };
 use swc_common::{SourceMap, Span, Spanned, sync::Lrc};
 use swc_ecma_ast::{
@@ -628,8 +628,9 @@ impl<'a> Lowerer<'a> {
         let mut align_name: Option<(String, Span)> = None;
         let mut left = None;
         let mut top = None;
-        let mut right = None;
-        let mut bottom = None;
+        let mut width = None;
+        let mut height = None;
+        let mut anchor = AnchorSpec::default();
         for property in &object.props {
             let PropOrSpread::Prop(property) = property else {
                 return Err(self.error(
@@ -665,11 +666,57 @@ impl<'a> Lowerer<'a> {
                 }
                 "left" => left = Some(self.numeric_option(property.value.span(), &property.value)?),
                 "top" => top = Some(self.numeric_option(property.value.span(), &property.value)?),
-                "right" => {
-                    right = Some(self.numeric_option(property.value.span(), &property.value)?)
+                "width" => {
+                    width = Some(self.numeric_option(property.value.span(), &property.value)?)
                 }
-                "bottom" => {
-                    bottom = Some(self.numeric_option(property.value.span(), &property.value)?)
+                "height" => {
+                    height = Some(self.numeric_option(property.value.span(), &property.value)?)
+                }
+                "anchor" => {
+                    let Expr::Object(anchor_object) = &*property.value else {
+                        return Err(self.error(
+                            property.value.span(),
+                            "MTS012",
+                            "ui.place anchor must be an object",
+                        ));
+                    };
+                    for anchor_prop in &anchor_object.props {
+                        let PropOrSpread::Prop(anchor_prop) = anchor_prop else {
+                            return Err(self.error(
+                                anchor_prop.span(),
+                                "MTS012",
+                                "ui.place anchor cannot use spread",
+                            ));
+                        };
+                        let Prop::KeyValue(anchor_prop) = &**anchor_prop else {
+                            return Err(self.error(
+                                anchor_prop.span(),
+                                "MTS012",
+                                "ui.place anchor must use key-value pairs",
+                            ));
+                        };
+                        let PropName::Ident(anchor_name) = &anchor_prop.key else {
+                            return Err(self.error(
+                                anchor_prop.key.span(),
+                                "MTS012",
+                                "ui.place anchor names must be identifiers",
+                            ));
+                        };
+                        let value = self.numeric_option(anchor_prop.value.span(), &anchor_prop.value)?;
+                        match anchor_name.sym.as_ref() {
+                            "left" => anchor.left = Some(value),
+                            "top" => anchor.top = Some(value),
+                            "right" => anchor.right = Some(value),
+                            "bottom" => anchor.bottom = Some(value),
+                            _ => {
+                                return Err(self.error(
+                                    anchor_prop.key.span(),
+                                    "MTS002",
+                                    format!("unknown ui.place anchor edge `{}`", anchor_name.sym),
+                                ));
+                            }
+                        }
+                    }
                 }
                 _ => {
                     return Err(self.error(
@@ -680,36 +727,36 @@ impl<'a> Lowerer<'a> {
                 }
             }
         }
-        /* `align` seeds the default LTRB combo (Delphi Align); explicit LTRB
-         * offsets override per edge (Delphi Anchors). */
+        /* `align` seeds a default anchor combo (Delphi Align); explicit anchor
+         * edges override per edge (Delphi Anchors). */
         if let Some((name, span)) = align_name {
             match name.as_str() {
                 "none" => {}
                 "top" => {
-                    left.get_or_insert(0.0);
-                    right.get_or_insert(0.0);
-                    top.get_or_insert(0.0);
+                    anchor.left.get_or_insert(0.0);
+                    anchor.right.get_or_insert(0.0);
+                    anchor.top.get_or_insert(0.0);
                 }
                 "bottom" => {
-                    left.get_or_insert(0.0);
-                    right.get_or_insert(0.0);
-                    bottom.get_or_insert(0.0);
+                    anchor.left.get_or_insert(0.0);
+                    anchor.right.get_or_insert(0.0);
+                    anchor.bottom.get_or_insert(0.0);
                 }
                 "left" => {
-                    left.get_or_insert(0.0);
-                    top.get_or_insert(0.0);
-                    bottom.get_or_insert(0.0);
+                    anchor.left.get_or_insert(0.0);
+                    anchor.top.get_or_insert(0.0);
+                    anchor.bottom.get_or_insert(0.0);
                 }
                 "right" => {
-                    right.get_or_insert(0.0);
-                    top.get_or_insert(0.0);
-                    bottom.get_or_insert(0.0);
+                    anchor.right.get_or_insert(0.0);
+                    anchor.top.get_or_insert(0.0);
+                    anchor.bottom.get_or_insert(0.0);
                 }
                 "client" => {
-                    left.get_or_insert(0.0);
-                    top.get_or_insert(0.0);
-                    right.get_or_insert(0.0);
-                    bottom.get_or_insert(0.0);
+                    anchor.left.get_or_insert(0.0);
+                    anchor.top.get_or_insert(0.0);
+                    anchor.right.get_or_insert(0.0);
+                    anchor.bottom.get_or_insert(0.0);
                 }
                 other => {
                     return Err(self.error(
@@ -723,8 +770,9 @@ impl<'a> Lowerer<'a> {
         Ok(LayoutSpec {
             left,
             top,
-            right,
-            bottom,
+            width,
+            height,
+            anchor,
         })
     }
 
