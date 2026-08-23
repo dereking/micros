@@ -655,6 +655,9 @@ int micro_esp_ui_create_list(uint32_t node, uint32_t parent)
         else {
             lv_obj_set_size(list, LV_PCT(100), LV_SIZE_CONTENT);
             lv_obj_set_style_pad_row(list, 4, LV_PART_MAIN);
+            /* Let the outer column own scrolling. */
+            lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
+            lv_obj_remove_flag(list, LV_OBJ_FLAG_SCROLLABLE);
             objects[node] = list;
             if (parent == MICRO_UI_NO_PARENT) app_root = list;
         }
