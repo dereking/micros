@@ -34,8 +34,6 @@ ui.mount(
           return "zero";
         })),
 
-        ui.text(bind(() => `total presses: ${presses.value}`)),
-
         ui.button("Add", {
           onClick: () => {
             count.value++;
