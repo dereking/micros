@@ -24,6 +24,7 @@ pub enum RuntimeError {
     ProgressIsNotNumber(NodeId),
     SwitchIsNotBoolean(NodeId),
     InputIsNotString(NodeId),
+    SliderIsNotNumber(NodeId),
 }
 
 impl fmt::Display for RuntimeError {
@@ -105,6 +106,7 @@ impl<R: RenderPort> Runtime<R> {
         let (function_id, argument) = match event {
             Event::Activate(id) => (id, None),
             Event::InputChanged(id, text) => (id, Some(Value::String(text))),
+            Event::SliderChanged(id, value) => (id, Some(Value::Number(value))),
         };
         if !matches!(
             self.image.functions.get(function_id.0 as usize),
@@ -207,6 +209,15 @@ impl<R: RenderPort> Runtime<R> {
                                 text: text.clone(),
                             });
                         }
+                        UiKind::Slider => {
+                            let Value::Number(value) = &value else {
+                                return Err(RuntimeError::SliderIsNotNumber(node.id));
+                            };
+                            patches.push(RenderPatch::SetSliderValue {
+                                node: node.id,
+                                value: *value,
+                            });
+                        }
                         _ => {}
                     }
                 }
@@ -250,6 +261,10 @@ impl<R: RenderPort> Runtime<R> {
                     Some(Value::Bool(checked)) => Some(Value::Bool(checked)),
                     _ => return Err(RuntimeError::SwitchIsNotBoolean(node.id)),
                 },
+                UiKind::Slider => match value {
+                    Some(Value::Number(value)) => Some(Value::Number(value)),
+                    _ => return Err(RuntimeError::SliderIsNotNumber(node.id)),
+                },
                 _ => value,
             };
             nodes.push(MicroUiNode {
@@ -262,6 +277,7 @@ impl<R: RenderPort> Runtime<R> {
                 text_style: node
                     .text_style
                     .or_else(|| TextStyle::default_for(node.kind)),
+                range: node.range,
             });
         }
         Ok(MicroUiTree {

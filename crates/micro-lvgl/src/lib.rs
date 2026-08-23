@@ -48,6 +48,15 @@ pub trait NativeUi {
         style: Option<&TextStyle>,
     ) -> Result<(), String>;
     fn set_input_text(&mut self, node: NodeId, text: &str) -> Result<(), String>;
+    fn create_slider(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        value: f64,
+        range: Option<(f64, f64)>,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String>;
+    fn set_slider_value(&mut self, node: NodeId, value: f64) -> Result<(), String>;
     fn destroy_app_root(&mut self) -> Result<(), String>;
 }
 
@@ -158,6 +167,16 @@ impl<B: NativeUi> LvglRenderer<B> {
                     Some(&style),
                 )
             }
+            UiKind::Slider => {
+                let Some(Value::Number(value)) = node.value.as_ref() else {
+                    return Err(RenderError(format!(
+                        "slider {} has no numeric value",
+                        node.id.0
+                    )));
+                };
+                self.bridge
+                    .create_slider(node.id, parent, *value, node.range, node.on_click)
+            }
         }
         .map_err(RenderError)?;
         if parent.is_none() {
@@ -198,6 +217,10 @@ impl<B: NativeUi> RenderPort for LvglRenderer<B> {
                         .set_input_text(*node, &text)
                         .map_err(RenderError)?;
                 }
+                RenderPatch::SetSliderValue { node, value } => self
+                    .bridge
+                    .set_slider_value(*node, *value)
+                    .map_err(RenderError)?,
             }
         }
         Ok(())

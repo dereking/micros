@@ -44,5 +44,11 @@ MICRO_EXPORT int micro_native_create_input(micro_native_t *native, uint32_t node
 MICRO_EXPORT int micro_native_set_input_text(micro_native_t *native, uint32_t node_id, const char *text);
 MICRO_EXPORT int micro_native_take_input_change(micro_native_t *native, uint32_t *handler_id, char *text,
                                                 size_t text_capacity, size_t *text_len);
+/* Draggable numeric slider. `value` is the initial position within [min,max];
+ * `handler_id` is the onChange handler (or MICRO_NO_HANDLER to disable). */
+MICRO_EXPORT int micro_native_create_slider(micro_native_t *native, uint32_t node_id, uint32_t parent_id,
+                                            double value, double min, double max, uint32_t handler_id);
+MICRO_EXPORT int micro_native_set_slider_value(micro_native_t *native, uint32_t node_id, double value);
+MICRO_EXPORT int micro_native_take_slider_change(micro_native_t *native, uint32_t *handler_id, double *value);
 
 #endif

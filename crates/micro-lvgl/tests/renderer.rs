@@ -116,6 +116,21 @@ impl NativeUi for FakeBridge {
         Ok(())
     }
 
+    fn create_slider(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _value: f64,
+        _range: Option<(f64, f64)>,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_slider_value(&mut self, _node: NodeId, _value: f64) -> Result<(), String> {
+        Ok(())
+    }
+
     fn destroy_app_root(&mut self) -> Result<(), String> {
         Ok(())
     }
@@ -134,6 +149,7 @@ fn tree() -> MicroUiTree {
                 value: None,
                 on_click: None,
                 text_style: None,
+                range: None,
             },
             MicroUiNode {
                 id: NodeId(1),
@@ -143,6 +159,7 @@ fn tree() -> MicroUiTree {
                 value: None,
                 on_click: None,
                 text_style: Some(label_style),
+                range: None,
             },
             MicroUiNode {
                 id: NodeId(2),
@@ -152,6 +169,7 @@ fn tree() -> MicroUiTree {
                 value: None,
                 on_click: Some(FunctionId(7)),
                 text_style: Some(button_style),
+                range: None,
             },
         ],
         root: NodeId(0),
@@ -206,6 +224,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     value: None,
                     on_click: None,
                     text_style: None,
+                    range: None,
                 },
                 MicroUiNode {
                     id: NodeId(1),
@@ -215,6 +234,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     value: None,
                     on_click: None,
                     text_style: None,
+                    range: None,
                 },
                 MicroUiNode {
                     id: NodeId(2),
@@ -224,6 +244,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     value: Some(Value::Bool(false)),
                     on_click: Some(FunctionId(7)),
                     text_style: None,
+                    range: None,
                 },
                 MicroUiNode {
                     id: NodeId(3),
@@ -233,6 +254,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     value: None,
                     on_click: None,
                     text_style: None,
+                    range: None,
                 },
                 MicroUiNode {
                     id: NodeId(4),
@@ -242,6 +264,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     value: Some(Value::Number(0.5)),
                     on_click: None,
                     text_style: None,
+                    range: None,
                 },
             ],
             root: NodeId(0),
@@ -381,6 +404,21 @@ impl NativeUi for TrackingBridge {
     }
 
     fn set_input_text(&mut self, _node: NodeId, _text: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_slider(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _value: f64,
+        _range: Option<(f64, f64)>,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_slider_value(&mut self, _node: NodeId, _value: f64) -> Result<(), String> {
         Ok(())
     }
 
@@ -540,6 +578,21 @@ impl NativeUi for SharedRootBridge {
     }
 
     fn set_input_text(&mut self, _node: NodeId, _text: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_slider(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _value: f64,
+        _range: Option<(f64, f64)>,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_slider_value(&mut self, _node: NodeId, _value: f64) -> Result<(), String> {
         Ok(())
     }
 

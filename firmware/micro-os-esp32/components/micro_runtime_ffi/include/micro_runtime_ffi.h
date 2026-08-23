@@ -300,6 +300,12 @@ int micro_esp_ui_create_input(uint32_t node, uint32_t parent,
                               uint32_t handler, uintptr_t font_handle,
                               uint32_t line_height_px);
 int micro_esp_ui_set_input_text(uint32_t node, const uint8_t *text, size_t len);
+/* Draggable numeric slider. `value` is the initial position within [min,max];
+ * `handler` is the onChange handler id (or MICRO_UI_NO_HANDLER to disable). */
+int micro_esp_ui_create_slider(uint32_t node, uint32_t parent,
+                               double value, double min, double max,
+                               uint32_t handler);
+int micro_esp_ui_set_slider_value(uint32_t node, double value);
 int micro_esp_ui_destroy_app_root(void);
 /* Returns 1 with a handler, 0 when empty, and a negative bridge error. */
 int micro_esp_ui_take_activation(uint32_t *handler_id);
@@ -307,6 +313,9 @@ int micro_esp_ui_take_activation(uint32_t *handler_id);
  * bridge error. Copies at most text_capacity bytes into text. */
 int micro_esp_ui_take_input_change(uint32_t *handler_id, uint8_t *text,
                                    size_t text_capacity, size_t *text_len);
+/* Returns 1 with a handler and its new value, 0 when empty, and a negative
+ * bridge error. */
+int micro_esp_ui_take_slider_change(uint32_t *handler_id, double *value);
 void micro_esp_ui_report_diagnostic(uint32_t node, const uint8_t *message, size_t len);
 
 #ifdef __cplusplus

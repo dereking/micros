@@ -12,6 +12,7 @@
 #define MICRO_NO_HANDLER UINT32_MAX
 #define MICRO_INPUT_CAPACITY 16U
 #define MICRO_INPUT_TEXT_MAX 256U
+#define MICRO_SLIDER_CAPACITY 32U
 
 typedef struct micro_click_context {
     struct micro_native *native;
@@ -23,6 +24,11 @@ typedef struct micro_input_change {
     size_t len;
     char text[MICRO_INPUT_TEXT_MAX];
 } micro_input_change_t;
+
+typedef struct micro_slider_change {
+    uint32_t handler_id;
+    double value;
+} micro_slider_change_t;
 
 struct micro_native {
     SDL_Window *window;
@@ -44,6 +50,9 @@ struct micro_native {
     micro_input_change_t input_changes[MICRO_INPUT_CAPACITY];
     unsigned input_read;
     unsigned input_write;
+    micro_slider_change_t slider_changes[MICRO_SLIDER_CAPACITY];
+    unsigned slider_read;
+    unsigned slider_write;
 };
 
 static void copy_error(char *target, size_t length, const char *message) {
@@ -105,6 +114,19 @@ static void input_callback(lv_event_t *event) {
         memcpy(change->text, text, len);
         change->text[len] = '\0';
         context->native->input_write = next;
+    }
+}
+
+static void slider_callback(lv_event_t *event) {
+    micro_click_context_t *context = lv_event_get_user_data(event);
+    lv_obj_t *target = lv_event_get_target(event);
+    if (target == NULL) return;
+    unsigned next = (context->native->slider_write + 1U) % MICRO_SLIDER_CAPACITY;
+    if (next != context->native->slider_read) {
+        micro_slider_change_t *change = &context->native->slider_changes[context->native->slider_write];
+        change->handler_id = context->handler_id;
+        change->value = (double)lv_slider_get_value(target);
+        context->native->slider_write = next;
     }
 }
 
@@ -197,6 +219,8 @@ int micro_native_destroy_app_root(micro_native_t *native) {
     memset(native->text_targets, 0, sizeof(native->text_targets));
     native->input_read = 0;
     native->input_write = 0;
+    native->slider_read = 0;
+    native->slider_write = 0;
     return 1;
 }
 
@@ -415,6 +439,42 @@ int micro_native_create_input(micro_native_t *native, uint32_t node_id, uint32_t
 int micro_native_set_input_text(micro_native_t *native, uint32_t node_id, const char *text) {
     if (native == NULL || node_id >= MICRO_MAX_NODES || native->objects[node_id] == NULL) return 0;
     lv_textarea_set_text(native->objects[node_id], text);
+    return 1;
+}
+
+int micro_native_create_slider(micro_native_t *native, uint32_t node_id, uint32_t parent_id,
+                               double value, double min, double max, uint32_t handler_id) {
+    if (native == NULL || node_id >= MICRO_MAX_NODES) return 0;
+    lv_obj_t *parent = parent_object(native, parent_id);
+    if (parent == NULL) return 0;
+    lv_obj_t *slider = lv_slider_create(parent);
+    lv_slider_set_range(slider, (int32_t)min, (int32_t)max);
+    lv_slider_set_value(slider, (int32_t)value, LV_ANIM_OFF);
+    lv_obj_set_width(slider, LV_PCT(100));
+    if (handler_id == MICRO_NO_HANDLER) {
+        lv_obj_remove_flag(slider, LV_OBJ_FLAG_CLICKABLE);
+    } else {
+        native->clicks[node_id].native = native;
+        native->clicks[node_id].handler_id = handler_id;
+        lv_obj_add_event_cb(slider, slider_callback, LV_EVENT_VALUE_CHANGED,
+                            &native->clicks[node_id]);
+    }
+    native->objects[node_id] = slider;
+    return 1;
+}
+
+int micro_native_set_slider_value(micro_native_t *native, uint32_t node_id, double value) {
+    if (native == NULL || node_id >= MICRO_MAX_NODES || native->objects[node_id] == NULL) return 0;
+    lv_slider_set_value(native->objects[node_id], (int32_t)value, LV_ANIM_OFF);
+    return 1;
+}
+
+int micro_native_take_slider_change(micro_native_t *native, uint32_t *handler_id, double *value) {
+    if (native == NULL || handler_id == NULL || value == NULL) return 0;
+    if (native->slider_read == native->slider_write) return 0;
+    *handler_id = native->slider_changes[native->slider_read].handler_id;
+    *value = native->slider_changes[native->slider_read].value;
+    native->slider_read = (native->slider_read + 1U) % MICRO_SLIDER_CAPACITY;
     return 1;
 }
 

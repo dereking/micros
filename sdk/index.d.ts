@@ -33,5 +33,9 @@ declare const ui: {
     value: string | Binding<string>,
     options?: { placeholder?: string; onChange?: (text: string) => void },
   ): UiNode;
+  slider(
+    value: number | Binding<number>,
+    options?: { min?: number; max?: number; onChange?: (value: number) => void },
+  ): UiNode;
   mount(root: UiNode): void;
 };

@@ -84,6 +84,10 @@ pub enum UiKind {
     /// string. The optional `on_click` handler is a 1-arg handler that
     /// receives the new text.
     Input,
+    /// Draggable numeric input (LVGL slider). The current position lives in
+    /// `value`; the optional `range` gives (min, max) in value units; the
+    /// optional `on_click` handler is a 1-arg handler receiving the new value.
+    Slider,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,7 +203,9 @@ impl TextStyle {
 
     pub const fn default_for(kind: UiKind) -> Option<Self> {
         match kind {
-            UiKind::Column | UiKind::Row | UiKind::Progress | UiKind::Switch => None,
+            UiKind::Column | UiKind::Row | UiKind::Progress | UiKind::Switch | UiKind::Slider => {
+                None
+            }
             UiKind::Text | UiKind::Input => Some(Self::DEFAULT_TEXT),
             UiKind::Button => Some(Self::DEFAULT_BUTTON),
         }
@@ -210,7 +216,7 @@ impl TextStyle {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UiNodeSpec {
     pub id: NodeId,
     pub kind: UiKind,
@@ -219,6 +225,9 @@ pub struct UiNodeSpec {
     pub value: Option<ValueSource>,
     pub on_click: Option<FunctionId>,
     pub text_style: Option<TextStyle>,
+    /// Optional (min, max) range in value units, used by value widgets that
+    /// accept a range (e.g. Slider). `None` means the renderer default.
+    pub range: Option<(f64, f64)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

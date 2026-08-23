@@ -48,6 +48,15 @@ pub trait WebDom {
         style: Option<&TextStyle>,
     ) -> Result<(), String>;
     fn set_input_text(&mut self, node: NodeId, text: &str) -> Result<(), String>;
+    fn create_slider(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        value: f64,
+        range: Option<(f64, f64)>,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String>;
+    fn set_slider_value(&mut self, node: NodeId, value: f64) -> Result<(), String>;
 }
 
 pub struct WebRenderer<D> {
@@ -144,6 +153,16 @@ impl<D: WebDom> WebRenderer<D> {
                     Some(&style),
                 )
             }
+            UiKind::Slider => {
+                let Some(Value::Number(value)) = node.value.as_ref() else {
+                    return Err(RenderError(format!(
+                        "slider {} has no numeric value",
+                        node.id.0
+                    )));
+                };
+                self.dom
+                    .create_slider(node.id, parent, *value, node.range, node.on_click)
+            }
         }
         .map_err(RenderError)?;
 
@@ -180,6 +199,10 @@ impl<D: WebDom> RenderPort for WebRenderer<D> {
                         .set_input_text(*node, &text)
                         .map_err(RenderError)?;
                 }
+                RenderPatch::SetSliderValue { node, value } => self
+                    .dom
+                    .set_slider_value(*node, *value)
+                    .map_err(RenderError)?,
             }
         }
         Ok(())

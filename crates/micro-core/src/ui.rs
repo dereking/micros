@@ -12,6 +12,7 @@ pub struct MicroUiNode {
     pub value: Option<Value>,
     pub on_click: Option<FunctionId>,
     pub text_style: Option<TextStyle>,
+    pub range: Option<(f64, f64)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -26,6 +27,7 @@ pub enum RenderPatch {
     SetProgress { node: NodeId, fraction: f64 },
     SetChecked { node: NodeId, checked: bool },
     SetInputText { node: NodeId, text: String },
+    SetSliderValue { node: NodeId, value: f64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -213,6 +213,15 @@ impl<'a> Lowerer<'a> {
                     Some(text_style.unwrap_or(TextStyle::DEFAULT_BUTTON));
                 Ok(id)
             }
+            Some("ui.slider") => {
+                let id = self.reserve_node(UiKind::Slider);
+                self.nodes[id.0 as usize].value =
+                    Some(self.lower_value_source(ScalarType::Number, &call.args[0].expr)?);
+                if let Some(options) = call.args.get(1) {
+                    self.lower_slider_options(id, &options.expr)?;
+                }
+                Ok(id)
+            }
             _ => Err(self.error(call.span, "MTS012", "unsupported UI call")),
         }
     }
@@ -227,6 +236,7 @@ impl<'a> Lowerer<'a> {
             value: None,
             on_click: None,
             text_style: None,
+            range: None,
         });
         id
     }
@@ -391,7 +401,7 @@ impl<'a> Lowerer<'a> {
                         self.error(property.value.span(), "MTS012", "onChange arrow is required")
                     })?;
                     self.nodes[node.0 as usize].on_click =
-                        Some(self.add_input_function(arrow)?);
+                        Some(self.add_input_function(arrow, ScalarType::String)?);
                 }
                 "onChange" => {
                     return Err(self.error(
@@ -431,6 +441,103 @@ impl<'a> Lowerer<'a> {
             }
         }
         Ok(())
+    }
+
+    fn lower_slider_options(
+        &mut self,
+        node: NodeId,
+        expression: &Expr,
+    ) -> Result<(), Diagnostic> {
+        let Expr::Object(object) = expression else {
+            return Err(self.error(
+                expression.span(),
+                "MTS012",
+                "ui.slider options must be an object",
+            ));
+        };
+        let mut saw_change = false;
+        let mut min_value = None;
+        let mut max_value = None;
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.slider options cannot use spread",
+                ));
+            };
+            let Prop::KeyValue(property) = &**property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.slider options must use key-value pairs",
+                ));
+            };
+            let PropName::Ident(name) = &property.key else {
+                return Err(self.error(
+                    property.key.span(),
+                    "MTS012",
+                    "ui.slider option names must be identifiers",
+                ));
+            };
+            match name.sym.as_ref() {
+                "onChange" if !saw_change => {
+                    saw_change = true;
+                    let arrow = as_arrow(&property.value).ok_or_else(|| {
+                        self.error(property.value.span(), "MTS012", "onChange arrow is required")
+                    })?;
+                    self.nodes[node.0 as usize].on_click =
+                        Some(self.add_input_function(arrow, ScalarType::Number)?);
+                }
+                "onChange" => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS012",
+                        format!("duplicate ui.slider property `{}`", name.sym),
+                    ));
+                }
+                "min" if min_value.is_none() => {
+                    min_value = Some(self.numeric_option(property.value.span(), &property.value)?);
+                }
+                "min" => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS012",
+                        "duplicate ui.slider property `min`",
+                    ));
+                }
+                "max" if max_value.is_none() => {
+                    max_value = Some(self.numeric_option(property.value.span(), &property.value)?);
+                }
+                "max" => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS012",
+                        "duplicate ui.slider property `max`",
+                    ));
+                }
+                _ => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS002",
+                        format!("unknown ui.slider property `{}`", name.sym),
+                    ));
+                }
+            }
+        }
+        if let (Some(min), Some(max)) = (min_value, max_value) {
+            self.nodes[node.0 as usize].range = Some((min, max));
+        }
+        Ok(())
+    }
+
+    fn numeric_option(&mut self, span: Span, expression: &Expr) -> Result<f64, Diagnostic> {
+        let constant = literal_constant(expression)
+            .ok_or_else(|| self.error(span, "MTS012", "option value must be a number"))?;
+        let Constant::Number(value) = constant else {
+            return Err(self.error(span, "MTS012", "option value must be a number"));
+        };
+        Ok(value)
     }
 
     fn lower_text_style(&self, expression: &Expr) -> Result<TextStyle, Diagnostic> {
@@ -644,7 +751,11 @@ impl<'a> Lowerer<'a> {
     /// Lower a `ui.input` `onChange` handler. The handler accepts exactly one
     /// string argument (the new field text); the lowering binds the arrow's
     /// first parameter name so body reads of it compile to `LoadArg`.
-    fn add_input_function(&mut self, arrow: &ArrowExpr) -> Result<FunctionId, Diagnostic> {
+    fn add_input_function(
+        &mut self,
+        arrow: &ArrowExpr,
+        arg_type: ScalarType,
+    ) -> Result<FunctionId, Diagnostic> {
         if arrow.params.len() != 1 {
             return Err(self.error(
                 arrow.span,
@@ -662,7 +773,7 @@ impl<'a> Lowerer<'a> {
         let id = HandlerId(self.handler_count);
         self.handler_count += 1;
         let function = FunctionLowerer::new(self, FunctionKind::Handler(id))
-            .with_argument(binding.id.sym.to_string())
+            .with_argument(binding.id.sym.to_string(), arg_type)
             .lower_arrow(arrow)?;
         let id = FunctionId(self.functions.len() as u32);
         self.functions.push(function);
@@ -691,7 +802,7 @@ impl<'a> Lowerer<'a> {
 struct FunctionLowerer<'lowerer, 'source> {
     parent: &'lowerer mut Lowerer<'source>,
     kind: FunctionKind,
-    argument: Option<String>,
+    argument: Option<(String, ScalarType)>,
     locals: BTreeMap<String, (u16, ScalarType)>,
     code: Vec<Instruction>,
 }
@@ -707,8 +818,8 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
         }
     }
 
-    fn with_argument(mut self, name: String) -> Self {
-        self.argument = Some(name);
+    fn with_argument(mut self, name: String, arg_type: ScalarType) -> Self {
+        self.argument = Some((name, arg_type));
         self
     }
 
@@ -812,9 +923,16 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                 Ok(ty)
             }
             Expr::Ident(identifier) => {
-                if self.argument.as_deref() == Some(identifier.sym.as_ref()) {
+                if self
+                    .argument
+                    .as_ref()
+                    .is_some_and(|(name, _)| name == identifier.sym.as_ref())
+                {
                     self.code.push(Instruction::LoadArg);
-                    return Ok(ScalarType::String);
+                    return Ok(self
+                        .argument
+                        .as_ref()
+                        .map_or(ScalarType::String, |(_, ty)| *ty));
                 }
                 let (id, ty) = self
                     .locals
@@ -904,7 +1022,11 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                 Ok(ty)
             }
             Expr::Ident(identifier) => {
-                if self.argument.as_deref() == Some(identifier.sym.as_ref()) {
+                if self
+                    .argument
+                    .as_ref()
+                    .is_some_and(|(name, _)| name == identifier.sym.as_ref())
+                {
                     return Err(self.error(
                         target.span(),
                         "cannot update a function argument",
@@ -939,7 +1061,11 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
         self.code.push(Instruction::Dup);
         match target {
             AssignTarget::Simple(SimpleAssignTarget::Ident(identifier)) => {
-                if self.argument.as_deref() == Some(identifier.sym.as_ref()) {
+                if self
+                    .argument
+                    .as_ref()
+                    .is_some_and(|(name, _)| name == identifier.sym.as_ref())
+                {
                     return Err(self.error(
                         identifier.span,
                         "cannot assign to a function argument",

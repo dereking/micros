@@ -4,7 +4,7 @@ mod system;
 #[cfg(any(target_arch = "wasm32", test))]
 use micro_ir::{FontFamily, FontWeight, TextStyle};
 
-pub use activation::{ActivationQueue, InputChangeQueue};
+pub use activation::{ActivationQueue, InputChangeQueue, SliderChangeQueue};
 pub use system::{SystemIntent, SystemShell, SystemSnapshot};
 
 #[cfg(any(target_arch = "wasm32", test))]
@@ -106,7 +106,7 @@ mod wasm_host {
     use micro_renderer_web::WebRenderer;
     use wasm_bindgen::prelude::*;
 
-    use crate::{ActivationQueue, InputChangeQueue};
+    use crate::{ActivationQueue, InputChangeQueue, SliderChangeQueue};
     use crate::dom::DomBridge;
 
     #[wasm_bindgen]
@@ -114,6 +114,7 @@ mod wasm_host {
         runtime: Runtime<WebRenderer<DomBridge>>,
         activations: ActivationQueue,
         input_changes: InputChangeQueue,
+        slider_changes: SliderChangeQueue,
     }
 
     #[wasm_bindgen]
@@ -139,7 +140,14 @@ mod wasm_host {
                 .map_err(|error| js_error("WEB_MBC", &format!("cannot decode MBC: {error}")))?;
             let activations = ActivationQueue::default();
             let input_changes = InputChangeQueue::default();
-            let bridge = DomBridge::new(document, container, activations.clone(), input_changes.clone());
+            let slider_changes = SliderChangeQueue::default();
+            let bridge = DomBridge::new(
+                document,
+                container,
+                activations.clone(),
+                input_changes.clone(),
+                slider_changes.clone(),
+            );
             let renderer = WebRenderer::new(bridge);
             let runtime = Runtime::new(image, renderer, event_budget).map_err(|error| {
                 js_error("WEB_RUNTIME", &format!("cannot create Runtime: {error}"))
@@ -148,6 +156,7 @@ mod wasm_host {
                 runtime,
                 activations,
                 input_changes,
+                slider_changes,
             })
         }
 
@@ -157,6 +166,9 @@ mod wasm_host {
             }
             while let Some((handler, text)) = self.input_changes.pop() {
                 self.runtime.enqueue(Event::InputChanged(handler, text));
+            }
+            while let Some((handler, value)) = self.slider_changes.pop() {
+                self.runtime.enqueue(Event::SliderChanged(handler, value));
             }
 
             let mut processed = 0_u32;

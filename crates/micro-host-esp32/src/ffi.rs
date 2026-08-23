@@ -47,6 +47,15 @@ unsafe extern "C" {
         line_height_px: u32,
     ) -> c_int;
     fn micro_esp_ui_set_input_text(node: u32, text: *const u8, len: usize) -> c_int;
+    fn micro_esp_ui_create_slider(
+        node: u32,
+        parent: u32,
+        value: f64,
+        min: f64,
+        max: f64,
+        handler: u32,
+    ) -> c_int;
+    fn micro_esp_ui_set_slider_value(node: u32, value: f64) -> c_int;
     fn micro_esp_ui_destroy_app_root() -> c_int;
     fn micro_esp_ui_take_activation(handler_id: *mut u32) -> c_int;
     fn micro_esp_ui_take_input_change(
@@ -55,6 +64,7 @@ unsafe extern "C" {
         text_capacity: usize,
         text_len: *mut usize,
     ) -> c_int;
+    fn micro_esp_ui_take_slider_change(handler_id: *mut u32, value: *mut f64) -> c_int;
     fn micro_esp_ui_report_diagnostic(node: u32, message: *const u8, len: usize);
 }
 
@@ -187,6 +197,31 @@ impl NativeUi for EspNativeUi {
 
     fn set_input_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
         native_result(unsafe { micro_esp_ui_set_input_text(node.0, text.as_ptr(), text.len()) })
+    }
+
+    fn create_slider(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        value: f64,
+        range: Option<(f64, f64)>,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        let (min, max) = range.unwrap_or((0.0, 100.0));
+        native_result(unsafe {
+            micro_esp_ui_create_slider(
+                node.0,
+                parent_id(parent),
+                value,
+                min,
+                max,
+                handler.map_or(u32::MAX, |id| id.0),
+            )
+        })
+    }
+
+    fn set_slider_value(&mut self, node: NodeId, value: f64) -> Result<(), String> {
+        native_result(unsafe { micro_esp_ui_set_slider_value(node.0, value) })
     }
 
     fn destroy_app_root(&mut self) -> Result<(), String> {
@@ -410,6 +445,30 @@ pub unsafe extern "C" fn micro_runtime_tick(
                     HostError {
                         code: MicroErrorCode::Ui,
                         diagnostic: format!("ESP input-change queue failed with code {code}"),
+                    },
+                    error,
+                    error_length,
+                );
+            }
+        }
+    }
+    loop {
+        let mut handler = 0;
+        let mut value = 0.0_f64;
+        match unsafe { micro_esp_ui_take_slider_change(&raw mut handler, &raw mut value) } {
+            1 => {
+                if let Err(runtime_error) =
+                    runtime.set_slider_value(FunctionId(handler), value)
+                {
+                    return report(runtime_error, error, error_length);
+                }
+            }
+            0 => break,
+            code => {
+                return report(
+                    HostError {
+                        code: MicroErrorCode::Ui,
+                        diagnostic: format!("ESP slider-change queue failed with code {code}"),
                     },
                     error,
                     error_length,

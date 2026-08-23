@@ -71,6 +71,16 @@ unsafe extern "C" {
     ) -> c_int;
     fn micro_native_set_input_text(native: *mut c_void, node: c_uint, text: *const c_char)
         -> c_int;
+    fn micro_native_create_slider(
+        native: *mut c_void,
+        node: c_uint,
+        parent: c_uint,
+        value: f64,
+        min: f64,
+        max: f64,
+        handler: c_uint,
+    ) -> c_int;
+    fn micro_native_set_slider_value(native: *mut c_void, node: c_uint, value: f64) -> c_int;
     fn micro_native_destroy_app_root(native: *mut c_void) -> c_int;
 }
 
@@ -418,6 +428,38 @@ impl NativeUi for NativeBridge {
         native_result(
             unsafe { micro_native_set_input_text(self.raw.as_ptr(), node.0, text.as_ptr()) },
             "set input text",
+        )
+    }
+
+    fn create_slider(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        value: f64,
+        range: Option<(f64, f64)>,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        let (min, max) = range.unwrap_or((0.0, 100.0));
+        native_result(
+            unsafe {
+                micro_native_create_slider(
+                    self.raw.as_ptr(),
+                    node.0,
+                    parent_id(parent),
+                    value,
+                    min,
+                    max,
+                    handler.map_or(u32::MAX, |id| id.0),
+                )
+            },
+            "create slider",
+        )
+    }
+
+    fn set_slider_value(&mut self, node: NodeId, value: f64) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_set_slider_value(self.raw.as_ptr(), node.0, value) },
+            "set slider value",
         )
     }
 

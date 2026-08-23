@@ -109,6 +109,21 @@ impl WebDom for FakeDom {
         Ok(())
     }
 
+    fn create_slider(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _value: f64,
+        _range: Option<(f64, f64)>,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_slider_value(&mut self, _node: NodeId, _value: f64) -> Result<(), String> {
+        Ok(())
+    }
+
     fn set_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
         self.operations.push(Call::SetText(node, text.into()));
         Ok(())
@@ -170,6 +185,7 @@ fn tree_with_text(text: &str) -> MicroUiTree {
                 value: None,
                 on_click: None,
                 text_style: None,
+                range: None,
             },
             MicroUiNode {
                 id: NodeId(1),
@@ -179,6 +195,7 @@ fn tree_with_text(text: &str) -> MicroUiTree {
                 value: None,
                 on_click: None,
                 text_style: None,
+                range: None,
             },
         ],
     }
@@ -199,6 +216,7 @@ fn maps_tree_preorder_and_applies_text_patch() {
                 value: None,
                 on_click: None,
                 text_style: None,
+                range: None,
             },
             MicroUiNode {
                 id: NodeId(1),
@@ -208,6 +226,7 @@ fn maps_tree_preorder_and_applies_text_patch() {
                 value: None,
                 on_click: None,
                 text_style: Some(label_style),
+                range: None,
             },
             MicroUiNode {
                 id: NodeId(2),
@@ -217,6 +236,7 @@ fn maps_tree_preorder_and_applies_text_patch() {
                 value: None,
                 on_click: Some(FunctionId(7)),
                 text_style: Some(button_style),
+                range: None,
             },
         ],
     };
@@ -270,6 +290,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     value: None,
                     on_click: None,
                     text_style: None,
+                    range: None,
                 },
                 MicroUiNode {
                     id: NodeId(1),
@@ -279,6 +300,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     value: None,
                     on_click: None,
                     text_style: None,
+                    range: None,
                 },
                 MicroUiNode {
                     id: NodeId(2),
@@ -288,6 +310,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     value: Some(Value::Bool(false)),
                     on_click: Some(FunctionId(7)),
                     text_style: None,
+                    range: None,
                 },
                 MicroUiNode {
                     id: NodeId(3),
@@ -297,6 +320,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     value: None,
                     on_click: None,
                     text_style: None,
+                    range: None,
                 },
                 MicroUiNode {
                     id: NodeId(4),
@@ -306,6 +330,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     value: Some(Value::Number(0.5)),
                     on_click: None,
                     text_style: None,
+                    range: None,
                 },
             ],
         })
@@ -353,6 +378,7 @@ fn normalizes_unstyled_text_and_button_before_dom_calls() {
         value: None,
         on_click: Some(FunctionId(7)),
         text_style: None,
+        range: None,
     });
     let mut renderer = WebRenderer::new(FakeDom::default());
     renderer.create_tree(&tree).unwrap();

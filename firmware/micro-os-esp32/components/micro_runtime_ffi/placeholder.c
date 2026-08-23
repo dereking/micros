@@ -46,6 +46,7 @@ const void *micro_runtime_ffi_keepalive(void)
 #define MICRO_UI_ACTIVATION_CAPACITY 64U
 #define MICRO_UI_INPUT_CAPACITY 16U
 #define MICRO_UI_INPUT_TEXT_MAX 256U
+#define MICRO_UI_SLIDER_CAPACITY 32U
 
 struct micro_click_context {
     uint32_t handler;
@@ -55,6 +56,11 @@ struct micro_input_change {
     uint32_t handler;
     size_t len;
     char text[MICRO_UI_INPUT_TEXT_MAX];
+};
+
+struct micro_slider_change {
+    uint32_t handler;
+    double value;
 };
 
 static lv_obj_t *objects[MICRO_UI_MAX_NODES];
@@ -67,6 +73,9 @@ static unsigned activation_write;
 static struct micro_input_change input_changes[MICRO_UI_INPUT_CAPACITY];
 static unsigned input_read;
 static unsigned input_write;
+static struct micro_slider_change slider_changes[MICRO_UI_SLIDER_CAPACITY];
+static unsigned slider_read;
+static unsigned slider_write;
 static lv_obj_t *s_keyboard;
 static lv_obj_t *s_candidate_bar;
 static lv_obj_t *s_pinyin_label;
@@ -414,6 +423,24 @@ static void input_callback(lv_event_t *event)
     input_write = next;
 }
 
+static void slider_callback(lv_event_t *event)
+{
+    const struct micro_click_context *context = lv_event_get_user_data(event);
+    lv_obj_t *target = lv_event_get_target(event);
+    if (target == NULL) {
+        return;
+    }
+    unsigned next = (slider_write + 1U) % MICRO_UI_SLIDER_CAPACITY;
+    if (next == slider_read) {
+        ESP_LOGW("micro_ui", "slider queue full; dropping handler %lu",
+                 (unsigned long)context->handler);
+        return;
+    }
+    slider_changes[slider_write].handler = context->handler;
+    slider_changes[slider_write].value = (double)lv_slider_get_value(target);
+    slider_write = next;
+}
+
 static lv_obj_t *parent_object(uint32_t parent)
 {
     if (parent == MICRO_UI_NO_PARENT) {
@@ -754,6 +781,48 @@ int micro_esp_ui_set_input_text(uint32_t node, const uint8_t *text, size_t len)
     return result;
 }
 
+int micro_esp_ui_create_slider(uint32_t node, uint32_t parent,
+                               double value, double min, double max,
+                               uint32_t handler)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    lv_obj_t *parent_obj;
+    int result = begin_create(node, parent, &parent_obj);
+    if (result == 0) {
+        lv_obj_t *slider = lv_slider_create(parent_obj);
+        if (slider == NULL) result = -4;
+        else {
+            lv_slider_set_range(slider, (int32_t)min, (int32_t)max);
+            lv_slider_set_value(slider, (int32_t)value, LV_ANIM_OFF);
+            lv_obj_set_width(slider, LV_PCT(100));
+            if (handler == MICRO_UI_NO_HANDLER) {
+                lv_obj_remove_flag(slider, LV_OBJ_FLAG_CLICKABLE);
+            } else {
+                click_contexts[node].handler = handler;
+                lv_obj_add_event_cb(slider, slider_callback, LV_EVENT_VALUE_CHANGED,
+                                    &click_contexts[node]);
+            }
+            objects[node] = slider;
+            if (parent == MICRO_UI_NO_PARENT) app_root = slider;
+        }
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
+int micro_esp_ui_set_slider_value(uint32_t node, double value)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    int result = -1;
+    if (node < MICRO_UI_MAX_NODES && objects[node] != NULL &&
+        lv_obj_check_type(objects[node], &lv_slider_class)) {
+        lv_slider_set_value(objects[node], (int32_t)value, LV_ANIM_OFF);
+        result = 0;
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
 int micro_esp_ui_destroy_app_root(void)
 {
     if (!lvgl_port_lock(0)) return -3;
@@ -782,6 +851,8 @@ int micro_esp_ui_destroy_app_root(void)
     activation_write = 0;
     input_read = 0;
     input_write = 0;
+    slider_read = 0;
+    slider_write = 0;
     lvgl_port_unlock();
     return 0;
 }
@@ -803,6 +874,23 @@ int micro_esp_ui_take_input_change(uint32_t *handler_id, uint8_t *text,
     memcpy(text, input_changes[input_read].text, len);
     *text_len = len;
     input_read = (input_read + 1U) % MICRO_UI_INPUT_CAPACITY;
+    lvgl_port_unlock();
+    return 1;
+}
+
+int micro_esp_ui_take_slider_change(uint32_t *handler_id, double *value)
+{
+    if (handler_id == NULL || value == NULL) {
+        return -1;
+    }
+    if (!lvgl_port_lock(0)) return -3;
+    if (slider_read == slider_write) {
+        lvgl_port_unlock();
+        return 0;
+    }
+    *handler_id = slider_changes[slider_read].handler;
+    *value = slider_changes[slider_read].value;
+    slider_read = (slider_read + 1U) % MICRO_UI_SLIDER_CAPACITY;
     lvgl_port_unlock();
     return 1;
 }

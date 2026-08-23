@@ -1,13 +1,14 @@
 // Counter Studio — richer Micro App example.
 // Demonstrates multiple states, styled text, template-literal and
 // control-flow bindings, several handlers, the row/progress/switch widgets,
-// and an editable text field (ui.input) with an onChange handler.
+// an editable text field (ui.input), and a draggable slider.
 
 const count = state(0);
 const presses = state(0);
 const level = state(3);
 const power = state(0);
 const note = state("micro");
+const volume = state(50);
 
 ui.mount(
   ui.column([
@@ -79,5 +80,12 @@ ui.mount(
         power.value = 1 - power.value;
       },
     }),
+
+    ui.slider(bind(() => volume.value), {
+      min: 0,
+      max: 100,
+      onChange: (v) => { volume.value = v; },
+    }),
+    ui.text(bind(() => `volume: ${volume.value}`)),
   ]),
 );

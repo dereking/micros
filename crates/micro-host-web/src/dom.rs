@@ -6,7 +6,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{Document, Element, Event};
 
-use crate::{ActivationQueue, InputChangeQueue, inline_text_style};
+use crate::{ActivationQueue, InputChangeQueue, SliderChangeQueue, inline_text_style};
 
 pub struct DomBridge {
     document: Document,
@@ -14,6 +14,7 @@ pub struct DomBridge {
     elements: BTreeMap<u32, Element>,
     activations: ActivationQueue,
     input_changes: InputChangeQueue,
+    slider_changes: SliderChangeQueue,
     click_handlers: Vec<Closure<dyn FnMut(Event)>>,
 }
 
@@ -23,6 +24,7 @@ impl DomBridge {
         container: Element,
         activations: ActivationQueue,
         input_changes: InputChangeQueue,
+        slider_changes: SliderChangeQueue,
     ) -> Self {
         Self {
             document,
@@ -30,6 +32,7 @@ impl DomBridge {
             elements: BTreeMap::new(),
             activations,
             input_changes,
+            slider_changes,
             click_handlers: Vec::new(),
         }
     }
@@ -261,5 +264,56 @@ impl WebDom for DomBridge {
         element
             .set_attribute("value", text)
             .map_err(|error| format!("set input value: {error:?}"))
+    }
+
+    fn create_slider(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        value: f64,
+        range: Option<(f64, f64)>,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        let element = self.create_element("input", node, "micro-slider")?;
+        element
+            .set_attribute("type", "range")
+            .map_err(|error| format!("set slider type: {error:?}"))?;
+        let (min, max) = range.unwrap_or((0.0, 100.0));
+        element
+            .set_attribute("min", &min.to_string())
+            .map_err(|error| format!("set slider min: {error:?}"))?;
+        element
+            .set_attribute("max", &max.to_string())
+            .map_err(|error| format!("set slider max: {error:?}"))?;
+        element
+            .set_attribute("value", &value.to_string())
+            .map_err(|error| format!("set slider value: {error:?}"))?;
+        if let Some(handler) = handler {
+            let slider_changes = self.slider_changes.clone();
+            let callback = Closure::wrap(Box::new(move |event: Event| {
+                if let Some(value) = event
+                    .target()
+                    .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                    .and_then(|input| input.value().parse::<f64>().ok())
+                {
+                    slider_changes.push(handler, value);
+                }
+            }) as Box<dyn FnMut(Event)>);
+            element
+                .add_event_listener_with_callback("input", callback.as_ref().unchecked_ref())
+                .map_err(|error| format!("listen for slider change: {error:?}"))?;
+            self.click_handlers.push(callback);
+        }
+        self.append(node, parent, element)
+    }
+
+    fn set_slider_value(&mut self, node: NodeId, value: f64) -> Result<(), String> {
+        let element = self
+            .elements
+            .get(&node.0)
+            .ok_or_else(|| format!("node {} is missing", node.0))?;
+        element
+            .set_attribute("value", &value.to_string())
+            .map_err(|error| format!("set slider value: {error:?}"))
     }
 }

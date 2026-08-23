@@ -7,8 +7,8 @@ use crate::{
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
-/// MBC v4 adds `Function::arg_count` and the `UiKind::Input` variant.
-const VERSION: u16 = 4;
+/// MBC v5 adds `UiKind::Slider` and the per-node optional `range`.
+const VERSION: u16 = 5;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -286,6 +286,7 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
             UiKind::Progress => 4,
             UiKind::Switch => 5,
             UiKind::Input => 6,
+            UiKind::Slider => 7,
         });
         put_u32(&mut out, node.children.len())?;
         for child in &node.children {
@@ -343,6 +344,14 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
                 out.push(style.line_height_px);
             }
         }
+        match node.range {
+            None => out.push(0),
+            Some((min, max)) => {
+                out.push(1);
+                out.extend_from_slice(&min.to_le_bytes());
+                out.extend_from_slice(&max.to_le_bytes());
+            }
+        }
     }
     out.extend_from_slice(&root.0.to_le_bytes());
     Ok(out)
@@ -361,6 +370,7 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             4 => UiKind::Progress,
             5 => UiKind::Switch,
             6 => UiKind::Input,
+            7 => UiKind::Slider,
             tag => {
                 return Err(DecodeError::InvalidTag {
                     section: "ui kind",
@@ -446,6 +456,20 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
                 });
             }
         };
+        let range = match reader.u8()? {
+            0 => None,
+            1 => {
+                let min = f64::from_le_bytes(reader.take(8)?.try_into().unwrap());
+                let max = f64::from_le_bytes(reader.take(8)?.try_into().unwrap());
+                Some((min, max))
+            }
+            tag => {
+                return Err(DecodeError::InvalidTag {
+                    section: "range",
+                    tag,
+                });
+            }
+        };
         nodes.push(UiNodeSpec {
             id,
             kind,
@@ -454,6 +478,7 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             value,
             on_click,
             text_style,
+            range,
         });
     }
     let root = NodeId(reader.u32()?);

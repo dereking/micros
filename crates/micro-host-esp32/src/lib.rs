@@ -169,6 +169,17 @@ impl<B: NativeUi> RuntimeHost<B> {
         Ok(())
     }
 
+    pub fn set_slider_value(&mut self, handler: FunctionId, value: f64) -> Result<(), HostError> {
+        if self.stopped {
+            return Err(HostError {
+                code: MicroErrorCode::Stopped,
+                diagnostic: "runtime is stopped".into(),
+            });
+        }
+        self.runtime.enqueue(Event::SliderChanged(handler, value));
+        Ok(())
+    }
+
     pub fn tick(&mut self) -> Result<bool, HostError> {
         if self.stopped {
             return Err(HostError {

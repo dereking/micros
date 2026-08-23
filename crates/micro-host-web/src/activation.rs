@@ -30,3 +30,17 @@ impl InputChangeQueue {
         self.0.borrow_mut().pop_front()
     }
 }
+
+/// Queue of `ui.slider` onChange events: the handler id plus the new value.
+#[derive(Clone, Default)]
+pub struct SliderChangeQueue(Rc<RefCell<VecDeque<(FunctionId, f64)>>>);
+
+impl SliderChangeQueue {
+    pub fn push(&self, handler: FunctionId, value: f64) {
+        self.0.borrow_mut().push_back((handler, value));
+    }
+
+    pub fn pop(&mut self) -> Option<(FunctionId, f64)> {
+        self.0.borrow_mut().pop_front()
+    }
+}

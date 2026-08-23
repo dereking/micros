@@ -8,6 +8,9 @@ pub enum Event {
     /// A `ui.input` field changed; the handler receives the new text as its
     /// single runtime argument.
     InputChanged(FunctionId, String),
+    /// A `ui.slider` position changed; the handler receives the new value as
+    /// its single runtime argument.
+    SliderChanged(FunctionId, f64),
 }
 
 #[derive(Debug, Default)]

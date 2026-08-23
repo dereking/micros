@@ -116,6 +116,21 @@ impl NativeUi for FakeNativeUi {
         Ok(())
     }
 
+    fn create_slider(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _value: f64,
+        _range: Option<(f64, f64)>,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_slider_value(&mut self, _node: NodeId, _value: f64) -> Result<(), String> {
+        Ok(())
+    }
+
     fn destroy_app_root(&mut self) -> Result<(), String> {
         self.nodes.clear();
         self.destroyed += 1;
@@ -234,6 +249,21 @@ impl NativeUi for FailingNativeUi {
     }
 
     fn set_input_text(&mut self, _node: NodeId, _text: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_slider(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _value: f64,
+        _range: Option<(f64, f64)>,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_slider_value(&mut self, _node: NodeId, _value: f64) -> Result<(), String> {
         Ok(())
     }
 
