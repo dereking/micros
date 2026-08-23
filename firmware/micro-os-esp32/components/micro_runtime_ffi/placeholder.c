@@ -700,6 +700,16 @@ int micro_esp_ui_create_tabview(uint32_t node, uint32_t parent,
                  token = strtok_r(NULL, "\n", &save)) {
                 lv_tabview_add_tab(tabview, token);
             }
+            /* Tab pages must not scroll independently: nested scrollables
+             * fight the outer container and a scrolled large page redraw
+             * trips the task watchdog. */
+            lv_obj_t *tab_content = lv_tabview_get_content(tabview);
+            uint32_t page_count = tab_content == NULL ? 0 : lv_obj_get_child_count(tab_content);
+            for (uint32_t pi = 0; pi < page_count; ++pi) {
+                lv_obj_t *page = lv_obj_get_child(tab_content, pi);
+                lv_obj_set_scrollbar_mode(page, LV_SCROLLBAR_MODE_OFF);
+                lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
+            }
             s_tabview = tabview;
             s_tab_target = NULL;
             objects[node] = tabview;
