@@ -26,6 +26,7 @@ pub enum RuntimeError {
     InputIsNotString(NodeId),
     SliderIsNotNumber(NodeId),
     CheckboxIsNotBoolean(NodeId),
+    SelectionIsNotNumber(NodeId),
 }
 
 impl fmt::Display for RuntimeError {
@@ -109,6 +110,7 @@ impl<R: RenderPort> Runtime<R> {
             Event::InputChanged(id, text) => (id, Some(Value::String(text))),
             Event::SliderChanged(id, value) => (id, Some(Value::Number(value))),
             Event::CheckedChanged(id, checked) => (id, Some(Value::Bool(checked))),
+            Event::SelectionChanged(id, index) => (id, Some(Value::Number(index))),
         };
         if !matches!(
             self.image.functions.get(function_id.0 as usize),
@@ -220,6 +222,15 @@ impl<R: RenderPort> Runtime<R> {
                                 value: *value,
                             });
                         }
+                        UiKind::Dropdown => {
+                            let Value::Number(index) = &value else {
+                                return Err(RuntimeError::SelectionIsNotNumber(node.id));
+                            };
+                            patches.push(RenderPatch::SetSelectionValue {
+                                node: node.id,
+                                index: *index,
+                            });
+                        }
                         _ => {}
                     }
                 }
@@ -271,8 +282,20 @@ impl<R: RenderPort> Runtime<R> {
                     Some(Value::Bool(checked)) => Some(Value::Bool(checked)),
                     _ => return Err(RuntimeError::CheckboxIsNotBoolean(node.id)),
                 },
+                UiKind::Dropdown => match value {
+                    Some(Value::Number(index)) => Some(Value::Number(index)),
+                    _ => return Err(RuntimeError::SelectionIsNotNumber(node.id)),
+                },
                 _ => value,
             };
+            let options = node
+                .options
+                .iter()
+                .map(|option| match self.image.constants.get(*option as usize) {
+                    Some(micro_ir::Constant::String(text)) => Ok(text.clone()),
+                    _ => Err(RuntimeError::TextIsNotString(node.id)),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             nodes.push(MicroUiNode {
                 id: node.id,
                 kind: node.kind,
@@ -284,6 +307,7 @@ impl<R: RenderPort> Runtime<R> {
                     .text_style
                     .or_else(|| TextStyle::default_for(node.kind)),
                 range: node.range,
+                options,
             });
         }
         Ok(MicroUiTree {

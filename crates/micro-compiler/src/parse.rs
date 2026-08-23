@@ -223,6 +223,7 @@ impl Validator<'_> {
             "ui.input" => 1..=2,
             "ui.slider" => 1..=2,
             "ui.checkbox" => 2..=3,
+            "ui.dropdown" => 2..=3,
             "ui.button" => 2..=2,
             _ => {
                 self.unsupported(call.span, format!("call `{name}`"));
@@ -286,9 +287,56 @@ impl Validator<'_> {
                     self.checkbox_options(&call.args[2].expr);
                 }
             }
+            "ui.dropdown" => {
+                self.expression(&call.args[0].expr);
+                self.expression(&call.args[1].expr);
+                if call.args.len() == 3 {
+                    self.dropdown_options(&call.args[2].expr);
+                }
+            }
             _ => {
                 for argument in &call.args {
                     self.expression(&argument.expr);
+                }
+            }
+        }
+    }
+
+    fn dropdown_options(&mut self, expression: &Expr) {
+        let Expr::Object(object) = expression else {
+            self.sdk_error(
+                expression.span(),
+                "ui.dropdown options must be an object".into(),
+            );
+            return;
+        };
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                self.unsupported(property.span(), "spread");
+                continue;
+            };
+            let Prop::KeyValue(property) = &**property else {
+                self.unsupported(property.span(), "dropdown property");
+                continue;
+            };
+            let PropName::Ident(name) = &property.key else {
+                self.unsupported(property.key.span(), "computed dropdown property");
+                continue;
+            };
+            if name.sym != *"onChange" {
+                self.errors.push(diagnostic_at(
+                    self.source_map,
+                    self.path,
+                    name.span,
+                    "MTS002",
+                    format!("unknown ui.dropdown property `{}`", name.sym),
+                ));
+            }
+            if name.sym == *"onChange" {
+                if let Expr::Arrow(arrow) = &*property.value {
+                    self.arrow_with_params(arrow, 1);
+                } else {
+                    self.expression(&property.value);
                 }
             }
         }

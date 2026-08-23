@@ -142,6 +142,21 @@ impl NativeUi for FakeNativeUi {
         Ok(())
     }
 
+    fn create_dropdown(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _options: &[String],
+        _index: f64,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_dropdown_value(&mut self, _node: NodeId, _index: f64) -> Result<(), String> {
+        Ok(())
+    }
+
     fn destroy_app_root(&mut self) -> Result<(), String> {
         self.nodes.clear();
         self.destroyed += 1;
@@ -286,6 +301,21 @@ impl NativeUi for FailingNativeUi {
         _checked: bool,
         _handler: Option<FunctionId>,
     ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_dropdown(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _options: &[String],
+        _index: f64,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_dropdown_value(&mut self, _node: NodeId, _index: f64) -> Result<(), String> {
         Ok(())
     }
 

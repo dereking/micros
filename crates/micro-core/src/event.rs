@@ -13,6 +13,9 @@ pub enum Event {
     SliderChanged(FunctionId, f64),
     /// A `ui.checkbox` toggled; the handler receives the new checked state.
     CheckedChanged(FunctionId, bool),
+    /// A selection widget (ui.dropdown / ui.roller) changed; the handler
+    /// receives the newly selected option index.
+    SelectionChanged(FunctionId, f64),
 }
 
 #[derive(Debug, Default)]

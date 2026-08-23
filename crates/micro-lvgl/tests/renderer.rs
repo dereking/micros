@@ -142,6 +142,21 @@ impl NativeUi for FakeBridge {
         Ok(())
     }
 
+    fn create_dropdown(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _options: &[String],
+        _index: f64,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_dropdown_value(&mut self, _node: NodeId, _index: f64) -> Result<(), String> {
+        Ok(())
+    }
+
     fn destroy_app_root(&mut self) -> Result<(), String> {
         Ok(())
     }
@@ -161,6 +176,7 @@ fn tree() -> MicroUiTree {
                 on_click: None,
                 text_style: None,
                 range: None,
+                options: vec![],
             },
             MicroUiNode {
                 id: NodeId(1),
@@ -171,6 +187,7 @@ fn tree() -> MicroUiTree {
                 on_click: None,
                 text_style: Some(label_style),
                 range: None,
+                options: vec![],
             },
             MicroUiNode {
                 id: NodeId(2),
@@ -181,6 +198,7 @@ fn tree() -> MicroUiTree {
                 on_click: Some(FunctionId(7)),
                 text_style: Some(button_style),
                 range: None,
+                options: vec![],
             },
         ],
         root: NodeId(0),
@@ -236,6 +254,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     on_click: None,
                     text_style: None,
                     range: None,
+                    options: vec![],
                 },
                 MicroUiNode {
                     id: NodeId(1),
@@ -246,6 +265,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     on_click: None,
                     text_style: None,
                     range: None,
+                    options: vec![],
                 },
                 MicroUiNode {
                     id: NodeId(2),
@@ -256,6 +276,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     on_click: Some(FunctionId(7)),
                     text_style: None,
                     range: None,
+                    options: vec![],
                 },
                 MicroUiNode {
                     id: NodeId(3),
@@ -266,6 +287,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     on_click: None,
                     text_style: None,
                     range: None,
+                    options: vec![],
                 },
                 MicroUiNode {
                     id: NodeId(4),
@@ -276,6 +298,7 @@ fn maps_row_progress_and_switch_and_applies_value_patches() {
                     on_click: None,
                     text_style: None,
                     range: None,
+                    options: vec![],
                 },
             ],
             root: NodeId(0),
@@ -441,6 +464,21 @@ impl NativeUi for TrackingBridge {
         _checked: bool,
         _handler: Option<FunctionId>,
     ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_dropdown(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _options: &[String],
+        _index: f64,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_dropdown_value(&mut self, _node: NodeId, _index: f64) -> Result<(), String> {
         Ok(())
     }
 
@@ -626,6 +664,21 @@ impl NativeUi for SharedRootBridge {
         _checked: bool,
         _handler: Option<FunctionId>,
     ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_dropdown(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _options: &[String],
+        _index: f64,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_dropdown_value(&mut self, _node: NodeId, _index: f64) -> Result<(), String> {
         Ok(())
     }
 

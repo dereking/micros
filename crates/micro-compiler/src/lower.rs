@@ -222,6 +222,17 @@ impl<'a> Lowerer<'a> {
                 }
                 Ok(id)
             }
+            Some("ui.dropdown") => {
+                let id = self.reserve_node(UiKind::Dropdown);
+                self.nodes[id.0 as usize].options =
+                    self.lower_string_array(&call.args[0].expr, "ui.dropdown")?;
+                self.nodes[id.0 as usize].value =
+                    Some(self.lower_value_source(ScalarType::Number, &call.args[1].expr)?);
+                if let Some(options) = call.args.get(2) {
+                    self.lower_dropdown_options(id, &options.expr)?;
+                }
+                Ok(id)
+            }
             Some("ui.checkbox") => {
                 let id = self.reserve_node(UiKind::Checkbox);
                 let label = literal_constant(&call.args[0].expr)
@@ -259,6 +270,7 @@ impl<'a> Lowerer<'a> {
             on_click: None,
             text_style: None,
             range: None,
+            options: vec![],
         });
         id
     }
@@ -549,6 +561,100 @@ impl<'a> Lowerer<'a> {
         }
         if let (Some(min), Some(max)) = (min_value, max_value) {
             self.nodes[node.0 as usize].range = Some((min, max));
+        }
+        Ok(())
+    }
+
+    fn lower_string_array(
+        &mut self,
+        expression: &Expr,
+        widget: &str,
+    ) -> Result<Vec<u32>, Diagnostic> {
+        let Expr::Array(array) = expression else {
+            return Err(self.error(
+                expression.span(),
+                "MTS012",
+                format!("{widget} expects a string array"),
+            ));
+        };
+        let mut options = Vec::with_capacity(array.elems.len());
+        for element in array.elems.iter().flatten() {
+            let constant = literal_constant(&element.expr)
+                .filter(|constant| matches!(constant, Constant::String(_)))
+                .ok_or_else(|| {
+                    self.error(
+                        element.expr.span(),
+                        "MTS012",
+                        format!("{widget} options must be string literals"),
+                    )
+                })?;
+            if let Constant::String(value) = &constant {
+                self.validate_literal_glyphs(element.expr.span(), value)?;
+            }
+            options.push(self.intern(constant));
+        }
+        Ok(options)
+    }
+
+    fn lower_dropdown_options(
+        &mut self,
+        node: NodeId,
+        expression: &Expr,
+    ) -> Result<(), Diagnostic> {
+        let Expr::Object(object) = expression else {
+            return Err(self.error(
+                expression.span(),
+                "MTS012",
+                "ui.dropdown options must be an object",
+            ));
+        };
+        let mut saw_change = false;
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.dropdown options cannot use spread",
+                ));
+            };
+            let Prop::KeyValue(property) = &**property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.dropdown options must use key-value pairs",
+                ));
+            };
+            let PropName::Ident(name) = &property.key else {
+                return Err(self.error(
+                    property.key.span(),
+                    "MTS012",
+                    "ui.dropdown option names must be identifiers",
+                ));
+            };
+            match name.sym.as_ref() {
+                "onChange" if !saw_change => {
+                    saw_change = true;
+                    let arrow = as_arrow(&property.value).ok_or_else(|| {
+                        self.error(property.value.span(), "MTS012", "onChange arrow is required")
+                    })?;
+                    self.nodes[node.0 as usize].on_click =
+                        Some(self.add_input_function(arrow, ScalarType::Number)?);
+                }
+                "onChange" => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS012",
+                        format!("duplicate ui.dropdown property `{}`", name.sym),
+                    ));
+                }
+                _ => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS002",
+                        format!("unknown ui.dropdown property `{}`", name.sym),
+                    ));
+                }
+            }
         }
         Ok(())
     }

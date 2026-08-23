@@ -195,6 +195,17 @@ impl<B: NativeUi> RuntimeHost<B> {
         Ok(())
     }
 
+    pub fn set_selection(&mut self, handler: FunctionId, index: f64) -> Result<(), HostError> {
+        if self.stopped {
+            return Err(HostError {
+                code: MicroErrorCode::Stopped,
+                diagnostic: "runtime is stopped".into(),
+            });
+        }
+        self.runtime.enqueue(Event::SelectionChanged(handler, index));
+        Ok(())
+    }
+
     pub fn tick(&mut self) -> Result<bool, HostError> {
         if self.stopped {
             return Err(HostError {

@@ -92,6 +92,10 @@ pub enum UiKind {
     /// checked state; `text` holds the label; the optional `on_click` handler
     /// is a 1-arg handler receiving the new checked state.
     Checkbox,
+    /// Selection list (LVGL dropdown). `options` lists the choice strings
+    /// (as interned constants); `value` holds the selected index; the
+    /// optional `on_click` handler receives the newly selected index.
+    Dropdown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,7 +216,8 @@ impl TextStyle {
             | UiKind::Progress
             | UiKind::Switch
             | UiKind::Slider
-            | UiKind::Checkbox => None,
+            | UiKind::Checkbox
+            | UiKind::Dropdown => None,
             UiKind::Text | UiKind::Input => Some(Self::DEFAULT_TEXT),
             UiKind::Button => Some(Self::DEFAULT_BUTTON),
         }
@@ -235,6 +240,8 @@ pub struct UiNodeSpec {
     /// Optional (min, max) range in value units, used by value widgets that
     /// accept a range (e.g. Slider). `None` means the renderer default.
     pub range: Option<(f64, f64)>,
+    /// Interned string constants for selection widgets (Dropdown/Roller).
+    pub options: Vec<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

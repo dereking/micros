@@ -58,3 +58,17 @@ impl CheckboxChangeQueue {
         self.0.borrow_mut().pop_front()
     }
 }
+
+/// Queue of selection changes (ui.dropdown / ui.roller): handler + new index.
+#[derive(Clone, Default)]
+pub struct SelectionChangeQueue(Rc<RefCell<VecDeque<(FunctionId, f64)>>>);
+
+impl SelectionChangeQueue {
+    pub fn push(&self, handler: FunctionId, index: f64) {
+        self.0.borrow_mut().push_back((handler, index));
+    }
+
+    pub fn pop(&mut self) -> Option<(FunctionId, f64)> {
+        self.0.borrow_mut().pop_front()
+    }
+}

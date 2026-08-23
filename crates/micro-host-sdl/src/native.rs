@@ -89,6 +89,15 @@ unsafe extern "C" {
         checked: c_int,
         handler: c_uint,
     ) -> c_int;
+    fn micro_native_create_dropdown(
+        native: *mut c_void,
+        node: c_uint,
+        parent: c_uint,
+        options: *const c_char,
+        index: f64,
+        handler: c_uint,
+    ) -> c_int;
+    fn micro_native_set_dropdown_value(native: *mut c_void, node: c_uint, index: f64) -> c_int;
     fn micro_native_destroy_app_root(native: *mut c_void) -> c_int;
 }
 
@@ -492,6 +501,37 @@ impl NativeUi for NativeBridge {
                 )
             },
             "create checkbox",
+        )
+    }
+
+    fn create_dropdown(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        options: &[String],
+        index: f64,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        let joined = c_string(&options.join("\n"))?;
+        native_result(
+            unsafe {
+                micro_native_create_dropdown(
+                    self.raw.as_ptr(),
+                    node.0,
+                    parent_id(parent),
+                    joined.as_ptr(),
+                    index,
+                    handler.map_or(u32::MAX, |id| id.0),
+                )
+            },
+            "create dropdown",
+        )
+    }
+
+    fn set_dropdown_value(&mut self, node: NodeId, index: f64) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_set_dropdown_value(self.raw.as_ptr(), node.0, index) },
+            "set dropdown value",
         )
     }
 

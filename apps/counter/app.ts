@@ -10,6 +10,7 @@ const power = state(0);
 const note = state("micro");
 const volume = state(50);
 const alarm = state(0);
+const color = state(0);
 
 ui.mount(
   ui.column([
@@ -97,6 +98,15 @@ ui.mount(
     ui.text(bind(() => {
       if (alarm.value === 1) { return "alarm: on"; }
       return "alarm: off";
+    })),
+
+    ui.dropdown(["red", "green", "blue"], bind(() => color.value), {
+      onChange: (i) => { color.value = i; },
+    }),
+    ui.text(bind(() => {
+      if (color.value === 0) { return "color: red"; }
+      if (color.value === 1) { return "color: green"; }
+      return "color: blue";
     })),
   ]),
 );

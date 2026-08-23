@@ -48,6 +48,7 @@ const void *micro_runtime_ffi_keepalive(void)
 #define MICRO_UI_INPUT_TEXT_MAX 256U
 #define MICRO_UI_SLIDER_CAPACITY 32U
 #define MICRO_UI_CHECKBOX_CAPACITY 32U
+#define MICRO_UI_DROPDOWN_CAPACITY 32U
 
 struct micro_click_context {
     uint32_t handler;
@@ -69,6 +70,11 @@ struct micro_checkbox_change {
     int checked;
 };
 
+struct micro_dropdown_change {
+    uint32_t handler;
+    double index;
+};
+
 static lv_obj_t *objects[MICRO_UI_MAX_NODES];
 static lv_obj_t *text_targets[MICRO_UI_MAX_NODES];
 static lv_obj_t *app_root;
@@ -85,6 +91,9 @@ static unsigned slider_write;
 static struct micro_checkbox_change checkbox_changes[MICRO_UI_CHECKBOX_CAPACITY];
 static unsigned checkbox_read;
 static unsigned checkbox_write;
+static struct micro_dropdown_change dropdown_changes[MICRO_UI_DROPDOWN_CAPACITY];
+static unsigned dropdown_read;
+static unsigned dropdown_write;
 static lv_obj_t *s_keyboard;
 static lv_obj_t *s_candidate_bar;
 static lv_obj_t *s_pinyin_label;
@@ -467,6 +476,24 @@ static void checkbox_callback(lv_event_t *event)
     checkbox_changes[checkbox_write].checked =
         lv_obj_has_state(target, LV_STATE_CHECKED) ? 1 : 0;
     checkbox_write = next;
+}
+
+static void dropdown_callback(lv_event_t *event)
+{
+    const struct micro_click_context *context = lv_event_get_user_data(event);
+    lv_obj_t *target = lv_event_get_target(event);
+    if (target == NULL) {
+        return;
+    }
+    unsigned next = (dropdown_write + 1U) % MICRO_UI_DROPDOWN_CAPACITY;
+    if (next == dropdown_read) {
+        ESP_LOGW("micro_ui", "dropdown queue full; dropping handler %lu",
+                 (unsigned long)context->handler);
+        return;
+    }
+    dropdown_changes[dropdown_write].handler = context->handler;
+    dropdown_changes[dropdown_write].index = (double)lv_dropdown_get_selected(target);
+    dropdown_write = next;
 }
 
 static lv_obj_t *parent_object(uint32_t parent)
@@ -873,6 +900,51 @@ int micro_esp_ui_create_checkbox(uint32_t node, uint32_t parent,
     return result;
 }
 
+int micro_esp_ui_create_dropdown(uint32_t node, uint32_t parent,
+                                 const uint8_t *options, size_t options_len,
+                                 double index, uint32_t handler)
+{
+    char *copy = copy_text(options, options_len);
+    if (copy == NULL) return -5;
+    if (!lvgl_port_lock(0)) { free(copy); return -3; }
+    lv_obj_t *parent_obj;
+    int result = begin_create(node, parent, &parent_obj);
+    if (result == 0) {
+        lv_obj_t *dropdown = lv_dropdown_create(parent_obj);
+        if (dropdown == NULL) result = -4;
+        else {
+            lv_dropdown_set_options(dropdown, copy);
+            lv_dropdown_set_selected(dropdown, (uint32_t)index);
+            lv_obj_set_width(dropdown, LV_PCT(100));
+            if (handler == MICRO_UI_NO_HANDLER) {
+                lv_obj_remove_flag(dropdown, LV_OBJ_FLAG_CLICKABLE);
+            } else {
+                click_contexts[node].handler = handler;
+                lv_obj_add_event_cb(dropdown, dropdown_callback, LV_EVENT_READY,
+                                    &click_contexts[node]);
+            }
+            objects[node] = dropdown;
+            if (parent == MICRO_UI_NO_PARENT) app_root = dropdown;
+        }
+    }
+    lvgl_port_unlock();
+    free(copy);
+    return result;
+}
+
+int micro_esp_ui_set_dropdown_value(uint32_t node, double index)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    int result = -1;
+    if (node < MICRO_UI_MAX_NODES && objects[node] != NULL &&
+        lv_obj_check_type(objects[node], &lv_dropdown_class)) {
+        lv_dropdown_set_selected(objects[node], (uint32_t)index);
+        result = 0;
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
 int micro_esp_ui_set_slider_value(uint32_t node, double value)
 {
     if (!lvgl_port_lock(0)) return -3;
@@ -918,6 +990,8 @@ int micro_esp_ui_destroy_app_root(void)
     slider_write = 0;
     checkbox_read = 0;
     checkbox_write = 0;
+    dropdown_read = 0;
+    dropdown_write = 0;
     lvgl_port_unlock();
     return 0;
 }
@@ -973,6 +1047,23 @@ int micro_esp_ui_take_checkbox_change(uint32_t *handler_id, int *checked)
     *handler_id = checkbox_changes[checkbox_read].handler;
     *checked = checkbox_changes[checkbox_read].checked;
     checkbox_read = (checkbox_read + 1U) % MICRO_UI_CHECKBOX_CAPACITY;
+    lvgl_port_unlock();
+    return 1;
+}
+
+int micro_esp_ui_take_dropdown_change(uint32_t *handler_id, double *index)
+{
+    if (handler_id == NULL || index == NULL) {
+        return -1;
+    }
+    if (!lvgl_port_lock(0)) return -3;
+    if (dropdown_read == dropdown_write) {
+        lvgl_port_unlock();
+        return 0;
+    }
+    *handler_id = dropdown_changes[dropdown_read].handler;
+    *index = dropdown_changes[dropdown_read].index;
+    dropdown_read = (dropdown_read + 1U) % MICRO_UI_DROPDOWN_CAPACITY;
     lvgl_port_unlock();
     return 1;
 }

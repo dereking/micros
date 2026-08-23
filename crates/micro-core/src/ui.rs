@@ -13,6 +13,8 @@ pub struct MicroUiNode {
     pub on_click: Option<FunctionId>,
     pub text_style: Option<TextStyle>,
     pub range: Option<(f64, f64)>,
+    /// Choice strings for selection widgets (Dropdown/Roller).
+    pub options: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,6 +30,7 @@ pub enum RenderPatch {
     SetChecked { node: NodeId, checked: bool },
     SetInputText { node: NodeId, text: String },
     SetSliderValue { node: NodeId, value: f64 },
+    SetSelectionValue { node: NodeId, index: f64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

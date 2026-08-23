@@ -311,6 +311,13 @@ int micro_esp_ui_set_slider_value(uint32_t node, double value);
 int micro_esp_ui_create_checkbox(uint32_t node, uint32_t parent,
                                  const uint8_t *label, size_t label_len,
                                  int checked, uint32_t handler);
+/* Dropdown selection list. `options` is the choice strings joined with '\n';
+ * `index` is the initially selected option. `handler` is the onChange handler
+ * id (or MICRO_UI_NO_HANDLER to disable). */
+int micro_esp_ui_create_dropdown(uint32_t node, uint32_t parent,
+                                 const uint8_t *options, size_t options_len,
+                                 double index, uint32_t handler);
+int micro_esp_ui_set_dropdown_value(uint32_t node, double index);
 int micro_esp_ui_destroy_app_root(void);
 /* Returns 1 with a handler, 0 when empty, and a negative bridge error. */
 int micro_esp_ui_take_activation(uint32_t *handler_id);
@@ -323,6 +330,8 @@ int micro_esp_ui_take_input_change(uint32_t *handler_id, uint8_t *text,
 int micro_esp_ui_take_slider_change(uint32_t *handler_id, double *value);
 /* Returns 1 with a handler and its new checked state, 0 when empty. */
 int micro_esp_ui_take_checkbox_change(uint32_t *handler_id, int *checked);
+/* Returns 1 with a handler and the selected index, 0 when empty. */
+int micro_esp_ui_take_dropdown_change(uint32_t *handler_id, double *index);
 void micro_esp_ui_report_diagnostic(uint32_t node, const uint8_t *message, size_t len);
 
 #ifdef __cplusplus

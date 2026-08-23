@@ -33,6 +33,7 @@ fn fixture() -> AppImage {
             on_click: None,
             text_style: None,
             range: None,
+            options: vec![],
         }],
         root: NodeId(0),
     }
@@ -91,6 +92,7 @@ fn round_trips_progress_and_switch_values() {
                 on_click: None,
                 text_style: None,
                 range: None,
+                options: vec![],
             },
             UiNodeSpec {
                 id: NodeId(1),
@@ -101,6 +103,7 @@ fn round_trips_progress_and_switch_values() {
                 on_click: None,
                 text_style: None,
                 range: None,
+                options: vec![],
             },
             UiNodeSpec {
                 id: NodeId(2),
@@ -111,6 +114,7 @@ fn round_trips_progress_and_switch_values() {
                 on_click: Some(FunctionId(1)),
                 text_style: None,
                 range: None,
+                options: vec![],
             },
         ],
         root: NodeId(0),
@@ -179,7 +183,7 @@ fn rejects_bad_magic_and_version() {
 #[test]
 fn rejects_a_bad_text_style_tag() {
     let mut bytes = encode(&fixture()).unwrap();
-    let style_tag = bytes.len() - 6;
+    let style_tag = bytes.len() - 10;
     bytes[style_tag] = 2;
     refresh_checksum(&mut bytes);
 
@@ -197,7 +201,7 @@ fn rejects_an_unsupported_serialized_text_size() {
     let mut image = fixture();
     image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
     let mut bytes = encode(&image).unwrap();
-    let size_px = bytes.len() - 8;
+    let size_px = bytes.len() - 12;
     bytes[size_px] = 16;
     refresh_checksum(&mut bytes);
 
@@ -214,7 +218,7 @@ fn rejects_non_regular_serialized_font_weight() {
     let mut image = fixture();
     image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
     let mut bytes = encode(&image).unwrap();
-    let weight = bytes.len() - 7;
+    let weight = bytes.len() - 11;
     bytes[weight] = 1;
     refresh_checksum(&mut bytes);
     assert_eq!(
@@ -231,7 +235,7 @@ fn rejects_an_unsupported_serialized_line_height_pair() {
     let mut image = fixture();
     image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
     let mut bytes = encode(&image).unwrap();
-    let line_height_px = bytes.len() - 6;
+    let line_height_px = bytes.len() - 10;
     bytes[line_height_px] = 17;
     refresh_checksum(&mut bytes);
 

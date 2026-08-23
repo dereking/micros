@@ -65,6 +65,15 @@ pub trait NativeUi {
         checked: bool,
         handler: Option<FunctionId>,
     ) -> Result<(), String>;
+    fn create_dropdown(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        options: &[String],
+        index: f64,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String>;
+    fn set_dropdown_value(&mut self, node: NodeId, index: f64) -> Result<(), String>;
     fn destroy_app_root(&mut self) -> Result<(), String>;
 }
 
@@ -196,6 +205,21 @@ impl<B: NativeUi> LvglRenderer<B> {
                 self.bridge
                     .create_checkbox(node.id, parent, &label, *checked, node.on_click)
             }
+            UiKind::Dropdown => {
+                let Some(Value::Number(index)) = node.value.as_ref() else {
+                    return Err(RenderError(format!(
+                        "dropdown {} has no numeric index",
+                        node.id.0
+                    )));
+                };
+                self.bridge.create_dropdown(
+                    node.id,
+                    parent,
+                    &node.options,
+                    *index,
+                    node.on_click,
+                )
+            }
         }
         .map_err(RenderError)?;
         if parent.is_none() {
@@ -239,6 +263,10 @@ impl<B: NativeUi> RenderPort for LvglRenderer<B> {
                 RenderPatch::SetSliderValue { node, value } => self
                     .bridge
                     .set_slider_value(*node, *value)
+                    .map_err(RenderError)?,
+                RenderPatch::SetSelectionValue { node, index } => self
+                    .bridge
+                    .set_dropdown_value(*node, *index)
                     .map_err(RenderError)?,
             }
         }

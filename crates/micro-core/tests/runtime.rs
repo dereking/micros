@@ -116,6 +116,7 @@ fn counter_image() -> AppImage {
                 on_click: None,
                 text_style: None,
                 range: None,
+                options: vec![],
             },
             UiNodeSpec {
                 id: NodeId(1),
@@ -126,6 +127,7 @@ fn counter_image() -> AppImage {
                 on_click: None,
                 text_style: None,
                 range: None,
+                options: vec![],
             },
             UiNodeSpec {
                 id: NodeId(2),
@@ -136,6 +138,7 @@ fn counter_image() -> AppImage {
                 on_click: Some(FunctionId(1)),
                 text_style: None,
                 range: None,
+                options: vec![],
             },
         ],
         root: NodeId(0),
@@ -342,6 +345,7 @@ fn replaces_binding_dependencies_after_each_evaluation() {
             on_click: None,
             text_style: None,
             range: None,
+            options: vec![],
         }],
         root: NodeId(0),
     };
@@ -441,6 +445,7 @@ fn value_image() -> AppImage {
                 on_click: None,
                 text_style: None,
                 range: None,
+                options: vec![],
             },
             UiNodeSpec {
                 id: NodeId(1),
@@ -451,6 +456,7 @@ fn value_image() -> AppImage {
                 on_click: None,
                 text_style: None,
                 range: None,
+                options: vec![],
             },
             UiNodeSpec {
                 id: NodeId(2),
@@ -461,6 +467,7 @@ fn value_image() -> AppImage {
                 on_click: None,
                 text_style: None,
                 range: None,
+                options: vec![],
             },
         ],
         root: NodeId(0),

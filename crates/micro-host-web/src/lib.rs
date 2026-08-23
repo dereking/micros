@@ -4,7 +4,7 @@ mod system;
 #[cfg(any(target_arch = "wasm32", test))]
 use micro_ir::{FontFamily, FontWeight, TextStyle};
 
-pub use activation::{ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SliderChangeQueue};
+pub use activation::{ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SelectionChangeQueue, SliderChangeQueue};
 pub use system::{SystemIntent, SystemShell, SystemSnapshot};
 
 #[cfg(any(target_arch = "wasm32", test))]
@@ -106,7 +106,7 @@ mod wasm_host {
     use micro_renderer_web::WebRenderer;
     use wasm_bindgen::prelude::*;
 
-    use crate::{ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SliderChangeQueue};
+    use crate::{ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SelectionChangeQueue, SliderChangeQueue};
     use crate::dom::DomBridge;
 
     #[wasm_bindgen]
@@ -116,6 +116,7 @@ mod wasm_host {
         input_changes: InputChangeQueue,
         slider_changes: SliderChangeQueue,
         checkbox_changes: CheckboxChangeQueue,
+        selection_changes: SelectionChangeQueue,
     }
 
     #[wasm_bindgen]
@@ -143,6 +144,7 @@ mod wasm_host {
             let input_changes = InputChangeQueue::default();
             let slider_changes = SliderChangeQueue::default();
             let checkbox_changes = CheckboxChangeQueue::default();
+            let selection_changes = SelectionChangeQueue::default();
             let bridge = DomBridge::new(
                 document,
                 container,
@@ -150,6 +152,7 @@ mod wasm_host {
                 input_changes.clone(),
                 slider_changes.clone(),
                 checkbox_changes.clone(),
+                selection_changes.clone(),
             );
             let renderer = WebRenderer::new(bridge);
             let runtime = Runtime::new(image, renderer, event_budget).map_err(|error| {
@@ -161,6 +164,7 @@ mod wasm_host {
                 input_changes,
                 slider_changes,
                 checkbox_changes,
+                selection_changes,
             })
         }
 
@@ -176,6 +180,9 @@ mod wasm_host {
             }
             while let Some((handler, checked)) = self.checkbox_changes.pop() {
                 self.runtime.enqueue(Event::CheckedChanged(handler, checked));
+            }
+            while let Some((handler, index)) = self.selection_changes.pop() {
+                self.runtime.enqueue(Event::SelectionChanged(handler, index));
             }
 
             let mut processed = 0_u32;

@@ -6,7 +6,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{Document, Element, Event};
 
-use crate::{ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SliderChangeQueue, inline_text_style};
+use crate::{ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SelectionChangeQueue, SliderChangeQueue, inline_text_style};
 
 pub struct DomBridge {
     document: Document,
@@ -16,6 +16,7 @@ pub struct DomBridge {
     input_changes: InputChangeQueue,
     slider_changes: SliderChangeQueue,
     checkbox_changes: CheckboxChangeQueue,
+    selection_changes: SelectionChangeQueue,
     click_handlers: Vec<Closure<dyn FnMut(Event)>>,
 }
 
@@ -27,6 +28,7 @@ impl DomBridge {
         input_changes: InputChangeQueue,
         slider_changes: SliderChangeQueue,
         checkbox_changes: CheckboxChangeQueue,
+        selection_changes: SelectionChangeQueue,
     ) -> Self {
         Self {
             document,
@@ -36,6 +38,7 @@ impl DomBridge {
             input_changes,
             slider_changes,
             checkbox_changes,
+            selection_changes,
             click_handlers: Vec::new(),
         }
     }
@@ -323,6 +326,59 @@ impl WebDom for DomBridge {
         element
             .set_attribute("value", &value.to_string())
             .map_err(|error| format!("set slider value: {error:?}"))
+    }
+
+    fn create_dropdown(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        options: &[String],
+        index: f64,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        let element = self.create_element("select", node, "micro-dropdown")?;
+        for (i, option) in options.iter().enumerate() {
+            let opt = self
+                .document
+                .create_element("option")
+                .map_err(|error| format!("create dropdown option: {error:?}"))?;
+            opt.set_text_content(Some(option));
+            opt.set_attribute("value", &i.to_string())
+                .map_err(|error| format!("set dropdown option value: {error:?}"))?;
+            element
+                .append_child(&opt)
+                .map_err(|error| format!("append dropdown option: {error:?}"))?;
+        }
+        element
+            .set_attribute("value", &index.to_string())
+            .map_err(|error| format!("set dropdown value: {error:?}"))?;
+        if let Some(handler) = handler {
+            let selection_changes = self.selection_changes.clone();
+            let callback = Closure::wrap(Box::new(move |event: Event| {
+                if let Some(index) = event
+                    .target()
+                    .and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok())
+                    .and_then(|sel| sel.value().parse::<f64>().ok())
+                {
+                    selection_changes.push(handler, index);
+                }
+            }) as Box<dyn FnMut(Event)>);
+            element
+                .add_event_listener_with_callback("change", callback.as_ref().unchecked_ref())
+                .map_err(|error| format!("listen for dropdown change: {error:?}"))?;
+            self.click_handlers.push(callback);
+        }
+        self.append(node, parent, element)
+    }
+
+    fn set_dropdown_value(&mut self, node: NodeId, index: f64) -> Result<(), String> {
+        let element = self
+            .elements
+            .get(&node.0)
+            .ok_or_else(|| format!("node {} is missing", node.0))?;
+        element
+            .set_attribute("value", &index.to_string())
+            .map_err(|error| format!("set dropdown value: {error:?}"))
     }
 
     fn create_checkbox(

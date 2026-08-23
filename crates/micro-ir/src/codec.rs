@@ -7,8 +7,8 @@ use crate::{
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
-/// MBC v6 adds `UiKind::Checkbox`.
-const VERSION: u16 = 6;
+/// MBC v7 adds `UiKind::Dropdown` and per-node `options`.
+const VERSION: u16 = 7;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -288,6 +288,7 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
             UiKind::Input => 6,
             UiKind::Slider => 7,
             UiKind::Checkbox => 8,
+            UiKind::Dropdown => 9,
         });
         put_u32(&mut out, node.children.len())?;
         for child in &node.children {
@@ -353,6 +354,10 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
                 out.extend_from_slice(&max.to_le_bytes());
             }
         }
+        put_u32(&mut out, node.options.len())?;
+        for option in &node.options {
+            out.extend_from_slice(&option.to_le_bytes());
+        }
     }
     out.extend_from_slice(&root.0.to_le_bytes());
     Ok(out)
@@ -373,6 +378,7 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             6 => UiKind::Input,
             7 => UiKind::Slider,
             8 => UiKind::Checkbox,
+            9 => UiKind::Dropdown,
             tag => {
                 return Err(DecodeError::InvalidTag {
                     section: "ui kind",
@@ -472,6 +478,11 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
                 });
             }
         };
+        let option_count = reader.u32()? as usize;
+        let mut options = Vec::with_capacity(option_count);
+        for _ in 0..option_count {
+            options.push(reader.u32()?);
+        }
         nodes.push(UiNodeSpec {
             id,
             kind,
@@ -481,6 +492,7 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             on_click,
             text_style,
             range,
+            options,
         });
     }
     let root = NodeId(reader.u32()?);

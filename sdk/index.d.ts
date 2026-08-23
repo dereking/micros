@@ -42,5 +42,10 @@ declare const ui: {
     checked: boolean | Binding<boolean>,
     options?: { onChange?: (value: boolean) => void },
   ): UiNode;
+  dropdown(
+    options: string[],
+    index: number | Binding<number>,
+    opts?: { onChange?: (index: number) => void },
+  ): UiNode;
   mount(root: UiNode): void;
 };
