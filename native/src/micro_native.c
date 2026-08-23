@@ -394,6 +394,17 @@ int micro_native_create_row(micro_native_t *native, uint32_t node_id, uint32_t p
     return 1;
 }
 
+int micro_native_create_list(micro_native_t *native, uint32_t node_id, uint32_t parent_id) {
+    if (native == NULL || node_id >= MICRO_MAX_NODES) return 0;
+    lv_obj_t *parent = parent_object(native, parent_id);
+    if (parent == NULL) return 0;
+    lv_obj_t *list = lv_list_create(parent);
+    lv_obj_set_size(list, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_row(list, 4, LV_PART_MAIN);
+    native->objects[node_id] = list;
+    return 1;
+}
+
 int micro_native_create_progress(micro_native_t *native, uint32_t node_id, uint32_t parent_id, double fraction) {
     if (node_id >= MICRO_MAX_NODES) return 0;
     lv_obj_t *parent = parent_object(native, parent_id);
@@ -457,11 +468,18 @@ int micro_native_create_button(micro_native_t *native, uint32_t node_id, uint32_
     if (node_id >= MICRO_MAX_NODES) return 0;
     lv_obj_t *parent = parent_object(native, parent_id);
     if (parent == NULL) return 0;
-    lv_obj_t *button = lv_button_create(parent);
-    lv_obj_t *label = lv_label_create(button);
-    lv_label_set_text(label, text);
-    apply_text_style(label, font_handle, line_height_px);
-    lv_obj_center(label);
+    lv_obj_t *button;
+    lv_obj_t *label;
+    if (lv_obj_check_type(parent, &lv_list_class)) {
+        button = lv_list_add_button(parent, NULL, text);
+        label = lv_obj_get_child(button, 0);
+    } else {
+        button = lv_button_create(parent);
+        label = lv_label_create(button);
+        lv_label_set_text(label, text);
+        apply_text_style(label, font_handle, line_height_px);
+        lv_obj_center(label);
+    }
     native->clicks[node_id].native = native;
     native->clicks[node_id].handler_id = handler_id;
     lv_obj_add_event_cb(button, click_callback, LV_EVENT_CLICKED, &native->clicks[node_id]);

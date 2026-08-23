@@ -7,8 +7,8 @@ use crate::{
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
-/// MBC v9 adds `UiKind::Led`, `UiKind::Spinner`, `UiKind::Scale`.
-const VERSION: u16 = 9;
+/// MBC v10 adds `UiKind::List`.
+const VERSION: u16 = 10;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -293,6 +293,7 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
             UiKind::Led => 11,
             UiKind::Spinner => 12,
             UiKind::Scale => 13,
+            UiKind::List => 14,
         });
         put_u32(&mut out, node.children.len())?;
         for child in &node.children {
@@ -387,6 +388,7 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             11 => UiKind::Led,
             12 => UiKind::Spinner,
             13 => UiKind::Scale,
+            14 => UiKind::List,
             tag => {
                 return Err(DecodeError::InvalidTag {
                     section: "ui kind",

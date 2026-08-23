@@ -175,7 +175,15 @@ impl WebDom for DomBridge {
         handler: FunctionId,
         style: Option<&TextStyle>,
     ) -> Result<(), String> {
-        let element = self.create_element("button", node, "micro-button")?;
+        let element = self.create_element("button", node, "micro-list-row")?;
+        let is_row = parent.is_some()
+            && self
+                .elements
+                .get(&parent.unwrap().0)
+                .is_some_and(|el| el.class_name() == "micro-list");
+        element
+            .set_attribute("class", if is_row { "micro-list-row" } else { "micro-button" })
+            .map_err(|error| format!("set button class: {error:?}"))?;
         element
             .set_attribute("type", "button")
             .map_err(|error| format!("set button type: {error:?}"))?;
@@ -380,6 +388,11 @@ impl WebDom for DomBridge {
         handler: Option<FunctionId>,
     ) -> Result<(), String> {
         self.create_dropdown(node, parent, options, index, handler)
+    }
+
+    fn create_list(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
+        let element = self.create_element("div", node, "micro-list")?;
+        self.append(node, parent, element)
     }
 
     fn create_led(&mut self, node: NodeId, parent: Option<NodeId>, on: bool) -> Result<(), String> {

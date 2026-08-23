@@ -233,6 +233,12 @@ impl<'a> Lowerer<'a> {
                 }
                 Ok(id)
             }
+            Some("ui.list") => {
+                let id = self.reserve_node(UiKind::List);
+                let children = self.lower_list_items(&call.args[0].expr)?;
+                self.nodes[id.0 as usize].children = children;
+                Ok(id)
+            }
             Some("ui.led") => {
                 let id = self.reserve_node(UiKind::Led);
                 self.nodes[id.0 as usize].value =
@@ -634,6 +640,101 @@ impl<'a> Lowerer<'a> {
         expression: &Expr,
     ) -> Result<(), Diagnostic> {
         self.lower_selection_options(node, expression, "ui.dropdown")
+    }
+
+    fn lower_list_items(&mut self, expression: &Expr) -> Result<Vec<NodeId>, Diagnostic> {
+        let Expr::Array(array) = expression else {
+            return Err(self.error(
+                expression.span(),
+                "MTS012",
+                "ui.list expects an item array",
+            ));
+        };
+        let mut children = Vec::with_capacity(array.elems.len());
+        for element in array.elems.iter().flatten() {
+            let Expr::Object(object) = &*element.expr else {
+                return Err(self.error(
+                    element.expr.span(),
+                    "MTS012",
+                    "list items must be object literals",
+                ));
+            };
+            let mut text = None;
+            let mut handler = None;
+            for property in &object.props {
+                let PropOrSpread::Prop(property) = property else {
+                    return Err(self.error(
+                        property.span(),
+                        "MTS012",
+                        "list items cannot use spread",
+                    ));
+                };
+                let Prop::KeyValue(property) = &**property else {
+                    return Err(self.error(
+                        property.span(),
+                        "MTS012",
+                        "list item properties must use key-value pairs",
+                    ));
+                };
+                let PropName::Ident(name) = &property.key else {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS012",
+                        "list item property names must be identifiers",
+                    ));
+                };
+                match name.sym.as_ref() {
+                    "text" if text.is_none() => {
+                        let constant = literal_constant(&property.value)
+                            .filter(|constant| matches!(constant, Constant::String(_)))
+                            .ok_or_else(|| {
+                                self.error(
+                                    property.value.span(),
+                                    "MTS012",
+                                    "list item text must be a string",
+                                )
+                            })?;
+                        if let Constant::String(value) = &constant {
+                            self.validate_literal_glyphs(property.value.span(), value)?;
+                        }
+                        text = Some(self.intern(constant));
+                    }
+                    "onClick" if handler.is_none() => {
+                        let arrow = as_arrow(&property.value).ok_or_else(|| {
+                            self.error(
+                                property.value.span(),
+                                "MTS012",
+                                "list item onClick must be an arrow",
+                            )
+                        })?;
+                        handler = Some(self.add_function(arrow, false)?);
+                    }
+                    "text" | "onClick" => {
+                        return Err(self.error(
+                            property.key.span(),
+                            "MTS012",
+                            format!("duplicate list item property `{}`", name.sym),
+                        ));
+                    }
+                    _ => {
+                        return Err(self.error(
+                            property.key.span(),
+                            "MTS002",
+                            format!("unknown list item property `{}`", name.sym),
+                        ));
+                    }
+                }
+            }
+            let row = self.reserve_node(UiKind::Button);
+            if let Some(text) = text {
+                self.nodes[row.0 as usize].text = Some(TextSource::Constant(text));
+            }
+            if let Some(handler) = handler {
+                self.nodes[row.0 as usize].on_click = Some(handler);
+            }
+            children.push(row);
+        }
+        Ok(children)
     }
 
     fn lower_scale_options(

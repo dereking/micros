@@ -198,6 +198,10 @@ impl NativeUi for FakeNativeUi {
         Ok(())
     }
 
+    fn create_list(&mut self, _node: NodeId, _parent: Option<NodeId>) -> Result<(), String> {
+        Ok(())
+    }
+
     fn destroy_app_root(&mut self) -> Result<(), String> {
         self.nodes.clear();
         self.destroyed += 1;
@@ -398,6 +402,10 @@ impl NativeUi for FailingNativeUi {
     }
 
     fn set_scale_value(&mut self, _node: NodeId, _value: f64) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_list(&mut self, _node: NodeId, _parent: Option<NodeId>) -> Result<(), String> {
         Ok(())
     }
 

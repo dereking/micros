@@ -82,6 +82,7 @@ pub trait WebDom {
         handler: Option<FunctionId>,
     ) -> Result<(), String>;
     fn set_selection_value(&mut self, node: NodeId, index: f64) -> Result<(), String>;
+    fn create_list(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String>;
     fn create_led(&mut self, node: NodeId, parent: Option<NodeId>, on: bool) -> Result<(), String>;
     fn set_led(&mut self, node: NodeId, on: bool) -> Result<(), String>;
     fn create_spinner(&mut self, node: NodeId, parent: Option<NodeId>, active: bool)
@@ -232,6 +233,7 @@ impl<D: WebDom> WebRenderer<D> {
                 self.dom
                     .create_roller(node.id, parent, &node.options, *index, node.on_click)
             }
+            UiKind::List => self.dom.create_list(node.id, parent),
             UiKind::Led => {
                 let Some(Value::Bool(on)) = node.value.as_ref() else {
                     return Err(RenderError(format!("led {} has no boolean value", node.id.0)));

@@ -12,6 +12,7 @@ use crate::{HostError, MicroAction, MicroErrorCode, MicroEvent, MicroState, OsHo
 unsafe extern "C" {
     fn micro_esp_ui_create_column(node: u32, parent: u32) -> c_int;
     fn micro_esp_ui_create_row(node: u32, parent: u32) -> c_int;
+    fn micro_esp_ui_create_list(node: u32, parent: u32) -> c_int;
     fn micro_esp_ui_create_progress(node: u32, parent: u32, fraction: f64) -> c_int;
     fn micro_esp_ui_create_switch(node: u32, parent: u32, checked: c_int, handler: u32)
         -> c_int;
@@ -115,6 +116,10 @@ impl NativeUi for EspNativeUi {
 
     fn create_row(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
         native_result(unsafe { micro_esp_ui_create_row(node.0, parent_id(parent)) })
+    }
+
+    fn create_list(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
+        native_result(unsafe { micro_esp_ui_create_list(node.0, parent_id(parent)) })
     }
 
     fn create_progress(

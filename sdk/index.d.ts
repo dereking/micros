@@ -55,5 +55,6 @@ declare const ui: {
   led(on: boolean | Binding<boolean>): UiNode;
   spinner(active: boolean | Binding<boolean>): UiNode;
   scale(value: number | Binding<number>, options?: { min?: number; max?: number }): UiNode;
+  list(items: { text: string; onClick: () => void }[]): UiNode;
   mount(root: UiNode): void;
 };

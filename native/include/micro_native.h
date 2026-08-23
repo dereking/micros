@@ -27,6 +27,7 @@ MICRO_EXPORT void micro_native_inject_activation(micro_native_t *native, uint32_
 MICRO_EXPORT int micro_native_queue_click(micro_native_t *native, uint32_t node_id);
 MICRO_EXPORT int micro_native_create_column(micro_native_t *native, uint32_t node_id, uint32_t parent_id);
 MICRO_EXPORT int micro_native_create_row(micro_native_t *native, uint32_t node_id, uint32_t parent_id);
+MICRO_EXPORT int micro_native_create_list(micro_native_t *native, uint32_t node_id, uint32_t parent_id);
 MICRO_EXPORT int micro_native_create_progress(micro_native_t *native, uint32_t node_id, uint32_t parent_id, double fraction);
 MICRO_EXPORT int micro_native_create_switch(micro_native_t *native, uint32_t node_id, uint32_t parent_id, int checked, uint32_t handler_id);
 /* A zero font handle preserves LVGL defaults; nonzero handles are const lv_font_t pointers. */

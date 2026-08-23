@@ -20,6 +20,7 @@ unsafe extern "C" {
     fn micro_native_queue_click(native: *mut c_void, node: c_uint) -> c_int;
     fn micro_native_create_column(native: *mut c_void, node: c_uint, parent: c_uint) -> c_int;
     fn micro_native_create_row(native: *mut c_void, node: c_uint, parent: c_uint) -> c_int;
+    fn micro_native_create_list(native: *mut c_void, node: c_uint, parent: c_uint) -> c_int;
     fn micro_native_create_progress(
         native: *mut c_void,
         node: c_uint,

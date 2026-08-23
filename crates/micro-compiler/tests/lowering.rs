@@ -36,7 +36,7 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
         .iter()
         .filter(|function| matches!(function.kind, FunctionKind::Handler(_)))
         .collect();
-    assert_eq!(handlers.len(), 14);
+    assert_eq!(handlers.len(), 17);
 
     // The Add button's handler increments count (state 0) and presses (state 1).
     let add = image
@@ -82,7 +82,7 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
 
     let root = &image.nodes[image.root.0 as usize];
     assert_eq!(root.kind, UiKind::Column);
-    assert_eq!(root.children.len(), 24);
+    assert_eq!(root.children.len(), 25);
     // The first child is a styled static title.
     let title = &image.nodes[root.children[0].0 as usize];
     assert!(matches!(title.text, Some(TextSource::Constant(_))));

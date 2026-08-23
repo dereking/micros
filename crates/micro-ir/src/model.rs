@@ -106,6 +106,9 @@ pub enum UiKind {
     /// Read-only gauge (LVGL scale). `value` holds the needle value; the
     /// optional `range` gives (min, max).
     Scale,
+    /// Clickable-row container (LVGL list). Children are Button rows; each
+    /// carries its own text and onClick handler.
+    List,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -231,7 +234,8 @@ impl TextStyle {
             | UiKind::Roller
             | UiKind::Led
             | UiKind::Spinner
-            | UiKind::Scale => None,
+            | UiKind::Scale
+            | UiKind::List => None,
             UiKind::Text | UiKind::Input => Some(Self::DEFAULT_TEXT),
             UiKind::Button => Some(Self::DEFAULT_BUTTON),
         }

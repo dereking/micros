@@ -218,7 +218,7 @@ impl Validator<'_> {
         };
         let expected = match name.as_str() {
             "state" | "bind" | "ui.mount" | "ui.column" | "ui.row" | "ui.progress"
-            | "ui.led" | "ui.spinner" => 1..=1,
+            | "ui.led" | "ui.spinner" | "ui.list" => 1..=1,
             "ui.text" => 1..=2,
             "ui.switch" => 1..=2,
             "ui.input" => 1..=2,
@@ -310,9 +310,58 @@ impl Validator<'_> {
                     self.scale_options(&call.args[1].expr);
                 }
             }
+            "ui.list" => {
+                self.list_items(&call.args[0].expr);
+            }
             _ => {
                 for argument in &call.args {
                     self.expression(&argument.expr);
+                }
+            }
+        }
+    }
+
+    fn list_items(&mut self, expression: &Expr) {
+        let Expr::Array(array) = expression else {
+            self.sdk_error(
+                expression.span(),
+                "ui.list expects an item array".into(),
+            );
+            return;
+        };
+        for element in array.elems.iter().flatten() {
+            let Expr::Object(object) = &*element.expr else {
+                self.unsupported(element.expr.span(), "list item");
+                continue;
+            };
+            for property in &object.props {
+                let PropOrSpread::Prop(property) = property else {
+                    self.unsupported(property.span(), "spread");
+                    continue;
+                };
+                let Prop::KeyValue(property) = &**property else {
+                    self.unsupported(property.span(), "list item property");
+                    continue;
+                };
+                let PropName::Ident(name) = &property.key else {
+                    self.unsupported(property.key.span(), "computed list item property");
+                    continue;
+                };
+                if !matches!(name.sym.as_ref(), "text" | "onClick") {
+                    self.errors.push(diagnostic_at(
+                        self.source_map,
+                        self.path,
+                        name.span,
+                        "MTS002",
+                        format!("unknown list item property `{}`", name.sym),
+                    ));
+                }
+                if name.sym == *"onClick" {
+                    if let Expr::Arrow(arrow) = &*property.value {
+                        self.arrow(arrow);
+                    } else {
+                        self.expression(&property.value);
+                    }
                 }
             }
         }

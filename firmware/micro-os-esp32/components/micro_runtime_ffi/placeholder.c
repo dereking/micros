@@ -631,6 +631,25 @@ int micro_esp_ui_create_row(uint32_t node, uint32_t parent)
     return result;
 }
 
+int micro_esp_ui_create_list(uint32_t node, uint32_t parent)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    lv_obj_t *parent_obj;
+    int result = begin_create(node, parent, &parent_obj);
+    if (result == 0) {
+        lv_obj_t *list = lv_list_create(parent_obj);
+        if (list == NULL) result = -4;
+        else {
+            lv_obj_set_size(list, LV_PCT(100), LV_SIZE_CONTENT);
+            lv_obj_set_style_pad_row(list, 4, LV_PART_MAIN);
+            objects[node] = list;
+            if (parent == MICRO_UI_NO_PARENT) app_root = list;
+        }
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
 int micro_esp_ui_create_progress(uint32_t node, uint32_t parent, double fraction)
 {
     if (!lvgl_port_lock(0)) return -3;
@@ -757,8 +776,16 @@ int micro_esp_ui_create_button(uint32_t node, uint32_t parent,
     lv_obj_t *parent_obj;
     int result = begin_create(node, parent, &parent_obj);
     if (result == 0) {
-        lv_obj_t *button = lv_button_create(parent_obj);
-        lv_obj_t *label = button == NULL ? NULL : lv_label_create(button);
+        lv_obj_t *button = NULL;
+        lv_obj_t *label = NULL;
+        if (parent_obj != NULL && lv_obj_check_type(parent_obj, &lv_list_class)) {
+            /* Row inside a ui.list container. */
+            button = lv_list_add_button(parent_obj, NULL, copy);
+            label = button == NULL ? NULL : lv_obj_get_child(button, 0);
+        } else {
+            button = lv_button_create(parent_obj);
+            label = button == NULL ? NULL : lv_label_create(button);
+        }
         if (button == NULL || label == NULL) {
             if (button != NULL) lv_obj_delete(button);
             result = -4;

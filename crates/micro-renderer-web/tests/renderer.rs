@@ -191,6 +191,10 @@ impl WebDom for FakeDom {
         Ok(())
     }
 
+    fn create_list(&mut self, _node: NodeId, _parent: Option<NodeId>) -> Result<(), String> {
+        Ok(())
+    }
+
     fn set_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
         self.operations.push(Call::SetText(node, text.into()));
         Ok(())

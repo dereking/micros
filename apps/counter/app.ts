@@ -136,5 +136,11 @@ ui.mount(
     ui.button("gauge", {
       onClick: () => { gauge.value = (gauge.value + 10) % 100; },
     }),
+
+    ui.list([
+      { text: "reset count", onClick: () => { count.value = 0; } },
+      { text: "double count", onClick: () => { count.value = count.value * 2; } },
+      { text: "level up", onClick: () => { if (level.value < 10) { level.value = level.value + 1; } } },
+    ]),
   ]),
 );
