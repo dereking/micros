@@ -298,7 +298,11 @@ static esp_err_t micro_bsp_touch_init(micro_bsp_display_t *display)
 
 static esp_err_t micro_bsp_lvgl_init(micro_bsp_display_t *display)
 {
-    const lvgl_port_cfg_t port_config = ESP_LVGL_PORT_INIT_CONFIG();
+    lvgl_port_cfg_t port_config = ESP_LVGL_PORT_INIT_CONFIG();
+    /* The default 7 KB LVGL-task stack overflowed (vApplicationStackOverflowHook)
+     * once LVGL used C-lib malloc (deeper call stacks) and rendered larger
+     * scrolled/refresh areas. Give it a generous stack. */
+    port_config.task_stack = 16384;
     ESP_RETURN_ON_ERROR(lvgl_port_init(&port_config), TAG, "initialize LVGL port failed");
 
     const lvgl_port_display_cfg_t display_config = {
