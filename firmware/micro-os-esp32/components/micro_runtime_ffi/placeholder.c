@@ -673,6 +673,12 @@ int micro_esp_ui_create_row(uint32_t node, uint32_t parent)
                                       lv_obj_get_style_bg_color(parent_obj, LV_PART_MAIN),
                                       LV_PART_MAIN);
             lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
+            /* A row is a plain layout container, never scrollable (the tab
+             * page owns scrolling). Without this, LVGL's default AUTO scrollbar
+             * appears when the absolutely-positioned children + padding exceed
+             * the row's height. */
+            lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_set_scrollbar_mode(row, LV_SCROLLBAR_MODE_OFF);
             objects[node] = row;
             if (parent == MICRO_UI_NO_PARENT) app_root = row;
         }

@@ -423,6 +423,11 @@ int micro_native_create_row(micro_native_t *native, uint32_t node_id, uint32_t p
     lv_obj_set_style_border_width(object, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_color(object, lv_obj_get_style_bg_color(parent, LV_PART_MAIN), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(object, LV_OPA_COVER, LV_PART_MAIN);
+    /* A row is a plain layout container, never scrollable (the tab page owns
+     * scrolling). Without this, LVGL's default AUTO scrollbar appears when the
+     * absolutely-positioned children + padding exceed the row's height. */
+    lv_obj_remove_flag(object, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(object, LV_SCROLLBAR_MODE_OFF);
     native->objects[node_id] = object;
     return 1;
 }

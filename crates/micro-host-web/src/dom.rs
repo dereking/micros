@@ -793,11 +793,17 @@ impl WebDom for DomBridge {
             .get(&node.0)
             .ok_or_else(|| format!("node {} is missing", node.0))?;
         let (min, max) = scale_range(element);
+        /* Merge into the existing style: replacing the whole `style` would
+         * wipe the absolute position/dimensions the delphi pass applied. */
+        let style = element.get_attribute("style").unwrap_or_default();
+        let mut parts: Vec<String> = style
+            .split(';')
+            .filter(|p| !p.trim_start().starts_with("--micro-scale"))
+            .map(String::from)
+            .collect();
+        parts.push(format!("--micro-scale:{};", scale_fraction(value, min, max)));
         element
-            .set_attribute(
-                "style",
-                &format!("--micro-scale:{};", scale_fraction(value, min, max)),
-            )
+            .set_attribute("style", &parts.join(";"))
             .map_err(|error| format!("set scale value: {error:?}"))
     }
 

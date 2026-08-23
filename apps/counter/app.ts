@@ -60,30 +60,30 @@ ui.mount(
 
         ui.place(ui.row([
           ui.place(ui.text(bind(() => `battery: ${level.value / 10}`)),
-            { left: 0, width: 120, height: 40 }),
+            { left: 0, width: 150, height: 40 }),
           ui.place(ui.progress(bind(() => level.value / 10)),
-            { left: 130, top: 14, width: 120, height: 12 }),
+            { top: 24, height: 12, anchor: { left: 160, right: 106 } }),
           ui.place(ui.button("-", {
             onClick: () => {
               if (power.value === 1) {
                 if (level.value > 0) { level.value = level.value - 1; }
               }
             },
-          }), { left: 260, width: 40, height: 40 }),
+          }), { width: 40, height: 40, anchor: { right: 56 } }),
           ui.place(ui.button("+", {
             onClick: () => {
               if (power.value === 1) {
                 if (level.value < 10) { level.value = level.value + 1; }
               }
             },
-          }), { left: 310, width: 40, height: 40 }),
-        ]), { height: 40, anchor: { left: 0, right: 0, top: 282 } }),
+          }), { width: 40, height: 40, anchor: { right: 0 } }),
+        ]), { height: 60, anchor: { left: 0, right: 0, top: 282 } }),
 
         ui.place(ui.switch(bind(() => power.value === 1), {
           onToggle: () => {
             power.value = 1 - power.value;
           },
-        }), { width: 52, height: 30, anchor: { left: 0, top: 328 } }),
+        }), { width: 52, height: 30, anchor: { left: 0, top: 348 } }),
       ]),
     },
     {
