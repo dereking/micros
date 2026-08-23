@@ -620,6 +620,9 @@ int micro_esp_ui_create_column(uint32_t node, uint32_t parent)
             /* Flat containers avoid the LVGL layer-buffer path that a rounded
              * clipped container forces on every redraw (slow on scroll). */
             lv_obj_set_style_radius(column, 0, LV_PART_MAIN);
+            /* Keep the column scrollable but hide the scrollbar chrome (its
+             * up/down arrows looked like phantom +/- buttons). */
+            lv_obj_set_scrollbar_mode(column, LV_SCROLLBAR_MODE_OFF);
             objects[node] = column;
             if (parent == MICRO_UI_NO_PARENT) app_root = column;
         }
