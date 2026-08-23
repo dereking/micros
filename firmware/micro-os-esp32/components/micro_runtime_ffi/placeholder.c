@@ -620,8 +620,8 @@ int micro_esp_ui_create_column(uint32_t node, uint32_t parent)
             /* Flat containers avoid the LVGL layer-buffer path that a rounded
              * clipped container forces on every redraw (slow on scroll). */
             lv_obj_set_style_radius(column, 0, LV_PART_MAIN);
-            /* Keep the column scrollable but hide the scrollbar chrome (its
-             * up/down arrows looked like phantom +/- buttons). */
+            /* The tab page owns scrolling; a column is a plain content stack. */
+            lv_obj_remove_flag(column, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_set_scrollbar_mode(column, LV_SCROLLBAR_MODE_OFF);
             objects[node] = column;
             if (parent == MICRO_UI_NO_PARENT) app_root = column;
@@ -701,13 +701,13 @@ int micro_esp_ui_create_tabview(uint32_t node, uint32_t parent,
                  token = strtok_r(NULL, "\n", &save)) {
                 lv_tabview_add_tab(tabview, token);
             }
-            /* Scrolling is handled by each page; keep scrollbars off for a
-             * cleaner look. */
+            /* The tab page is the single scroll container; keep its scrollbar
+             * visible so the user can tell content scrolls. */
             lv_obj_t *tab_content = lv_tabview_get_content(tabview);
             uint32_t page_count = tab_content == NULL ? 0 : lv_obj_get_child_count(tab_content);
             for (uint32_t pi = 0; pi < page_count; ++pi) {
                 lv_obj_t *page = lv_obj_get_child(tab_content, pi);
-                lv_obj_set_scrollbar_mode(page, LV_SCROLLBAR_MODE_OFF);
+                lv_obj_set_scrollbar_mode(page, LV_SCROLLBAR_MODE_AUTO);
             }
             s_tabview = tabview;
             s_tab_target = NULL;
