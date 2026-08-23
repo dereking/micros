@@ -399,9 +399,8 @@ int micro_native_create_column(micro_native_t *native, uint32_t node_id, uint32_
     if (parent == NULL) return 0;
     lv_obj_t *object = lv_obj_create(parent);
     lv_obj_set_size(object, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_layout(object, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(object, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(object, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    /* Plain container: no flex layout — every child is positioned by its
+     * Delphi ltwh/anchor via ui.place. */
     lv_obj_set_style_border_width(object, 0, LV_PART_MAIN);
     /* Blend into the parent: invisible but opaque (a transparent container
      * changed LVGL's draw path and intermittently hid the top rows). */
@@ -418,9 +417,8 @@ int micro_native_create_row(micro_native_t *native, uint32_t node_id, uint32_t p
     if (parent == NULL) return 0;
     lv_obj_t *object = lv_obj_create(parent);
     lv_obj_set_size(object, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_layout(object, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(object, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(object, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    /* Plain container: no flex layout — every child is positioned by its
+     * Delphi ltwh/anchor via ui.place. */
     lv_obj_set_style_pad_column(object, 16, LV_PART_MAIN);
     lv_obj_set_style_border_width(object, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_color(object, lv_obj_get_style_bg_color(parent, LV_PART_MAIN), LV_PART_MAIN);
@@ -736,29 +734,45 @@ static void delphi_layout_update_cb(lv_obj_t *container, void *user_data)
         lv_coord_t eh = (mask & 8) ? (lv_coord_t)native->layout_specs[node].height : h;
         lv_coord_t x;
         if ((mask & 16) && (mask & 64)) {
+            /* Stretch: left + right anchored. */
             x = (lv_coord_t)native->layout_specs[node].anchor_left;
             lv_obj_set_width(child, avail_w - (lv_coord_t)native->layout_specs[node].anchor_left
                                        - (lv_coord_t)native->layout_specs[node].anchor_right);
         } else if (mask & 64) {
+            /* Pin the right edge. */
             lv_obj_set_width(child, ew);
             x = avail_w - ew - (lv_coord_t)native->layout_specs[node].anchor_right;
+        } else if (mask & 16) {
+            /* Pin the left edge (a lone left anchor, not a stretch). */
+            lv_obj_set_width(child, ew);
+            x = (lv_coord_t)native->layout_specs[node].anchor_left;
         } else {
             x = (mask & 1) ? (lv_coord_t)native->layout_specs[node].left : 0;
             lv_obj_set_width(child, ew);
         }
         lv_coord_t y;
         if ((mask & 32) && (mask & 128)) {
+            /* Stretch: top + bottom anchored. */
             lv_obj_set_height(child, avail_h - (lv_coord_t)native->layout_specs[node].anchor_top
                                      - (lv_coord_t)native->layout_specs[node].anchor_bottom);
             y = (lv_coord_t)native->layout_specs[node].anchor_top;
         } else if (mask & 128) {
+            /* Pin the bottom edge. */
             lv_obj_set_height(child, eh);
             y = avail_h - eh - (lv_coord_t)native->layout_specs[node].anchor_bottom;
+        } else if (mask & 32) {
+            /* Pin the top edge (a lone top anchor, not a stretch). */
+            lv_obj_set_height(child, eh);
+            y = (lv_coord_t)native->layout_specs[node].anchor_top;
         } else {
             lv_obj_set_height(child, eh);
             y = (mask & 2) ? (lv_coord_t)native->layout_specs[node].top : 0;
         }
-        lv_obj_set_pos(child, x, y);
+        /* set_pos only writes a style, and LVGL skips style-position for
+         * children of a layout container (lv_obj_refr_pos returns early for
+         * layout-positioned objects). move_to applies the position directly,
+         * like the built-in flex layout. */
+        lv_obj_move_to(child, x, y);
     }
 }
 

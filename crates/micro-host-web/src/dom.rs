@@ -672,6 +672,9 @@ impl WebDom for DomBridge {
                 (al, width - al - ar)
             } else if mask & 64 != 0 {
                 (width - ew - ar, ew)
+            } else if mask & 16 != 0 {
+                /* Pin the left edge (a lone left anchor, not a stretch). */
+                (al, ew)
             } else {
                 (if mask & 1 != 0 { l } else { 0.0 }, ew)
             };
@@ -679,13 +682,24 @@ impl WebDom for DomBridge {
                 (at, (avail_h - at - ab).max(0.0))
             } else if mask & 128 != 0 {
                 (avail_h - eh - ab, eh)
+            } else if mask & 32 != 0 {
+                /* Pin the top edge (a lone top anchor, not a stretch). */
+                (at, eh)
             } else {
                 (if mask & 2 != 0 { t } else { 0.0 }, eh)
             };
-            let style = format!(
+            /* Merge into the existing style instead of overwriting it:
+             * replacing the whole `style` attribute would wipe a widget's own
+             * inline styles (e.g. the font-size/line-height a text label
+             * applied at creation). Runs once per container during create. */
+            let mut style = el.get_attribute("style").unwrap_or_default();
+            if !style.is_empty() && !style.ends_with(';') {
+                style.push(';');
+            }
+            style.push_str(&format!(
                 "position:absolute;left:{}px;top:{}px;width:{}px;height:{}px;",
                 x, y, style_w, style_h
-            );
+            ));
             el.set_attribute("style", &style)
                 .map_err(|error| format!("apply delphi layout: {error:?}"))?;
         }

@@ -616,7 +616,8 @@ int micro_esp_ui_create_column(uint32_t node, uint32_t parent)
         lv_obj_t *column = lv_obj_create(parent_obj);
         if (column == NULL) result = -4;
         else {
-            lv_obj_set_flex_flow(column, LV_FLEX_FLOW_COLUMN);
+            /* Plain container: no flex layout — every child is positioned by
+             * its Delphi ltwh/anchor via ui.place. */
             /* Mirror the SDL host: column fills its parent horizontally. The
              * root column (parent == screen) also fills vertically so the
              * whole Micro UI Tree covers the 800x480 panel. Nested columns
@@ -662,10 +663,8 @@ int micro_esp_ui_create_row(uint32_t node, uint32_t parent)
         lv_obj_t *row = lv_obj_create(parent_obj);
         if (row == NULL) result = -4;
         else {
-            lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-            /* Row spans the full width of its parent column and sizes to its
-             * tallest child (LV_SIZE_CONTENT). Spacing between children is
-             * 16 logical pixels, matching the SDL host. */
+            /* Plain container: no flex layout — every child is positioned by
+             * its Delphi ltwh/anchor via ui.place. */
             lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
             lv_obj_set_style_pad_column(row, 16, LV_PART_MAIN);
             lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
@@ -1169,8 +1168,8 @@ static void delphi_layout_update_cb(lv_obj_t *container, void *user_data)
         lv_coord_t h = lv_obj_get_height(child);
         lv_coord_t ew = (mask & 4) ? (lv_coord_t)layout_specs[node].width : w;
         lv_coord_t eh = (mask & 8) ? (lv_coord_t)layout_specs[node].height : h;
-        /* Horizontal: anchor left+right stretch, anchor right pin, else
-         * base left + width. */
+        /* Horizontal: anchor left+right stretch, anchor right pin, lone
+         * anchor left pin, else base left + width. */
         lv_coord_t x;
         if ((mask & 16) && (mask & 64)) {
             x = (lv_coord_t)layout_specs[node].anchor_left;
@@ -1179,12 +1178,16 @@ static void delphi_layout_update_cb(lv_obj_t *container, void *user_data)
         } else if (mask & 64) {
             lv_obj_set_width(child, ew);
             x = avail_w - ew - (lv_coord_t)layout_specs[node].anchor_right;
+        } else if (mask & 16) {
+            /* Pin the left edge (a lone left anchor, not a stretch). */
+            lv_obj_set_width(child, ew);
+            x = (lv_coord_t)layout_specs[node].anchor_left;
         } else {
             x = (mask & 1) ? (lv_coord_t)layout_specs[node].left : 0;
             lv_obj_set_width(child, ew);
         }
-        /* Vertical: anchor top+bottom stretch, anchor bottom pin, else base
-         * top + height. */
+        /* Vertical: anchor top+bottom stretch, anchor bottom pin, lone
+         * anchor top pin, else base top + height. */
         lv_coord_t y;
         if ((mask & 32) && (mask & 128)) {
             lv_obj_set_height(child, avail_h - (lv_coord_t)layout_specs[node].anchor_top
@@ -1193,11 +1196,19 @@ static void delphi_layout_update_cb(lv_obj_t *container, void *user_data)
         } else if (mask & 128) {
             lv_obj_set_height(child, eh);
             y = avail_h - eh - (lv_coord_t)layout_specs[node].anchor_bottom;
+        } else if (mask & 32) {
+            /* Pin the top edge (a lone top anchor, not a stretch). */
+            lv_obj_set_height(child, eh);
+            y = (lv_coord_t)layout_specs[node].anchor_top;
         } else {
             lv_obj_set_height(child, eh);
             y = (mask & 2) ? (lv_coord_t)layout_specs[node].top : 0;
         }
-        lv_obj_set_pos(child, x, y);
+        /* set_pos only writes a style, and LVGL skips style-position for
+         * children of a layout container (lv_obj_refr_pos returns early for
+         * layout-positioned objects). move_to applies the position directly,
+         * like the built-in flex layout. */
+        lv_obj_move_to(child, x, y);
     }
 }
 

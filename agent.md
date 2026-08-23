@@ -55,12 +55,29 @@ Python venv 缺失时用 `IDF_PYTHON_ENV_PATH` 指向 `work/toolchains/espressif
 | `npm run build:web:app` | 同上 → `products/micro-web-player/public/apps/counter.mbc` |
 | `npm test` | 全平台无关 Rust 测试 |
 | `npm run test:native` | 原生(SDL)一键:自检→编译→构建→冒烟→开窗 |
+| `npm run test:web` | 构建 WASM + web 播放器,跑 Playwright(counter tab 端到端) |
 | `zsh tests/esp32_ui_bridge.sh` | 用 mock 编译 placeholder.c + 跑 bridge 契约测试(依赖 ESP 构建生成的 `pinyin_table.h`) |
 
-## 布局(LTRB / Delphi anchor)关键文件
+## 布局(强制要求):Delphi ltwh + anchor
 
-- SDK:`sdk/index.d.ts` 的 `ui.place`(`align` 糖 + `left/top/right/bottom` 锚点)
-- 编译器:`crates/micro-compiler/src/lower.rs`(`align`→LTRB 展开)
-- IR/编解码:`crates/micro-ir/src/model.rs`(`LayoutSpec`)、`codec.rs`(MBC **v13**)
-- 引擎(两份几乎一致):`firmware/.../placeholder.c` 与 `native/src/micro_native.c` 的 `delphi_layout_update_cb` / `delphi_get_min_size_cb` / `micro_*_set_layout_spec`
-- FFI 头:`micro_runtime_ffi.h`、`native/include/micro_native.h`(`mask` bit0=left,bit1=top,bit2=right,bit3=bottom)
+**列/行是纯容器,没有 flex 自动布局。所有子组件必须用 `ui.place` 显式定位**——没有 layout 的子组件会被放到 (0,0) 互相重叠。禁止依赖"容器自动排列"。
+
+- **`ui.place(widget, { left?, top?, width?, height?, anchor? })`**
+  - `left/top/width/height` 是基准几何。
+  - `anchor: { left?, top?, right?, bottom? }` 是边锚点,**优先于**基准位置:
+    - 单边锚(如 `top: 106`)= 把该边钉到父容器对应边 + 偏移。
+    - 对边锚(如 `left+right`、`top+bottom`)= 拉伸填满中间。
+  - `align` 是 `anchor` 的糖(`"top"`=`{left:0,right:0,top:0}` 等)。
+- **引擎必须三端一致**(改布局=三端一起改):
+  - ESP32 `firmware/.../placeholder.c` 与 SDL `native/src/micro_native.c` 的 `delphi_layout_update_cb` / `delphi_get_min_size_cb` / `micro_*_set_layout_spec`(两份几乎一致)。
+  - Web `crates/micro-host-web/src/dom.rs` 的 `apply_delphi_layout`。
+- **C 引擎定位子对象必须用 `lv_obj_move_to`,不能用 `lv_obj_set_pos`**:`set_pos` 只写 style,而 LVGL 对 layout-positioned 子对象跳过 style 定位(`lv_obj_refr_pos` 提前 return),位置不会生效。
+- **单边锚(单独的 `left`/`top`)必须生效**——它钉住该边,不是回落到 base 0(历史上三个引擎都漏掉过这个分支)。
+
+### 布局关键文件
+
+- SDK:`sdk/index.d.ts` 的 `ui.place`
+- 编译器:`crates/micro-compiler/src/lower.rs`(`align`→anchor 展开)
+- IR/编解码:`crates/micro-ir/src/model.rs`(`LayoutSpec`)、`codec.rs`(MBC **v15**)
+- 引擎:见上
+- FFI 头:`micro_runtime_ffi.h`、`native/include/micro_native.h`(`mask` 位:bit0=left,bit1=top,bit2=width,bit3=height,bit4=anchor_left,bit5=anchor_top,bit6=anchor_right,bit7=anchor_bottom)

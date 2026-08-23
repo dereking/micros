@@ -158,12 +158,6 @@ impl<B: NativeUi> LvglRenderer<B> {
             .nodes
             .get(node_id.0 as usize)
             .ok_or_else(|| RenderError(format!("node {} is missing", node_id.0)))?;
-        /* Mark ownership before building children (the Tabview arm recurses
-         * into its content nodes), so a partially built root is still cleaned
-         * up when creation fails partway. */
-        if parent.is_none() {
-            self.owns_app_root = true;
-        }
         match node.kind {
             UiKind::Column => self.bridge.create_column(node.id, parent),
             UiKind::Row => self.bridge.create_row(node.id, parent),
@@ -273,18 +267,7 @@ impl<B: NativeUi> LvglRenderer<B> {
                 )
             }
             UiKind::List => self.bridge.create_list(node.id, parent),
-            UiKind::Tabview => {
-                self.bridge
-                    .create_tabview(node.id, parent, &node.options)
-                    .map_err(RenderError)?;
-                for (index, child) in node.children.iter().enumerate() {
-                    self.bridge
-                        .create_tab_content(index as u32)
-                        .map_err(RenderError)?;
-                    self.create_node(tree, *child, Some(node.id))?;
-                }
-                Ok(())
-            }
+            UiKind::Tabview => self.bridge.create_tabview(node.id, parent, &node.options),
             UiKind::Led => {
                 let Some(Value::Bool(on)) = node.value.as_ref() else {
                     return Err(RenderError(format!("led {} has no boolean value", node.id.0)));
@@ -311,9 +294,24 @@ impl<B: NativeUi> LvglRenderer<B> {
             }
         }
         .map_err(RenderError)?;
-        for child in &node.children {
-            /* Tabview mounts its content children itself; skip them here. */
-            if !matches!(node.kind, UiKind::Tabview) {
+        /* The node's own create call succeeded. Own a root from here on, so a
+         * failure in any descendant still cleans up the partial tree on drop.
+         * The root's own create can itself fail (e.g. a second renderer on a
+         * shared bridge) and must not mark ownership then, or the drop would
+         * tear down the first renderer's root. */
+        if parent.is_none() {
+            self.owns_app_root = true;
+        }
+        if matches!(node.kind, UiKind::Tabview) {
+            /* Tabview mounts its content children itself. */
+            for (index, child) in node.children.iter().enumerate() {
+                self.bridge
+                    .create_tab_content(index as u32)
+                    .map_err(RenderError)?;
+                self.create_node(tree, *child, Some(node.id))?;
+            }
+        } else {
+            for child in &node.children {
                 self.create_node(tree, *child, Some(node.id))?;
             }
         }

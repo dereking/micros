@@ -21,121 +21,129 @@ ui.mount(
     {
       title: "counter",
       content: ui.column([
-        ui.text("Counter Studio", { font: "uiSans", size: 18, weight: "regular", lineHeight: 24 }),
+        ui.place(ui.text("Counter Studio", { font: "uiSans", size: 18, weight: "regular", lineHeight: 24 }),
+          { height: 24, anchor: { left: 0, right: 0, top: 0 } }),
 
-        ui.text(
+        ui.place(ui.text(
           bind(() => `Count: ${count.value}`),
           { font: "uiSans", size: 24, weight: "regular", lineHeight: 32 },
-        ),
+        ), { height: 32, anchor: { left: 0, right: 0, top: 30 } }),
 
-        ui.text(bind(() => {
+        ui.place(ui.text(bind(() => {
           if (count.value > 0) { return "positive"; }
           if (count.value < 0) { return "negative"; }
           return "zero";
-        })),
+        })), { height: 32, anchor: { left: 0, right: 0, top: 68 } }),
 
-        ui.button("Add", {
+        ui.place(ui.button("Add", {
           onClick: () => {
             count.value++;
             presses.value++;
           },
-        }),
-        ui.button("Reset", {
+        }), { width: 200, height: 40, anchor: { left: 0, top: 106 } }),
+        ui.place(ui.button("Reset", {
           onClick: () => {
             count.value = 0;
           },
-        }),
-        ui.button("Double", {
+        }), { width: 200, height: 40, anchor: { left: 0, top: 152 } }),
+        ui.place(ui.button("Double", {
           onClick: () => {
             count.value = count.value * 2;
             presses.value++;
           },
-        }),
+        }), { width: 200, height: 40, anchor: { left: 0, top: 198 } }),
 
-        ui.text(bind(() => {
+        ui.place(ui.text(bind(() => {
           if (power.value === 1) { return "power: on"; }
           return "power: off";
-        })),
+        })), { height: 32, anchor: { left: 0, right: 0, top: 244 } }),
 
-        ui.row([
-          ui.text(bind(() => `battery: ${level.value / 10}`)),
-          ui.progress(bind(() => level.value / 10)),
-          ui.button("-", {
+        ui.place(ui.row([
+          ui.place(ui.text(bind(() => `battery: ${level.value / 10}`)),
+            { left: 0, width: 120, height: 40 }),
+          ui.place(ui.progress(bind(() => level.value / 10)),
+            { left: 130, top: 14, width: 120, height: 12 }),
+          ui.place(ui.button("-", {
             onClick: () => {
               if (power.value === 1) {
                 if (level.value > 0) { level.value = level.value - 1; }
               }
             },
-          }),
-          ui.button("+", {
+          }), { left: 260, width: 40, height: 40 }),
+          ui.place(ui.button("+", {
             onClick: () => {
               if (power.value === 1) {
                 if (level.value < 10) { level.value = level.value + 1; }
               }
             },
-          }),
-        ]),
+          }), { left: 310, width: 40, height: 40 }),
+        ]), { height: 40, anchor: { left: 0, right: 0, top: 282 } }),
 
-        ui.switch(bind(() => power.value === 1), {
+        ui.place(ui.switch(bind(() => power.value === 1), {
           onToggle: () => {
             power.value = 1 - power.value;
           },
-        }),
+        }), { width: 52, height: 30, anchor: { left: 0, top: 328 } }),
       ]),
     },
     {
       title: "inputs",
       content: ui.column([
-        ui.input(bind(() => note.value), {
+        ui.place(ui.input(bind(() => note.value), {
           placeholder: "type a note",
           onChange: (s) => { note.value = s; },
-        }),
-        ui.text(bind(() => `note: ${note.value}`)),
+        }), { height: 40, anchor: { left: 0, right: 0, top: 0 } }),
+        ui.place(ui.text(bind(() => `note: ${note.value}`)),
+          { height: 32, anchor: { left: 0, right: 0, top: 46 } }),
 
-        ui.slider(bind(() => volume.value), {
+        ui.place(ui.slider(bind(() => volume.value), {
           min: 0,
           max: 100,
           onChange: (v) => { volume.value = v; },
-        }),
-        ui.text(bind(() => `volume: ${volume.value}`)),
+        }), { height: 40, anchor: { left: 0, right: 0, top: 84 } }),
+        ui.place(ui.text(bind(() => `volume: ${volume.value}`)),
+          { height: 32, anchor: { left: 0, right: 0, top: 130 } }),
 
-        ui.checkbox("alarm", bind(() => alarm.value === 1), {
+        ui.place(ui.checkbox("alarm", bind(() => alarm.value === 1), {
           onChange: (v) => {
             if (v === true) { alarm.value = 1; } else { alarm.value = 0; }
           },
-        }),
-        ui.text(bind(() => {
+        }), { height: 40, anchor: { left: 0, top: 168 } }),
+        ui.place(ui.text(bind(() => {
           if (alarm.value === 1) { return "alarm: on"; }
           return "alarm: off";
-        })),
+        })), { height: 32, anchor: { left: 0, right: 0, top: 214 } }),
 
-        ui.dropdown(["red", "green", "blue"], bind(() => color.value), {
+        ui.place(ui.dropdown(["red", "green", "blue"], bind(() => color.value), {
           onChange: (i) => { color.value = i; },
-        }),
+        }), { height: 40, anchor: { left: 0, right: 0, top: 252 } }),
 
-        ui.roller(["S", "M", "L"], bind(() => size.value), {
+        ui.place(ui.roller(["S", "M", "L"], bind(() => size.value), {
           onChange: (i) => { size.value = i; },
-        }),
+        }), { height: 90, anchor: { left: 0, right: 0, top: 298 } }),
       ]),
     },
     {
       title: "display",
       content: ui.column([
         ui.place(ui.row([
-          ui.led(bind(() => powerOn.value === 1)),
-          ui.spinner(bind(() => loading.value === 1)),
-          ui.scale(bind(() => gauge.value), { min: 0, max: 100 }),
+          ui.place(ui.led(bind(() => powerOn.value === 1)),
+            { left: 0, top: 70, width: 20, height: 20 }),
+          ui.place(ui.spinner(bind(() => loading.value === 1)),
+            { left: 36, top: 56, width: 48, height: 48 }),
+          ui.place(ui.scale(bind(() => gauge.value), { min: 0, max: 100 }),
+            { left: 100, top: 20, width: 120, height: 120 }),
         ]), { height: 160, anchor: { left: 0, right: 0, top: 0 } }),
         ui.place(ui.row([
-          ui.button("power", {
+          ui.place(ui.button("power", {
             onClick: () => { powerOn.value = 1 - powerOn.value; },
-          }),
-          ui.button("loading", {
+          }), { left: 0, top: 20, width: 100, height: 40 }),
+          ui.place(ui.button("loading", {
             onClick: () => { loading.value = 1 - loading.value; },
-          }),
-          ui.button("gauge", {
+          }), { left: 116, top: 20, width: 100, height: 40 }),
+          ui.place(ui.button("gauge", {
             onClick: () => { gauge.value = (gauge.value + 10) % 100; },
-          }),
+          }), { left: 232, top: 20, width: 100, height: 40 }),
         ]), { top: 166, height: 80, anchor: { left: 0, right: 0, top: 166 } }),
         ui.place(ui.list([
           { text: "reset count", onClick: () => { count.value = 0; } },
