@@ -7,8 +7,8 @@ use crate::{
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
-/// MBC v8 adds `UiKind::Roller`.
-const VERSION: u16 = 8;
+/// MBC v9 adds `UiKind::Led`, `UiKind::Spinner`, `UiKind::Scale`.
+const VERSION: u16 = 9;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -290,6 +290,9 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
             UiKind::Checkbox => 8,
             UiKind::Dropdown => 9,
             UiKind::Roller => 10,
+            UiKind::Led => 11,
+            UiKind::Spinner => 12,
+            UiKind::Scale => 13,
         });
         put_u32(&mut out, node.children.len())?;
         for child in &node.children {
@@ -381,6 +384,9 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             8 => UiKind::Checkbox,
             9 => UiKind::Dropdown,
             10 => UiKind::Roller,
+            11 => UiKind::Led,
+            12 => UiKind::Spinner,
+            13 => UiKind::Scale,
             tag => {
                 return Err(DecodeError::InvalidTag {
                     section: "ui kind",
@@ -513,6 +519,7 @@ fn encode_instruction(out: &mut Vec<u8>, instruction: &Instruction) {
         Instruction::Sub => (6, None, None),
         Instruction::Mul => (7, None, None),
         Instruction::Div => (8, None, None),
+        Instruction::Mod => (21, None, None),
         Instruction::Eq => (9, None, None),
         Instruction::Lt => (10, None, None),
         Instruction::Gt => (11, None, None),
@@ -546,6 +553,7 @@ fn decode_instruction(reader: &mut Reader<'_>) -> Result<Instruction, DecodeErro
         6 => Instruction::Sub,
         7 => Instruction::Mul,
         8 => Instruction::Div,
+        21 => Instruction::Mod,
         9 => Instruction::Eq,
         10 => Instruction::Lt,
         11 => Instruction::Gt,

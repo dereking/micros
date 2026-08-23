@@ -31,6 +31,9 @@ pub enum RenderPatch {
     SetInputText { node: NodeId, text: String },
     SetSliderValue { node: NodeId, value: f64 },
     SetSelectionValue { node: NodeId, index: f64 },
+    SetLed { node: NodeId, on: bool },
+    SetSpinner { node: NodeId, active: bool },
+    SetScaleValue { node: NodeId, value: f64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

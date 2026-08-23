@@ -382,6 +382,86 @@ impl WebDom for DomBridge {
         self.create_dropdown(node, parent, options, index, handler)
     }
 
+    fn create_led(&mut self, node: NodeId, parent: Option<NodeId>, on: bool) -> Result<(), String> {
+        let element = self.create_element("span", node, "micro-led")?;
+        element
+            .set_attribute("data-on", if on { "1" } else { "0" })
+            .map_err(|error| format!("set led state: {error:?}"))?;
+        self.append(node, parent, element)
+    }
+
+    fn set_led(&mut self, node: NodeId, on: bool) -> Result<(), String> {
+        let element = self
+            .elements
+            .get(&node.0)
+            .ok_or_else(|| format!("node {} is missing", node.0))?;
+        element
+            .set_attribute("data-on", if on { "1" } else { "0" })
+            .map_err(|error| format!("set led state: {error:?}"))
+    }
+
+    fn create_spinner(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        active: bool,
+    ) -> Result<(), String> {
+        let element = self.create_element("div", node, "micro-spinner")?;
+        if active {
+            element
+                .set_attribute("data-active", "1")
+                .map_err(|error| format!("set spinner: {error:?}"))?;
+        }
+        self.append(node, parent, element)
+    }
+
+    fn set_spinner(&mut self, node: NodeId, active: bool) -> Result<(), String> {
+        let element = self
+            .elements
+            .get(&node.0)
+            .ok_or_else(|| format!("node {} is missing", node.0))?;
+        if active {
+            element
+                .set_attribute("data-active", "1")
+                .map_err(|error| format!("set spinner: {error:?}"))
+        } else {
+            element
+                .remove_attribute("data-active")
+                .map_err(|error| format!("set spinner: {error:?}"))
+        }
+    }
+
+    fn create_scale(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        value: f64,
+        range: Option<(f64, f64)>,
+    ) -> Result<(), String> {
+        let (min, max) = range.unwrap_or((0.0, 100.0));
+        let element = self.create_element("meter", node, "micro-scale")?;
+        element
+            .set_attribute("min", &min.to_string())
+            .map_err(|error| format!("set scale min: {error:?}"))?;
+        element
+            .set_attribute("max", &max.to_string())
+            .map_err(|error| format!("set scale max: {error:?}"))?;
+        element
+            .set_attribute("value", &value.to_string())
+            .map_err(|error| format!("set scale value: {error:?}"))?;
+        self.append(node, parent, element)
+    }
+
+    fn set_scale_value(&mut self, node: NodeId, value: f64) -> Result<(), String> {
+        let element = self
+            .elements
+            .get(&node.0)
+            .ok_or_else(|| format!("node {} is missing", node.0))?;
+        element
+            .set_attribute("value", &value.to_string())
+            .map_err(|error| format!("set scale value: {error:?}"))
+    }
+
     fn set_selection_value(&mut self, node: NodeId, index: f64) -> Result<(), String> {
         let element = self
             .elements

@@ -12,6 +12,9 @@ const volume = state(50);
 const alarm = state(0);
 const color = state(0);
 const size = state(1);
+const powerOn = state(0);
+const loading = state(0);
+const gauge = state(50);
 
 ui.mount(
   ui.column([
@@ -118,5 +121,20 @@ ui.mount(
       if (size.value === 1) { return "size: M"; }
       return "size: L";
     })),
+
+    ui.row([
+      ui.led(bind(() => powerOn.value === 1)),
+      ui.spinner(bind(() => loading.value === 1)),
+      ui.scale(bind(() => gauge.value), { min: 0, max: 100 }),
+    ]),
+    ui.button("power", {
+      onClick: () => { powerOn.value = 1 - powerOn.value; },
+    }),
+    ui.button("loading", {
+      onClick: () => { loading.value = 1 - loading.value; },
+    }),
+    ui.button("gauge", {
+      onClick: () => { gauge.value = (gauge.value + 10) % 100; },
+    }),
   ]),
 );

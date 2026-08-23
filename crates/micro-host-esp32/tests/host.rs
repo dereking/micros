@@ -168,6 +168,36 @@ impl NativeUi for FakeNativeUi {
         Ok(())
     }
 
+    fn create_led(&mut self, _node: NodeId, _parent: Option<NodeId>, _on: bool) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_led(&mut self, _node: NodeId, _on: bool) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_spinner(&mut self, _node: NodeId, _parent: Option<NodeId>, _active: bool) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_spinner(&mut self, _node: NodeId, _active: bool) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_scale(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _value: f64,
+        _range: Option<(f64, f64)>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_scale_value(&mut self, _node: NodeId, _value: f64) -> Result<(), String> {
+        Ok(())
+    }
+
     fn destroy_app_root(&mut self) -> Result<(), String> {
         self.nodes.clear();
         self.destroyed += 1;
@@ -338,6 +368,36 @@ impl NativeUi for FailingNativeUi {
         _index: f64,
         _handler: Option<FunctionId>,
     ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_led(&mut self, _node: NodeId, _parent: Option<NodeId>, _on: bool) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_led(&mut self, _node: NodeId, _on: bool) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_spinner(&mut self, _node: NodeId, _parent: Option<NodeId>, _active: bool) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_spinner(&mut self, _node: NodeId, _active: bool) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_scale(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _value: f64,
+        _range: Option<(f64, f64)>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_scale_value(&mut self, _node: NodeId, _value: f64) -> Result<(), String> {
         Ok(())
     }
 

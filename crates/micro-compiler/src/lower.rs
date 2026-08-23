@@ -233,6 +233,27 @@ impl<'a> Lowerer<'a> {
                 }
                 Ok(id)
             }
+            Some("ui.led") => {
+                let id = self.reserve_node(UiKind::Led);
+                self.nodes[id.0 as usize].value =
+                    Some(self.lower_value_source(ScalarType::Bool, &call.args[0].expr)?);
+                Ok(id)
+            }
+            Some("ui.spinner") => {
+                let id = self.reserve_node(UiKind::Spinner);
+                self.nodes[id.0 as usize].value =
+                    Some(self.lower_value_source(ScalarType::Bool, &call.args[0].expr)?);
+                Ok(id)
+            }
+            Some("ui.scale") => {
+                let id = self.reserve_node(UiKind::Scale);
+                self.nodes[id.0 as usize].value =
+                    Some(self.lower_value_source(ScalarType::Number, &call.args[0].expr)?);
+                if let Some(options) = call.args.get(1) {
+                    self.lower_scale_options(id, &options.expr)?;
+                }
+                Ok(id)
+            }
             Some("ui.roller") => {
                 let id = self.reserve_node(UiKind::Roller);
                 self.nodes[id.0 as usize].options =
@@ -613,6 +634,71 @@ impl<'a> Lowerer<'a> {
         expression: &Expr,
     ) -> Result<(), Diagnostic> {
         self.lower_selection_options(node, expression, "ui.dropdown")
+    }
+
+    fn lower_scale_options(
+        &mut self,
+        node: NodeId,
+        expression: &Expr,
+    ) -> Result<(), Diagnostic> {
+        let Expr::Object(object) = expression else {
+            return Err(self.error(
+                expression.span(),
+                "MTS012",
+                "ui.scale options must be an object",
+            ));
+        };
+        let mut min_value = None;
+        let mut max_value = None;
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.scale options cannot use spread",
+                ));
+            };
+            let Prop::KeyValue(property) = &**property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.scale options must use key-value pairs",
+                ));
+            };
+            let PropName::Ident(name) = &property.key else {
+                return Err(self.error(
+                    property.key.span(),
+                    "MTS012",
+                    "ui.scale option names must be identifiers",
+                ));
+            };
+            match name.sym.as_ref() {
+                "min" if min_value.is_none() => {
+                    min_value = Some(self.numeric_option(property.value.span(), &property.value)?);
+                }
+                "max" if max_value.is_none() => {
+                    max_value = Some(self.numeric_option(property.value.span(), &property.value)?);
+                }
+                "min" | "max" => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS012",
+                        format!("duplicate ui.scale property `{}`", name.sym),
+                    ));
+                }
+                _ => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS002",
+                        format!("unknown ui.scale property `{}`", name.sym),
+                    ));
+                }
+            }
+        }
+        if let (Some(min), Some(max)) = (min_value, max_value) {
+            self.nodes[node.0 as usize].range = Some((min, max));
+        }
+        Ok(())
     }
 
     fn lower_selection_options(
@@ -1187,6 +1273,7 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                     BinaryOp::Sub => (Instruction::Sub, ScalarType::Number),
                     BinaryOp::Mul => (Instruction::Mul, ScalarType::Number),
                     BinaryOp::Div => (Instruction::Div, ScalarType::Number),
+                    BinaryOp::Mod => (Instruction::Mod, ScalarType::Number),
                     BinaryOp::EqEq | BinaryOp::EqEqEq | BinaryOp::NotEq | BinaryOp::NotEqEq => {
                         (Instruction::Eq, ScalarType::Bool)
                     }
@@ -1196,7 +1283,11 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                 };
                 if matches!(
                     instruction,
-                    Instruction::Add | Instruction::Sub | Instruction::Mul | Instruction::Div
+                    Instruction::Add
+                    | Instruction::Sub
+                    | Instruction::Mul
+                    | Instruction::Div
+                    | Instruction::Mod
                 ) && (left != ScalarType::Number || right != ScalarType::Number)
                 {
                     return Err(self.error(binary.span, "arithmetic operands must be numbers"));

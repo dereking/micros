@@ -97,6 +97,12 @@ unsafe extern "C" {
         index: f64,
         handler: c_uint,
     ) -> c_int;
+    fn micro_native_create_led(native: *mut c_void, node: c_uint, parent: c_uint, on: c_int) -> c_int;
+    fn micro_native_set_led(native: *mut c_void, node: c_uint, on: c_int) -> c_int;
+    fn micro_native_create_spinner(native: *mut c_void, node: c_uint, parent: c_uint, active: c_int) -> c_int;
+    fn micro_native_set_spinner(native: *mut c_void, node: c_uint, active: c_int) -> c_int;
+    fn micro_native_create_scale(native: *mut c_void, node: c_uint, parent: c_uint, value: f64, min: f64, max: f64) -> c_int;
+    fn micro_native_set_scale_value(native: *mut c_void, node: c_uint, value: f64) -> c_int;
     fn micro_native_create_roller(
         native: *mut c_void,
         node: c_uint,
@@ -534,6 +540,46 @@ impl NativeUi for NativeBridge {
             },
             "create dropdown",
         )
+    }
+
+    fn create_led(&mut self, node: NodeId, parent: Option<NodeId>, on: bool) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_create_led(self.raw.as_ptr(), node.0, parent_id(parent), c_int::from(on)) },
+            "create led",
+        )
+    }
+
+    fn set_led(&mut self, node: NodeId, on: bool) -> Result<(), String> {
+        native_result(unsafe { micro_native_set_led(self.raw.as_ptr(), node.0, c_int::from(on)) }, "set led")
+    }
+
+    fn create_spinner(&mut self, node: NodeId, parent: Option<NodeId>, active: bool) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_create_spinner(self.raw.as_ptr(), node.0, parent_id(parent), c_int::from(active)) },
+            "create spinner",
+        )
+    }
+
+    fn set_spinner(&mut self, node: NodeId, active: bool) -> Result<(), String> {
+        native_result(unsafe { micro_native_set_spinner(self.raw.as_ptr(), node.0, c_int::from(active)) }, "set spinner")
+    }
+
+    fn create_scale(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        value: f64,
+        range: Option<(f64, f64)>,
+    ) -> Result<(), String> {
+        let (min, max) = range.unwrap_or((0.0, 100.0));
+        native_result(
+            unsafe { micro_native_create_scale(self.raw.as_ptr(), node.0, parent_id(parent), value, min, max) },
+            "create scale",
+        )
+    }
+
+    fn set_scale_value(&mut self, node: NodeId, value: f64) -> Result<(), String> {
+        native_result(unsafe { micro_native_set_scale_value(self.raw.as_ptr(), node.0, value) }, "set scale value")
     }
 
     fn create_roller(

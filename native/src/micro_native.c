@@ -283,6 +283,7 @@ int micro_native_destroy_app_root(micro_native_t *native) {
     lv_obj_clean(lv_display_get_screen_active(native->display));
     memset(native->objects, 0, sizeof(native->objects));
     memset(native->text_targets, 0, sizeof(native->text_targets));
+    memset(native->needles, 0, sizeof(native->needles));
     native->input_read = 0;
     native->input_write = 0;
     native->slider_read = 0;
@@ -579,6 +580,65 @@ int micro_native_create_dropdown(micro_native_t *native, uint32_t node_id, uint3
                             &native->clicks[node_id]);
     }
     native->objects[node_id] = dropdown;
+    return 1;
+}
+
+int micro_native_create_led(micro_native_t *native, uint32_t node_id, uint32_t parent_id, int on) {
+    if (native == NULL || node_id >= MICRO_MAX_NODES) return 0;
+    lv_obj_t *parent = parent_object(native, parent_id);
+    if (parent == NULL) return 0;
+    lv_obj_t *led = lv_led_create(parent);
+    lv_led_set_brightness(led, on ? LV_LED_BRIGHT_MAX : LV_LED_BRIGHT_MIN);
+    native->objects[node_id] = led;
+    return 1;
+}
+
+int micro_native_set_led(micro_native_t *native, uint32_t node_id, int on) {
+    if (native == NULL || node_id >= MICRO_MAX_NODES || native->objects[node_id] == NULL) return 0;
+    lv_led_set_brightness(native->objects[node_id], on ? LV_LED_BRIGHT_MAX : LV_LED_BRIGHT_MIN);
+    return 1;
+}
+
+int micro_native_create_spinner(micro_native_t *native, uint32_t node_id, uint32_t parent_id, int active) {
+    if (native == NULL || node_id >= MICRO_MAX_NODES) return 0;
+    lv_obj_t *parent = parent_object(native, parent_id);
+    if (parent == NULL) return 0;
+    lv_obj_t *spinner = lv_spinner_create(parent);
+    lv_obj_set_size(spinner, 48, 48);
+    if (!active) lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+    native->objects[node_id] = spinner;
+    return 1;
+}
+
+int micro_native_set_spinner(micro_native_t *native, uint32_t node_id, int active) {
+    if (native == NULL || node_id >= MICRO_MAX_NODES || native->objects[node_id] == NULL) return 0;
+    if (active) lv_obj_clear_flag(native->objects[node_id], LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(native->objects[node_id], LV_OBJ_FLAG_HIDDEN);
+    return 1;
+}
+
+int micro_native_create_scale(micro_native_t *native, uint32_t node_id, uint32_t parent_id,
+                              double value, double min, double max) {
+    if (native == NULL || node_id >= MICRO_MAX_NODES) return 0;
+    lv_obj_t *parent = parent_object(native, parent_id);
+    if (parent == NULL) return 0;
+    lv_obj_t *scale = lv_scale_create(parent);
+    lv_scale_set_mode(scale, LV_SCALE_MODE_ROUND_INNER);
+    lv_scale_set_range(scale, (int32_t)min, (int32_t)max);
+    lv_obj_set_size(scale, 160, 160);
+    lv_obj_t *needle = lv_line_create(scale);
+    lv_point_precise_t points[2] = {{0, 0}, {0, -60}};
+    lv_line_set_points(needle, points, 2);
+    lv_scale_set_line_needle_value(scale, needle, 60, (int32_t)value);
+    native->needles[node_id] = needle;
+    native->objects[node_id] = scale;
+    return 1;
+}
+
+int micro_native_set_scale_value(micro_native_t *native, uint32_t node_id, double value) {
+    if (native == NULL || node_id >= MICRO_MAX_NODES || native->objects[node_id] == NULL ||
+        native->needles[node_id] == NULL) return 0;
+    lv_scale_set_line_needle_value(native->objects[node_id], native->needles[node_id], 60, (int32_t)value);
     return 1;
 }
 

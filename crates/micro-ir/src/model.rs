@@ -99,6 +99,13 @@ pub enum UiKind {
     /// Wheel picker (LVGL roller). Same shape as Dropdown: `options` +
     /// `value` (index) + optional 1-arg `on_click`.
     Roller,
+    /// Status indicator (LVGL led). `value` holds a Boolean on/off.
+    Led,
+    /// Loading spinner. `value` holds a Boolean visible/hidden.
+    Spinner,
+    /// Read-only gauge (LVGL scale). `value` holds the needle value; the
+    /// optional `range` gives (min, max).
+    Scale,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -221,7 +228,10 @@ impl TextStyle {
             | UiKind::Slider
             | UiKind::Checkbox
             | UiKind::Dropdown
-            | UiKind::Roller => None,
+            | UiKind::Roller
+            | UiKind::Led
+            | UiKind::Spinner
+            | UiKind::Scale => None,
             UiKind::Text | UiKind::Input => Some(Self::DEFAULT_TEXT),
             UiKind::Button => Some(Self::DEFAULT_BUTTON),
         }
@@ -476,6 +486,7 @@ fn stack_effect(instruction: &Instruction) -> (i32, i32) {
         | Instruction::Sub
         | Instruction::Mul
         | Instruction::Div
+        | Instruction::Mod
         | Instruction::Eq
         | Instruction::Lt
         | Instruction::Gt

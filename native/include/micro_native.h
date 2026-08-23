@@ -60,6 +60,13 @@ MICRO_EXPORT int micro_native_take_checkbox_change(micro_native_t *native, uint3
  * handler (or MICRO_NO_HANDLER to disable). */
 MICRO_EXPORT int micro_native_create_dropdown(micro_native_t *native, uint32_t node_id, uint32_t parent_id,
                                               const char *options, double index, uint32_t handler_id);
+MICRO_EXPORT int micro_native_create_led(micro_native_t *native, uint32_t node_id, uint32_t parent_id, int on);
+MICRO_EXPORT int micro_native_set_led(micro_native_t *native, uint32_t node_id, int on);
+MICRO_EXPORT int micro_native_create_spinner(micro_native_t *native, uint32_t node_id, uint32_t parent_id, int active);
+MICRO_EXPORT int micro_native_set_spinner(micro_native_t *native, uint32_t node_id, int active);
+MICRO_EXPORT int micro_native_create_scale(micro_native_t *native, uint32_t node_id, uint32_t parent_id,
+                                           double value, double min, double max);
+MICRO_EXPORT int micro_native_set_scale_value(micro_native_t *native, uint32_t node_id, double value);
 MICRO_EXPORT int micro_native_create_roller(micro_native_t *native, uint32_t node_id, uint32_t parent_id,
                                             const char *options, double index, uint32_t handler_id);
 MICRO_EXPORT int micro_native_set_selection_value(micro_native_t *native, uint32_t node_id, double index);

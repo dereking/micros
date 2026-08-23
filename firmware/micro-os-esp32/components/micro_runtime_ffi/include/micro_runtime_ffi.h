@@ -317,6 +317,16 @@ int micro_esp_ui_create_checkbox(uint32_t node, uint32_t parent,
 int micro_esp_ui_create_dropdown(uint32_t node, uint32_t parent,
                                  const uint8_t *options, size_t options_len,
                                  double index, uint32_t handler);
+/* LED indicator. `on` sets full/off brightness. */
+int micro_esp_ui_create_led(uint32_t node, uint32_t parent, int on);
+int micro_esp_ui_set_led(uint32_t node, int on);
+/* Loading spinner. `active` shows/hides it. */
+int micro_esp_ui_create_spinner(uint32_t node, uint32_t parent, int active);
+int micro_esp_ui_set_spinner(uint32_t node, int active);
+/* Read-only gauge. `value` is the needle position within [min,max]. */
+int micro_esp_ui_create_scale(uint32_t node, uint32_t parent,
+                              double value, double min, double max);
+int micro_esp_ui_set_scale_value(uint32_t node, double value);
 int micro_esp_ui_create_roller(uint32_t node, uint32_t parent,
                                 const uint8_t *options, size_t options_len,
                                 double index, uint32_t handler);

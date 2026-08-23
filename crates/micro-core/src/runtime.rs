@@ -27,6 +27,9 @@ pub enum RuntimeError {
     SliderIsNotNumber(NodeId),
     CheckboxIsNotBoolean(NodeId),
     SelectionIsNotNumber(NodeId),
+    LedIsNotBoolean(NodeId),
+    SpinnerIsNotBoolean(NodeId),
+    ScaleIsNotNumber(NodeId),
 }
 
 impl fmt::Display for RuntimeError {
@@ -231,6 +234,33 @@ impl<R: RenderPort> Runtime<R> {
                                 index: *index,
                             });
                         }
+                        UiKind::Led => {
+                            let Value::Bool(on) = &value else {
+                                return Err(RuntimeError::LedIsNotBoolean(node.id));
+                            };
+                            patches.push(RenderPatch::SetLed {
+                                node: node.id,
+                                on: *on,
+                            });
+                        }
+                        UiKind::Spinner => {
+                            let Value::Bool(active) = &value else {
+                                return Err(RuntimeError::SpinnerIsNotBoolean(node.id));
+                            };
+                            patches.push(RenderPatch::SetSpinner {
+                                node: node.id,
+                                active: *active,
+                            });
+                        }
+                        UiKind::Scale => {
+                            let Value::Number(value) = &value else {
+                                return Err(RuntimeError::ScaleIsNotNumber(node.id));
+                            };
+                            patches.push(RenderPatch::SetScaleValue {
+                                node: node.id,
+                                value: *value,
+                            });
+                        }
                         _ => {}
                     }
                 }
@@ -285,6 +315,14 @@ impl<R: RenderPort> Runtime<R> {
                 UiKind::Dropdown | UiKind::Roller => match value {
                     Some(Value::Number(index)) => Some(Value::Number(index)),
                     _ => return Err(RuntimeError::SelectionIsNotNumber(node.id)),
+                },
+                UiKind::Led | UiKind::Spinner => match value {
+                    Some(Value::Bool(flag)) => Some(Value::Bool(flag)),
+                    _ => return Err(RuntimeError::LedIsNotBoolean(node.id)),
+                },
+                UiKind::Scale => match value {
+                    Some(Value::Number(value)) => Some(Value::Number(value)),
+                    _ => return Err(RuntimeError::ScaleIsNotNumber(node.id)),
                 },
                 _ => value,
             };

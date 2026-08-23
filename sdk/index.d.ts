@@ -52,5 +52,8 @@ declare const ui: {
     index: number | Binding<number>,
     opts?: { onChange?: (index: number) => void },
   ): UiNode;
+  led(on: boolean | Binding<boolean>): UiNode;
+  spinner(active: boolean | Binding<boolean>): UiNode;
+  scale(value: number | Binding<number>, options?: { min?: number; max?: number }): UiNode;
   mount(root: UiNode): void;
 };

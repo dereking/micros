@@ -11,6 +11,7 @@ pub enum Instruction {
     Sub,
     Mul,
     Div,
+    Mod,
     Eq,
     Lt,
     Gt,

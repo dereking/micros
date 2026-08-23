@@ -72,6 +72,12 @@ unsafe extern "C" {
         index: f64,
         handler: u32,
     ) -> c_int;
+    fn micro_esp_ui_create_led(node: u32, parent: u32, on: c_int) -> c_int;
+    fn micro_esp_ui_set_led(node: u32, on: c_int) -> c_int;
+    fn micro_esp_ui_create_spinner(node: u32, parent: u32, active: c_int) -> c_int;
+    fn micro_esp_ui_set_spinner(node: u32, active: c_int) -> c_int;
+    fn micro_esp_ui_create_scale(node: u32, parent: u32, value: f64, min: f64, max: f64) -> c_int;
+    fn micro_esp_ui_set_scale_value(node: u32, value: f64) -> c_int;
     fn micro_esp_ui_create_roller(
         node: u32,
         parent: u32,
@@ -291,6 +297,46 @@ impl NativeUi for EspNativeUi {
                 handler.map_or(u32::MAX, |id| id.0),
             )
         })
+    }
+
+    fn create_led(&mut self, node: NodeId, parent: Option<NodeId>, on: bool) -> Result<(), String> {
+        native_result(unsafe { micro_esp_ui_create_led(node.0, parent_id(parent), c_int::from(on)) })
+    }
+
+    fn set_led(&mut self, node: NodeId, on: bool) -> Result<(), String> {
+        native_result(unsafe { micro_esp_ui_set_led(node.0, c_int::from(on)) })
+    }
+
+    fn create_spinner(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        active: bool,
+    ) -> Result<(), String> {
+        native_result(unsafe {
+            micro_esp_ui_create_spinner(node.0, parent_id(parent), c_int::from(active))
+        })
+    }
+
+    fn set_spinner(&mut self, node: NodeId, active: bool) -> Result<(), String> {
+        native_result(unsafe { micro_esp_ui_set_spinner(node.0, c_int::from(active)) })
+    }
+
+    fn create_scale(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        value: f64,
+        range: Option<(f64, f64)>,
+    ) -> Result<(), String> {
+        let (min, max) = range.unwrap_or((0.0, 100.0));
+        native_result(unsafe {
+            micro_esp_ui_create_scale(node.0, parent_id(parent), value, min, max)
+        })
+    }
+
+    fn set_scale_value(&mut self, node: NodeId, value: f64) -> Result<(), String> {
+        native_result(unsafe { micro_esp_ui_set_scale_value(node.0, value) })
     }
 
     fn create_roller(

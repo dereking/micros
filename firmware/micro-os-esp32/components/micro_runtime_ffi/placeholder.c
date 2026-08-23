@@ -83,6 +83,7 @@ struct micro_roller_change {
 
 static lv_obj_t *objects[MICRO_UI_MAX_NODES];
 static lv_obj_t *text_targets[MICRO_UI_MAX_NODES];
+static lv_obj_t *needles[MICRO_UI_MAX_NODES];
 static lv_obj_t *app_root;
 static struct micro_click_context click_contexts[MICRO_UI_MAX_NODES];
 static uint32_t activations[MICRO_UI_ACTIVATION_CAPACITY];
@@ -959,6 +960,115 @@ int micro_esp_ui_create_dropdown(uint32_t node, uint32_t parent,
     return result;
 }
 
+int micro_esp_ui_create_led(uint32_t node, uint32_t parent, int on)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    lv_obj_t *parent_obj;
+    int result = begin_create(node, parent, &parent_obj);
+    if (result == 0) {
+        lv_obj_t *led = lv_led_create(parent_obj);
+        if (led == NULL) result = -4;
+        else {
+            lv_led_set_brightness(led, on ? LV_LED_BRIGHT_MAX : LV_LED_BRIGHT_MIN);
+            objects[node] = led;
+            if (parent == MICRO_UI_NO_PARENT) app_root = led;
+        }
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
+int micro_esp_ui_set_led(uint32_t node, int on)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    int result = -1;
+    if (node < MICRO_UI_MAX_NODES && objects[node] != NULL &&
+        lv_obj_check_type(objects[node], &lv_led_class)) {
+        lv_led_set_brightness(objects[node], on ? LV_LED_BRIGHT_MAX : LV_LED_BRIGHT_MIN);
+        result = 0;
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
+int micro_esp_ui_create_spinner(uint32_t node, uint32_t parent, int active)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    lv_obj_t *parent_obj;
+    int result = begin_create(node, parent, &parent_obj);
+    if (result == 0) {
+        lv_obj_t *spinner = lv_spinner_create(parent_obj);
+        if (spinner == NULL) result = -4;
+        else {
+            lv_obj_set_size(spinner, 48, 48);
+            if (!active) {
+                lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+            }
+            objects[node] = spinner;
+            if (parent == MICRO_UI_NO_PARENT) app_root = spinner;
+        }
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
+int micro_esp_ui_set_spinner(uint32_t node, int active)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    int result = -1;
+    if (node < MICRO_UI_MAX_NODES && objects[node] != NULL &&
+        lv_obj_check_type(objects[node], &lv_spinner_class)) {
+        if (active) {
+            lv_obj_clear_flag(objects[node], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(objects[node], LV_OBJ_FLAG_HIDDEN);
+        }
+        result = 0;
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
+int micro_esp_ui_create_scale(uint32_t node, uint32_t parent,
+                              double value, double min, double max)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    lv_obj_t *parent_obj;
+    int result = begin_create(node, parent, &parent_obj);
+    if (result == 0) {
+        lv_obj_t *scale = lv_scale_create(parent_obj);
+        if (scale == NULL) result = -4;
+        else {
+            lv_scale_set_mode(scale, LV_SCALE_MODE_ROUND_INNER);
+            lv_scale_set_range(scale, (int32_t)min, (int32_t)max);
+            lv_obj_set_size(scale, 160, 160);
+            lv_obj_set_style_pad_all(scale, 8, LV_PART_MAIN);
+            lv_obj_t *needle = lv_line_create(scale);
+            lv_point_precise_t points[2] = {{0, 0}, {0, -60}};
+            lv_line_set_points(needle, points, 2);
+            lv_scale_set_line_needle_value(scale, needle, 60, (int32_t)value);
+            needles[node] = needle;
+            objects[node] = scale;
+            if (parent == MICRO_UI_NO_PARENT) app_root = scale;
+        }
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
+int micro_esp_ui_set_scale_value(uint32_t node, double value)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    int result = -1;
+    if (node < MICRO_UI_MAX_NODES && objects[node] != NULL &&
+        lv_obj_check_type(objects[node], &lv_scale_class) && needles[node] != NULL) {
+        lv_scale_set_line_needle_value(objects[node], needles[node], 60, (int32_t)value);
+        result = 0;
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
 int micro_esp_ui_create_roller(uint32_t node, uint32_t parent,
                                  const uint8_t *options, size_t options_len,
                                  double index, uint32_t handler)
@@ -1045,6 +1155,7 @@ int micro_esp_ui_destroy_app_root(void)
     app_root = NULL;
     memset(objects, 0, sizeof objects);
     memset(text_targets, 0, sizeof text_targets);
+    memset(needles, 0, sizeof needles);
     activation_read = 0;
     activation_write = 0;
     input_read = 0;

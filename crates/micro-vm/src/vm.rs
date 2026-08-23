@@ -90,6 +90,14 @@ impl<'image, 'state, S: StateAccess> Vm<'image, 'state, S> {
                     let left = number(pop(&mut stack)?)?;
                     stack.push(Value::Number(left / right));
                 }
+                Instruction::Mod => {
+                    let right = number(pop(&mut stack)?)?;
+                    if right == 0.0 {
+                        return Err(VmError::DivisionByZero);
+                    }
+                    let left = number(pop(&mut stack)?)?;
+                    stack.push(Value::Number(left % right));
+                }
                 Instruction::Eq => {
                     let right = pop(&mut stack)?;
                     let left = pop(&mut stack)?;

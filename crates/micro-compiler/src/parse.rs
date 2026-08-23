@@ -217,11 +217,13 @@ impl Validator<'_> {
             return;
         };
         let expected = match name.as_str() {
-            "state" | "bind" | "ui.mount" | "ui.column" | "ui.row" | "ui.progress" => 1..=1,
+            "state" | "bind" | "ui.mount" | "ui.column" | "ui.row" | "ui.progress"
+            | "ui.led" | "ui.spinner" => 1..=1,
             "ui.text" => 1..=2,
             "ui.switch" => 1..=2,
             "ui.input" => 1..=2,
             "ui.slider" => 1..=2,
+            "ui.scale" => 1..=2,
             "ui.checkbox" => 2..=3,
             "ui.dropdown" => 2..=3,
             "ui.roller" => 2..=3,
@@ -302,10 +304,49 @@ impl Validator<'_> {
                     self.dropdown_options(&call.args[2].expr);
                 }
             }
+            "ui.scale" => {
+                self.expression(&call.args[0].expr);
+                if call.args.len() == 2 {
+                    self.scale_options(&call.args[1].expr);
+                }
+            }
             _ => {
                 for argument in &call.args {
                     self.expression(&argument.expr);
                 }
+            }
+        }
+    }
+
+    fn scale_options(&mut self, expression: &Expr) {
+        let Expr::Object(object) = expression else {
+            self.sdk_error(
+                expression.span(),
+                "ui.scale options must be an object".into(),
+            );
+            return;
+        };
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                self.unsupported(property.span(), "spread");
+                continue;
+            };
+            let Prop::KeyValue(property) = &**property else {
+                self.unsupported(property.span(), "scale property");
+                continue;
+            };
+            let PropName::Ident(name) = &property.key else {
+                self.unsupported(property.key.span(), "computed scale property");
+                continue;
+            };
+            if !matches!(name.sym.as_ref(), "min" | "max") {
+                self.errors.push(diagnostic_at(
+                    self.source_map,
+                    self.path,
+                    name.span,
+                    "MTS002",
+                    format!("unknown ui.scale property `{}`", name.sym),
+                ));
             }
         }
     }

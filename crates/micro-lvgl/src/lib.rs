@@ -82,6 +82,19 @@ pub trait NativeUi {
         handler: Option<FunctionId>,
     ) -> Result<(), String>;
     fn set_selection_value(&mut self, node: NodeId, index: f64) -> Result<(), String>;
+    fn create_led(&mut self, node: NodeId, parent: Option<NodeId>, on: bool) -> Result<(), String>;
+    fn set_led(&mut self, node: NodeId, on: bool) -> Result<(), String>;
+    fn create_spinner(&mut self, node: NodeId, parent: Option<NodeId>, active: bool)
+        -> Result<(), String>;
+    fn set_spinner(&mut self, node: NodeId, active: bool) -> Result<(), String>;
+    fn create_scale(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        value: f64,
+        range: Option<(f64, f64)>,
+    ) -> Result<(), String>;
+    fn set_scale_value(&mut self, node: NodeId, value: f64) -> Result<(), String>;
     fn destroy_app_root(&mut self) -> Result<(), String>;
 }
 
@@ -243,6 +256,30 @@ impl<B: NativeUi> LvglRenderer<B> {
                     node.on_click,
                 )
             }
+            UiKind::Led => {
+                let Some(Value::Bool(on)) = node.value.as_ref() else {
+                    return Err(RenderError(format!("led {} has no boolean value", node.id.0)));
+                };
+                self.bridge.create_led(node.id, parent, *on)
+            }
+            UiKind::Spinner => {
+                let Some(Value::Bool(active)) = node.value.as_ref() else {
+                    return Err(RenderError(format!(
+                        "spinner {} has no boolean value",
+                        node.id.0
+                    )));
+                };
+                self.bridge.create_spinner(node.id, parent, *active)
+            }
+            UiKind::Scale => {
+                let Some(Value::Number(value)) = node.value.as_ref() else {
+                    return Err(RenderError(format!(
+                        "scale {} has no numeric value",
+                        node.id.0
+                    )));
+                };
+                self.bridge.create_scale(node.id, parent, *value, node.range)
+            }
         }
         .map_err(RenderError)?;
         if parent.is_none() {
@@ -290,6 +327,18 @@ impl<B: NativeUi> RenderPort for LvglRenderer<B> {
                 RenderPatch::SetSelectionValue { node, index } => self
                     .bridge
                     .set_selection_value(*node, *index)
+                    .map_err(RenderError)?,
+                RenderPatch::SetLed { node, on } => self
+                    .bridge
+                    .set_led(*node, *on)
+                    .map_err(RenderError)?,
+                RenderPatch::SetSpinner { node, active } => self
+                    .bridge
+                    .set_spinner(*node, *active)
+                    .map_err(RenderError)?,
+                RenderPatch::SetScaleValue { node, value } => self
+                    .bridge
+                    .set_scale_value(*node, *value)
                     .map_err(RenderError)?,
             }
         }
