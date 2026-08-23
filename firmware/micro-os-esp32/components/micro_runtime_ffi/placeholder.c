@@ -619,10 +619,9 @@ int micro_esp_ui_create_column(uint32_t node, uint32_t parent)
             lv_obj_set_style_pad_top(column, 6, LV_PART_MAIN);
             lv_obj_set_style_pad_bottom(column, 6, LV_PART_MAIN);
             lv_obj_set_style_pad_row(column, 6, LV_PART_MAIN);
-            /* Columns never scroll internally (the tabview / page owns
-             * navigation); a scrollable column overflows into a slow full-area
-             * redraw that trips the task watchdog. */
-            lv_obj_remove_flag(column, LV_OBJ_FLAG_SCROLLABLE);
+            /* Flat containers avoid the LVGL layer-buffer path that a rounded
+             * clipped container forces on every redraw (slow on scroll). */
+            lv_obj_set_style_radius(column, 0, LV_PART_MAIN);
             objects[node] = column;
             if (parent == MICRO_UI_NO_PARENT) app_root = column;
         }
@@ -646,6 +645,7 @@ int micro_esp_ui_create_row(uint32_t node, uint32_t parent)
              * 16 logical pixels, matching the SDL host. */
             lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
             lv_obj_set_style_pad_column(row, 16, LV_PART_MAIN);
+            lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
             objects[node] = row;
             if (parent == MICRO_UI_NO_PARENT) app_root = row;
         }
@@ -700,15 +700,13 @@ int micro_esp_ui_create_tabview(uint32_t node, uint32_t parent,
                  token = strtok_r(NULL, "\n", &save)) {
                 lv_tabview_add_tab(tabview, token);
             }
-            /* Tab pages must not scroll independently: nested scrollables
-             * fight the outer container and a scrolled large page redraw
-             * trips the task watchdog. */
+            /* Scrolling is handled by each page; keep scrollbars off for a
+             * cleaner look. */
             lv_obj_t *tab_content = lv_tabview_get_content(tabview);
             uint32_t page_count = tab_content == NULL ? 0 : lv_obj_get_child_count(tab_content);
             for (uint32_t pi = 0; pi < page_count; ++pi) {
                 lv_obj_t *page = lv_obj_get_child(tab_content, pi);
                 lv_obj_set_scrollbar_mode(page, LV_SCROLLBAR_MODE_OFF);
-                lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLLABLE);
             }
             s_tabview = tabview;
             s_tab_target = NULL;

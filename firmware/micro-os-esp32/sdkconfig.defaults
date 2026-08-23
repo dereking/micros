@@ -38,3 +38,8 @@ CONFIG_PARTITION_TABLE_FILENAME="partitions_8m.csv"
 # decompressor in LVGL or every text glyph decompresses to an empty buffer and
 # stays invisible on the LCD.
 CONFIG_LV_USE_FONT_COMPRESSED=y
+
+
+CONFIG_SPIRAM_USE_MALLOC=y
+
+CONFIG_LV_USE_STDLIB_MALLOC=1

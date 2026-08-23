@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+
+# LVGL 9's ESP-IDF component hardcodes the builtin TLSF memory backend (a 64 KB
+# pool) which the full Micro UI demo + draw-layer buffers exhaust, making the
+# TLSF allocator crawl and the task watchdog fire during scroll/refresh. Force
+# the C-lib backend so LVGL allocates via malloc()/PSRAM instead.
+idf_build_set_property(COMPILE_DEFINITIONS "-DLV_USE_STDLIB_MALLOC=1" APPEND)
+
 project(micro_os_esp32)
 
 # A successful final ELF link is the commit point for Rust ABI evidence. This
