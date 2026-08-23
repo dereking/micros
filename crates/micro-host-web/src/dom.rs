@@ -371,7 +371,18 @@ impl WebDom for DomBridge {
         self.append(node, parent, element)
     }
 
-    fn set_dropdown_value(&mut self, node: NodeId, index: f64) -> Result<(), String> {
+    fn create_roller(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        options: &[String],
+        index: f64,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        self.create_dropdown(node, parent, options, index, handler)
+    }
+
+    fn set_selection_value(&mut self, node: NodeId, index: f64) -> Result<(), String> {
         let element = self
             .elements
             .get(&node.0)

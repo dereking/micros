@@ -96,6 +96,9 @@ pub enum UiKind {
     /// (as interned constants); `value` holds the selected index; the
     /// optional `on_click` handler receives the newly selected index.
     Dropdown,
+    /// Wheel picker (LVGL roller). Same shape as Dropdown: `options` +
+    /// `value` (index) + optional 1-arg `on_click`.
+    Roller,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,7 +220,8 @@ impl TextStyle {
             | UiKind::Switch
             | UiKind::Slider
             | UiKind::Checkbox
-            | UiKind::Dropdown => None,
+            | UiKind::Dropdown
+            | UiKind::Roller => None,
             UiKind::Text | UiKind::Input => Some(Self::DEFAULT_TEXT),
             UiKind::Button => Some(Self::DEFAULT_BUTTON),
         }

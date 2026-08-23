@@ -224,6 +224,7 @@ impl Validator<'_> {
             "ui.slider" => 1..=2,
             "ui.checkbox" => 2..=3,
             "ui.dropdown" => 2..=3,
+            "ui.roller" => 2..=3,
             "ui.button" => 2..=2,
             _ => {
                 self.unsupported(call.span, format!("call `{name}`"));
@@ -288,6 +289,13 @@ impl Validator<'_> {
                 }
             }
             "ui.dropdown" => {
+                self.expression(&call.args[0].expr);
+                self.expression(&call.args[1].expr);
+                if call.args.len() == 3 {
+                    self.dropdown_options(&call.args[2].expr);
+                }
+            }
+            "ui.roller" => {
                 self.expression(&call.args[0].expr);
                 self.expression(&call.args[1].expr);
                 if call.args.len() == 3 {

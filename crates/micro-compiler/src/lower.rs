@@ -233,6 +233,17 @@ impl<'a> Lowerer<'a> {
                 }
                 Ok(id)
             }
+            Some("ui.roller") => {
+                let id = self.reserve_node(UiKind::Roller);
+                self.nodes[id.0 as usize].options =
+                    self.lower_string_array(&call.args[0].expr, "ui.roller")?;
+                self.nodes[id.0 as usize].value =
+                    Some(self.lower_value_source(ScalarType::Number, &call.args[1].expr)?);
+                if let Some(options) = call.args.get(2) {
+                    self.lower_selection_options(id, &options.expr, "ui.roller")?;
+                }
+                Ok(id)
+            }
             Some("ui.checkbox") => {
                 let id = self.reserve_node(UiKind::Checkbox);
                 let label = literal_constant(&call.args[0].expr)
@@ -601,11 +612,20 @@ impl<'a> Lowerer<'a> {
         node: NodeId,
         expression: &Expr,
     ) -> Result<(), Diagnostic> {
+        self.lower_selection_options(node, expression, "ui.dropdown")
+    }
+
+    fn lower_selection_options(
+        &mut self,
+        node: NodeId,
+        expression: &Expr,
+        widget: &str,
+    ) -> Result<(), Diagnostic> {
         let Expr::Object(object) = expression else {
             return Err(self.error(
                 expression.span(),
                 "MTS012",
-                "ui.dropdown options must be an object",
+                format!("{widget} options must be an object"),
             ));
         };
         let mut saw_change = false;
@@ -614,21 +634,21 @@ impl<'a> Lowerer<'a> {
                 return Err(self.error(
                     property.span(),
                     "MTS012",
-                    "ui.dropdown options cannot use spread",
+                    format!("{widget} options cannot use spread"),
                 ));
             };
             let Prop::KeyValue(property) = &**property else {
                 return Err(self.error(
                     property.span(),
                     "MTS012",
-                    "ui.dropdown options must use key-value pairs",
+                    format!("{widget} options must use key-value pairs"),
                 ));
             };
             let PropName::Ident(name) = &property.key else {
                 return Err(self.error(
                     property.key.span(),
                     "MTS012",
-                    "ui.dropdown option names must be identifiers",
+                    format!("{widget} option names must be identifiers"),
                 ));
             };
             match name.sym.as_ref() {
@@ -644,14 +664,14 @@ impl<'a> Lowerer<'a> {
                     return Err(self.error(
                         property.key.span(),
                         "MTS012",
-                        format!("duplicate ui.dropdown property `{}`", name.sym),
+                        format!("duplicate {widget} property `{}`", name.sym),
                     ));
                 }
                 _ => {
                     return Err(self.error(
                         property.key.span(),
                         "MTS002",
-                        format!("unknown ui.dropdown property `{}`", name.sym),
+                        format!("unknown {widget} property `{}`", name.sym),
                     ));
                 }
             }

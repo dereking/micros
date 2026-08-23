@@ -72,7 +72,15 @@ unsafe extern "C" {
         index: f64,
         handler: u32,
     ) -> c_int;
-    fn micro_esp_ui_set_dropdown_value(node: u32, index: f64) -> c_int;
+    fn micro_esp_ui_create_roller(
+        node: u32,
+        parent: u32,
+        options: *const u8,
+        options_len: usize,
+        index: f64,
+        handler: u32,
+    ) -> c_int;
+    fn micro_esp_ui_set_selection_value(node: u32, index: f64) -> c_int;
     fn micro_esp_ui_destroy_app_root() -> c_int;
     fn micro_esp_ui_take_activation(handler_id: *mut u32) -> c_int;
     fn micro_esp_ui_take_input_change(
@@ -84,6 +92,7 @@ unsafe extern "C" {
     fn micro_esp_ui_take_slider_change(handler_id: *mut u32, value: *mut f64) -> c_int;
     fn micro_esp_ui_take_checkbox_change(handler_id: *mut u32, checked: *mut c_int) -> c_int;
     fn micro_esp_ui_take_dropdown_change(handler_id: *mut u32, index: *mut f64) -> c_int;
+    fn micro_esp_ui_take_roller_change(handler_id: *mut u32, index: *mut f64) -> c_int;
     fn micro_esp_ui_report_diagnostic(node: u32, message: *const u8, len: usize);
 }
 
@@ -284,8 +293,29 @@ impl NativeUi for EspNativeUi {
         })
     }
 
-    fn set_dropdown_value(&mut self, node: NodeId, index: f64) -> Result<(), String> {
-        native_result(unsafe { micro_esp_ui_set_dropdown_value(node.0, index) })
+    fn create_roller(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        options: &[String],
+        index: f64,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        let joined = options.join("\n");
+        native_result(unsafe {
+            micro_esp_ui_create_roller(
+                node.0,
+                parent_id(parent),
+                joined.as_ptr(),
+                joined.len(),
+                index,
+                handler.map_or(u32::MAX, |id| id.0),
+            )
+        })
+    }
+
+    fn set_selection_value(&mut self, node: NodeId, index: f64) -> Result<(), String> {
+        native_result(unsafe { micro_esp_ui_set_selection_value(node.0, index) })
     }
 
     fn destroy_app_root(&mut self) -> Result<(), String> {
@@ -581,6 +611,30 @@ pub unsafe extern "C" fn micro_runtime_tick(
                     HostError {
                         code: MicroErrorCode::Ui,
                         diagnostic: format!("ESP dropdown-change queue failed with code {code}"),
+                    },
+                    error,
+                    error_length,
+                );
+            }
+        }
+    }
+    loop {
+        let mut handler = 0;
+        let mut index = 0.0_f64;
+        match unsafe { micro_esp_ui_take_roller_change(&raw mut handler, &raw mut index) } {
+            1 => {
+                if let Err(runtime_error) =
+                    runtime.set_selection(FunctionId(handler), index)
+                {
+                    return report(runtime_error, error, error_length);
+                }
+            }
+            0 => break,
+            code => {
+                return report(
+                    HostError {
+                        code: MicroErrorCode::Ui,
+                        diagnostic: format!("ESP roller-change queue failed with code {code}"),
                     },
                     error,
                     error_length,

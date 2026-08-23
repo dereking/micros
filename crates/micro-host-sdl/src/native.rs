@@ -97,7 +97,15 @@ unsafe extern "C" {
         index: f64,
         handler: c_uint,
     ) -> c_int;
-    fn micro_native_set_dropdown_value(native: *mut c_void, node: c_uint, index: f64) -> c_int;
+    fn micro_native_create_roller(
+        native: *mut c_void,
+        node: c_uint,
+        parent: c_uint,
+        options: *const c_char,
+        index: f64,
+        handler: c_uint,
+    ) -> c_int;
+    fn micro_native_set_selection_value(native: *mut c_void, node: c_uint, index: f64) -> c_int;
     fn micro_native_destroy_app_root(native: *mut c_void) -> c_int;
 }
 
@@ -528,10 +536,34 @@ impl NativeUi for NativeBridge {
         )
     }
 
-    fn set_dropdown_value(&mut self, node: NodeId, index: f64) -> Result<(), String> {
+    fn create_roller(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        options: &[String],
+        index: f64,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        let joined = c_string(&options.join("\n"))?;
         native_result(
-            unsafe { micro_native_set_dropdown_value(self.raw.as_ptr(), node.0, index) },
-            "set dropdown value",
+            unsafe {
+                micro_native_create_roller(
+                    self.raw.as_ptr(),
+                    node.0,
+                    parent_id(parent),
+                    joined.as_ptr(),
+                    index,
+                    handler.map_or(u32::MAX, |id| id.0),
+                )
+            },
+            "create roller",
+        )
+    }
+
+    fn set_selection_value(&mut self, node: NodeId, index: f64) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_set_selection_value(self.raw.as_ptr(), node.0, index) },
+            "set selection value",
         )
     }
 

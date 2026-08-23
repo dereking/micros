@@ -73,7 +73,15 @@ pub trait NativeUi {
         index: f64,
         handler: Option<FunctionId>,
     ) -> Result<(), String>;
-    fn set_dropdown_value(&mut self, node: NodeId, index: f64) -> Result<(), String>;
+    fn create_roller(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        options: &[String],
+        index: f64,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String>;
+    fn set_selection_value(&mut self, node: NodeId, index: f64) -> Result<(), String>;
     fn destroy_app_root(&mut self) -> Result<(), String>;
 }
 
@@ -220,6 +228,21 @@ impl<B: NativeUi> LvglRenderer<B> {
                     node.on_click,
                 )
             }
+            UiKind::Roller => {
+                let Some(Value::Number(index)) = node.value.as_ref() else {
+                    return Err(RenderError(format!(
+                        "roller {} has no numeric index",
+                        node.id.0
+                    )));
+                };
+                self.bridge.create_roller(
+                    node.id,
+                    parent,
+                    &node.options,
+                    *index,
+                    node.on_click,
+                )
+            }
         }
         .map_err(RenderError)?;
         if parent.is_none() {
@@ -266,7 +289,7 @@ impl<B: NativeUi> RenderPort for LvglRenderer<B> {
                     .map_err(RenderError)?,
                 RenderPatch::SetSelectionValue { node, index } => self
                     .bridge
-                    .set_dropdown_value(*node, *index)
+                    .set_selection_value(*node, *index)
                     .map_err(RenderError)?,
             }
         }

@@ -7,8 +7,8 @@ use crate::{
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
-/// MBC v7 adds `UiKind::Dropdown` and per-node `options`.
-const VERSION: u16 = 7;
+/// MBC v8 adds `UiKind::Roller`.
+const VERSION: u16 = 8;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -289,6 +289,7 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
             UiKind::Slider => 7,
             UiKind::Checkbox => 8,
             UiKind::Dropdown => 9,
+            UiKind::Roller => 10,
         });
         put_u32(&mut out, node.children.len())?;
         for child in &node.children {
@@ -379,6 +380,7 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             7 => UiKind::Slider,
             8 => UiKind::Checkbox,
             9 => UiKind::Dropdown,
+            10 => UiKind::Roller,
             tag => {
                 return Err(DecodeError::InvalidTag {
                     section: "ui kind",

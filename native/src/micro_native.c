@@ -15,6 +15,7 @@
 #define MICRO_SLIDER_CAPACITY 32U
 #define MICRO_CHECKBOX_CAPACITY 32U
 #define MICRO_DROPDOWN_CAPACITY 32U
+#define MICRO_ROLLER_CAPACITY 32U
 
 typedef struct micro_click_context {
     struct micro_native *native;
@@ -41,6 +42,11 @@ typedef struct micro_dropdown_change {
     uint32_t handler_id;
     double index;
 } micro_dropdown_change_t;
+
+typedef struct micro_roller_change {
+    uint32_t handler_id;
+    double index;
+} micro_roller_change_t;
 
 struct micro_native {
     SDL_Window *window;
@@ -71,6 +77,9 @@ struct micro_native {
     micro_dropdown_change_t dropdown_changes[MICRO_DROPDOWN_CAPACITY];
     unsigned dropdown_read;
     unsigned dropdown_write;
+    micro_roller_change_t roller_changes[MICRO_ROLLER_CAPACITY];
+    unsigned roller_read;
+    unsigned roller_write;
 };
 
 static void copy_error(char *target, size_t length, const char *message) {
@@ -158,6 +167,19 @@ static void dropdown_callback(lv_event_t *event) {
         change->handler_id = context->handler_id;
         change->index = (double)lv_dropdown_get_selected(target);
         context->native->dropdown_write = next;
+    }
+}
+
+static void roller_callback(lv_event_t *event) {
+    micro_click_context_t *context = lv_event_get_user_data(event);
+    lv_obj_t *target = lv_event_get_target(event);
+    if (target == NULL) return;
+    unsigned next = (context->native->roller_write + 1U) % MICRO_ROLLER_CAPACITY;
+    if (next != context->native->roller_read) {
+        micro_roller_change_t *change = &context->native->roller_changes[context->native->roller_write];
+        change->handler_id = context->handler_id;
+        change->index = (double)lv_roller_get_selected(target);
+        context->native->roller_write = next;
     }
 }
 
@@ -269,6 +291,8 @@ int micro_native_destroy_app_root(micro_native_t *native) {
     native->checkbox_write = 0;
     native->dropdown_read = 0;
     native->dropdown_write = 0;
+    native->roller_read = 0;
+    native->roller_write = 0;
     return 1;
 }
 
@@ -558,9 +582,35 @@ int micro_native_create_dropdown(micro_native_t *native, uint32_t node_id, uint3
     return 1;
 }
 
-int micro_native_set_dropdown_value(micro_native_t *native, uint32_t node_id, double index) {
+int micro_native_create_roller(micro_native_t *native, uint32_t node_id, uint32_t parent_id,
+                               const char *options, double index, uint32_t handler_id) {
+    if (native == NULL || node_id >= MICRO_MAX_NODES) return 0;
+    lv_obj_t *parent = parent_object(native, parent_id);
+    if (parent == NULL) return 0;
+    lv_obj_t *roller = lv_roller_create(parent);
+    lv_roller_set_options(roller, options, LV_ROLLER_MODE_NORMAL);
+    lv_roller_set_selected(roller, (uint32_t)index, LV_ANIM_OFF);
+    lv_obj_set_width(roller, LV_PCT(100));
+    if (handler_id == MICRO_NO_HANDLER) {
+        lv_obj_remove_flag(roller, LV_OBJ_FLAG_CLICKABLE);
+    } else {
+        native->clicks[node_id].native = native;
+        native->clicks[node_id].handler_id = handler_id;
+        lv_obj_add_event_cb(roller, roller_callback, LV_EVENT_VALUE_CHANGED,
+                            &native->clicks[node_id]);
+    }
+    native->objects[node_id] = roller;
+    return 1;
+}
+
+int micro_native_set_selection_value(micro_native_t *native, uint32_t node_id, double index) {
     if (native == NULL || node_id >= MICRO_MAX_NODES || native->objects[node_id] == NULL) return 0;
-    lv_dropdown_set_selected(native->objects[node_id], (uint32_t)index);
+    lv_obj_t *obj = native->objects[node_id];
+    if (lv_obj_check_type(obj, &lv_dropdown_class)) {
+        lv_dropdown_set_selected(obj, (uint32_t)index);
+    } else if (lv_obj_check_type(obj, &lv_roller_class)) {
+        lv_roller_set_selected(obj, (uint32_t)index, LV_ANIM_OFF);
+    }
     return 1;
 }
 
@@ -579,6 +629,15 @@ int micro_native_take_dropdown_change(micro_native_t *native, uint32_t *handler_
     *handler_id = native->dropdown_changes[native->dropdown_read].handler_id;
     *index = native->dropdown_changes[native->dropdown_read].index;
     native->dropdown_read = (native->dropdown_read + 1U) % MICRO_DROPDOWN_CAPACITY;
+    return 1;
+}
+
+int micro_native_take_roller_change(micro_native_t *native, uint32_t *handler_id, double *index) {
+    if (native == NULL || handler_id == NULL || index == NULL) return 0;
+    if (native->roller_read == native->roller_write) return 0;
+    *handler_id = native->roller_changes[native->roller_read].handler_id;
+    *index = native->roller_changes[native->roller_read].index;
+    native->roller_read = (native->roller_read + 1U) % MICRO_ROLLER_CAPACITY;
     return 1;
 }
 

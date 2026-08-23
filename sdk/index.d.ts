@@ -47,5 +47,10 @@ declare const ui: {
     index: number | Binding<number>,
     opts?: { onChange?: (index: number) => void },
   ): UiNode;
+  roller(
+    options: string[],
+    index: number | Binding<number>,
+    opts?: { onChange?: (index: number) => void },
+  ): UiNode;
   mount(root: UiNode): void;
 };

@@ -60,7 +60,10 @@ MICRO_EXPORT int micro_native_take_checkbox_change(micro_native_t *native, uint3
  * handler (or MICRO_NO_HANDLER to disable). */
 MICRO_EXPORT int micro_native_create_dropdown(micro_native_t *native, uint32_t node_id, uint32_t parent_id,
                                               const char *options, double index, uint32_t handler_id);
-MICRO_EXPORT int micro_native_set_dropdown_value(micro_native_t *native, uint32_t node_id, double index);
+MICRO_EXPORT int micro_native_create_roller(micro_native_t *native, uint32_t node_id, uint32_t parent_id,
+                                            const char *options, double index, uint32_t handler_id);
+MICRO_EXPORT int micro_native_set_selection_value(micro_native_t *native, uint32_t node_id, double index);
 MICRO_EXPORT int micro_native_take_dropdown_change(micro_native_t *native, uint32_t *handler_id, double *index);
+MICRO_EXPORT int micro_native_take_roller_change(micro_native_t *native, uint32_t *handler_id, double *index);
 
 #endif

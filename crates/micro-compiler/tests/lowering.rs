@@ -6,14 +6,14 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
     let source = include_str!("../../../apps/counter/app.ts");
     let image = compile_source("app.ts", source).unwrap();
 
-    assert_eq!(image.states.len(), 8);
+    assert_eq!(image.states.len(), 9);
     assert_eq!(
         image
             .states
             .iter()
             .filter(|slot| slot.ty == ScalarType::Number)
             .count(),
-        7
+        8
     );
     assert_eq!(
         image
@@ -29,14 +29,14 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
         .iter()
         .filter(|function| matches!(function.kind, FunctionKind::Binding(_)))
         .collect();
-    assert_eq!(bindings.len(), 15);
+    assert_eq!(bindings.len(), 17);
 
     let handlers: Vec<_> = image
         .functions
         .iter()
         .filter(|function| matches!(function.kind, FunctionKind::Handler(_)))
         .collect();
-    assert_eq!(handlers.len(), 10);
+    assert_eq!(handlers.len(), 11);
 
     // The Add button's handler increments count (state 0) and presses (state 1).
     let add = image
@@ -82,7 +82,7 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
 
     let root = &image.nodes[image.root.0 as usize];
     assert_eq!(root.kind, UiKind::Column);
-    assert_eq!(root.children.len(), 18);
+    assert_eq!(root.children.len(), 20);
     // The first child is a styled static title.
     let title = &image.nodes[root.children[0].0 as usize];
     assert!(matches!(title.text, Some(TextSource::Constant(_))));

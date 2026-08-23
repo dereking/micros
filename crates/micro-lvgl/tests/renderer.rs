@@ -153,7 +153,18 @@ impl NativeUi for FakeBridge {
         Ok(())
     }
 
-    fn set_dropdown_value(&mut self, _node: NodeId, _index: f64) -> Result<(), String> {
+    fn set_selection_value(&mut self, _node: NodeId, _index: f64) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_roller(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _options: &[String],
+        _index: f64,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -478,7 +489,18 @@ impl NativeUi for TrackingBridge {
         Ok(())
     }
 
-    fn set_dropdown_value(&mut self, _node: NodeId, _index: f64) -> Result<(), String> {
+    fn set_selection_value(&mut self, _node: NodeId, _index: f64) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_roller(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _options: &[String],
+        _index: f64,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -678,7 +700,18 @@ impl NativeUi for SharedRootBridge {
         Ok(())
     }
 
-    fn set_dropdown_value(&mut self, _node: NodeId, _index: f64) -> Result<(), String> {
+    fn set_selection_value(&mut self, _node: NodeId, _index: f64) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_roller(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _options: &[String],
+        _index: f64,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
         Ok(())
     }
 

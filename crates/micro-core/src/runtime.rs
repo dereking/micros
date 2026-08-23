@@ -222,7 +222,7 @@ impl<R: RenderPort> Runtime<R> {
                                 value: *value,
                             });
                         }
-                        UiKind::Dropdown => {
+                        UiKind::Dropdown | UiKind::Roller => {
                             let Value::Number(index) = &value else {
                                 return Err(RuntimeError::SelectionIsNotNumber(node.id));
                             };
@@ -282,7 +282,7 @@ impl<R: RenderPort> Runtime<R> {
                     Some(Value::Bool(checked)) => Some(Value::Bool(checked)),
                     _ => return Err(RuntimeError::CheckboxIsNotBoolean(node.id)),
                 },
-                UiKind::Dropdown => match value {
+                UiKind::Dropdown | UiKind::Roller => match value {
                     Some(Value::Number(index)) => Some(Value::Number(index)),
                     _ => return Err(RuntimeError::SelectionIsNotNumber(node.id)),
                 },

@@ -11,6 +11,7 @@ const note = state("micro");
 const volume = state(50);
 const alarm = state(0);
 const color = state(0);
+const size = state(1);
 
 ui.mount(
   ui.column([
@@ -107,6 +108,15 @@ ui.mount(
       if (color.value === 0) { return "color: red"; }
       if (color.value === 1) { return "color: green"; }
       return "color: blue";
+    })),
+
+    ui.roller(["S", "M", "L"], bind(() => size.value), {
+      onChange: (i) => { size.value = i; },
+    }),
+    ui.text(bind(() => {
+      if (size.value === 0) { return "size: S"; }
+      if (size.value === 1) { return "size: M"; }
+      return "size: L";
     })),
   ]),
 );

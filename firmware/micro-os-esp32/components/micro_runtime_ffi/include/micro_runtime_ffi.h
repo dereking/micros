@@ -317,7 +317,10 @@ int micro_esp_ui_create_checkbox(uint32_t node, uint32_t parent,
 int micro_esp_ui_create_dropdown(uint32_t node, uint32_t parent,
                                  const uint8_t *options, size_t options_len,
                                  double index, uint32_t handler);
-int micro_esp_ui_set_dropdown_value(uint32_t node, double index);
+int micro_esp_ui_create_roller(uint32_t node, uint32_t parent,
+                                const uint8_t *options, size_t options_len,
+                                double index, uint32_t handler);
+int micro_esp_ui_set_selection_value(uint32_t node, double index);
 int micro_esp_ui_destroy_app_root(void);
 /* Returns 1 with a handler, 0 when empty, and a negative bridge error. */
 int micro_esp_ui_take_activation(uint32_t *handler_id);
@@ -332,6 +335,7 @@ int micro_esp_ui_take_slider_change(uint32_t *handler_id, double *value);
 int micro_esp_ui_take_checkbox_change(uint32_t *handler_id, int *checked);
 /* Returns 1 with a handler and the selected index, 0 when empty. */
 int micro_esp_ui_take_dropdown_change(uint32_t *handler_id, double *index);
+int micro_esp_ui_take_roller_change(uint32_t *handler_id, double *index);
 void micro_esp_ui_report_diagnostic(uint32_t node, const uint8_t *message, size_t len);
 
 #ifdef __cplusplus
