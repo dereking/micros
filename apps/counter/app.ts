@@ -126,15 +126,17 @@ ui.mount(
           ui.spinner(bind(() => loading.value === 1)),
           ui.scale(bind(() => gauge.value), { min: 0, max: 100 }),
         ]),
-        ui.button("power", {
-          onClick: () => { powerOn.value = 1 - powerOn.value; },
-        }),
-        ui.button("loading", {
-          onClick: () => { loading.value = 1 - loading.value; },
-        }),
-        ui.button("gauge", {
-          onClick: () => { gauge.value = (gauge.value + 10) % 100; },
-        }),
+        ui.row([
+          ui.button("power", {
+            onClick: () => { powerOn.value = 1 - powerOn.value; },
+          }),
+          ui.button("loading", {
+            onClick: () => { loading.value = 1 - loading.value; },
+          }),
+          ui.button("gauge", {
+            onClick: () => { gauge.value = (gauge.value + 10) % 100; },
+          }),
+        ]),
 
         ui.place(ui.list([
           { text: "reset count", onClick: () => { count.value = 0; } },
