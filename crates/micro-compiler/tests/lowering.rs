@@ -29,7 +29,7 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
         .iter()
         .filter(|function| matches!(function.kind, FunctionKind::Binding(_)))
         .collect();
-    assert_eq!(bindings.len(), 18);
+    assert_eq!(bindings.len(), 17);
 
     let handlers: Vec<_> = image
         .functions

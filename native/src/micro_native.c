@@ -652,32 +652,21 @@ int micro_native_create_dropdown(micro_native_t *native, uint32_t node_id, uint3
     return 1;
 }
 
-int micro_native_set_layout_spec(micro_native_t *native, uint32_t node_id, uint32_t align,
-                                 double left, double top) {
-    if (native == NULL || node_id >= MICRO_MAX_NODES) return 0;
-    native->layout_specs[node_id].used = 1;
-    native->layout_specs[node_id].align = (uint8_t)align;
-    native->layout_specs[node_id].left = left;
-    native->layout_specs[node_id].top = top;
-    return 1;
-}
+static uint32_t s_delphi_layout_id = LV_LAYOUT_NONE;
 
-int micro_native_apply_delphi_layout(micro_native_t *native, uint32_t container,
-                                     const uint32_t *child_ids, uint32_t child_count) {
-    if (native == NULL || container >= MICRO_MAX_NODES ||
-        native->objects[container] == NULL || child_ids == NULL) return 0;
-    lv_obj_t *obj = native->objects[container];
-    lv_obj_set_layout(obj, LV_LAYOUT_NONE);
-    lv_obj_set_size(obj, LV_PCT(100), LV_PCT(100));
-    lv_obj_update_layout(obj);
-    lv_coord_t avail_w = lv_obj_get_content_width(obj);
-    lv_coord_t avail_h = lv_obj_get_content_height(obj);
+static void delphi_layout_update_cb(lv_obj_t *container, void *user_data)
+{
+    (void)user_data;
+    lv_coord_t avail_w = lv_obj_get_content_width(container);
+    lv_coord_t avail_h = lv_obj_get_content_height(container);
     lv_coord_t top_y = 0, bottom_y = avail_h, left_x = 0, right_x = avail_w;
-    for (uint32_t i = 0; i < child_count; ++i) {
-        uint32_t node = child_ids[i];
-        if (node >= MICRO_MAX_NODES || native->objects[node] == NULL) continue;
-        lv_obj_t *child = native->objects[node];
-        uint8_t align = native->layout_specs[node].used ? native->layout_specs[node].align : 1;
+    uint32_t count = lv_obj_get_child_count(container);
+    for (uint32_t i = 0; i < count; ++i) {
+        lv_obj_t *child = lv_obj_get_child(container, i);
+        uint32_t node = (uint32_t)(uintptr_t)lv_obj_get_user_data(child);
+        micro_native_t *native = (micro_native_t *)user_data;
+        uint8_t align = (native != NULL && node < MICRO_MAX_NODES && native->layout_specs[node].used)
+                            ? native->layout_specs[node].align : 1;
         lv_obj_update_layout(child);
         lv_coord_t w = lv_obj_get_width(child), h = lv_obj_get_height(child);
         switch (align) {
@@ -690,6 +679,33 @@ int micro_native_apply_delphi_layout(micro_native_t *native, uint32_t container,
             default: break;
         }
     }
+}
+
+int micro_native_set_layout_spec(micro_native_t *native, uint32_t node_id, uint32_t align,
+                                 double left, double top) {
+    if (native == NULL || node_id >= MICRO_MAX_NODES) return 0;
+    native->layout_specs[node_id].used = 1;
+    native->layout_specs[node_id].align = (uint8_t)align;
+    native->layout_specs[node_id].left = left;
+    native->layout_specs[node_id].top = top;
+    if (native->objects[node_id] != NULL) {
+        lv_obj_set_user_data(native->objects[node_id], (void *)(uintptr_t)node_id);
+    }
+    return 1;
+}
+
+int micro_native_apply_delphi_layout(micro_native_t *native, uint32_t container,
+                                     const uint32_t *child_ids, uint32_t child_count) {
+    (void)child_ids; (void)child_count;
+    if (native == NULL || container >= MICRO_MAX_NODES || native->objects[container] == NULL) return 0;
+    lv_obj_t *obj = native->objects[container];
+    lv_obj_set_size(obj, LV_PCT(100), LV_PCT(100));
+    if (s_delphi_layout_id == LV_LAYOUT_NONE) {
+        lv_layout_callbacks_t callbacks = { .layout_update_cb = delphi_layout_update_cb,
+                                            .get_min_size_cb = NULL };
+        s_delphi_layout_id = lv_layout_create(callbacks, native);
+    }
+    lv_obj_set_layout(obj, s_delphi_layout_id);
     return 1;
 }
 
