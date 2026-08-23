@@ -131,6 +131,17 @@ impl NativeUi for FakeBridge {
         Ok(())
     }
 
+    fn create_checkbox(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _label: &str,
+        _checked: bool,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
     fn destroy_app_root(&mut self) -> Result<(), String> {
         Ok(())
     }
@@ -422,6 +433,17 @@ impl NativeUi for TrackingBridge {
         Ok(())
     }
 
+    fn create_checkbox(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _label: &str,
+        _checked: bool,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
     fn destroy_app_root(&mut self) -> Result<(), String> {
         assert!(self.root_created);
         self.destroyed.set(self.destroyed.get() + 1);
@@ -593,6 +615,17 @@ impl NativeUi for SharedRootBridge {
     }
 
     fn set_slider_value(&mut self, _node: NodeId, _value: f64) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_checkbox(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _label: &str,
+        _checked: bool,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
         Ok(())
     }
 

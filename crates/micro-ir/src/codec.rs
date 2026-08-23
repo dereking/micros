@@ -7,8 +7,8 @@ use crate::{
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
-/// MBC v5 adds `UiKind::Slider` and the per-node optional `range`.
-const VERSION: u16 = 5;
+/// MBC v6 adds `UiKind::Checkbox`.
+const VERSION: u16 = 6;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -287,6 +287,7 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
             UiKind::Switch => 5,
             UiKind::Input => 6,
             UiKind::Slider => 7,
+            UiKind::Checkbox => 8,
         });
         put_u32(&mut out, node.children.len())?;
         for child in &node.children {
@@ -371,6 +372,7 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             5 => UiKind::Switch,
             6 => UiKind::Input,
             7 => UiKind::Slider,
+            8 => UiKind::Checkbox,
             tag => {
                 return Err(DecodeError::InvalidTag {
                     section: "ui kind",

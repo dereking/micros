@@ -81,6 +81,14 @@ unsafe extern "C" {
         handler: c_uint,
     ) -> c_int;
     fn micro_native_set_slider_value(native: *mut c_void, node: c_uint, value: f64) -> c_int;
+    fn micro_native_create_checkbox(
+        native: *mut c_void,
+        node: c_uint,
+        parent: c_uint,
+        label: *const c_char,
+        checked: c_int,
+        handler: c_uint,
+    ) -> c_int;
     fn micro_native_destroy_app_root(native: *mut c_void) -> c_int;
 }
 
@@ -460,6 +468,30 @@ impl NativeUi for NativeBridge {
         native_result(
             unsafe { micro_native_set_slider_value(self.raw.as_ptr(), node.0, value) },
             "set slider value",
+        )
+    }
+
+    fn create_checkbox(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        label: &str,
+        checked: bool,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        let label = c_string(label)?;
+        native_result(
+            unsafe {
+                micro_native_create_checkbox(
+                    self.raw.as_ptr(),
+                    node.0,
+                    parent_id(parent),
+                    label.as_ptr(),
+                    c_int::from(checked),
+                    handler.map_or(u32::MAX, |id| id.0),
+                )
+            },
+            "create checkbox",
         )
     }
 

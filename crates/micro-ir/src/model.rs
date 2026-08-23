@@ -88,6 +88,10 @@ pub enum UiKind {
     /// `value`; the optional `range` gives (min, max) in value units; the
     /// optional `on_click` handler is a 1-arg handler receiving the new value.
     Slider,
+    /// Boolean toggle with a text label (LVGL checkbox). `value` holds the
+    /// checked state; `text` holds the label; the optional `on_click` handler
+    /// is a 1-arg handler receiving the new checked state.
+    Checkbox,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,9 +207,12 @@ impl TextStyle {
 
     pub const fn default_for(kind: UiKind) -> Option<Self> {
         match kind {
-            UiKind::Column | UiKind::Row | UiKind::Progress | UiKind::Switch | UiKind::Slider => {
-                None
-            }
+            UiKind::Column
+            | UiKind::Row
+            | UiKind::Progress
+            | UiKind::Switch
+            | UiKind::Slider
+            | UiKind::Checkbox => None,
             UiKind::Text | UiKind::Input => Some(Self::DEFAULT_TEXT),
             UiKind::Button => Some(Self::DEFAULT_BUTTON),
         }

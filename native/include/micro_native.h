@@ -50,5 +50,10 @@ MICRO_EXPORT int micro_native_create_slider(micro_native_t *native, uint32_t nod
                                             double value, double min, double max, uint32_t handler_id);
 MICRO_EXPORT int micro_native_set_slider_value(micro_native_t *native, uint32_t node_id, double value);
 MICRO_EXPORT int micro_native_take_slider_change(micro_native_t *native, uint32_t *handler_id, double *value);
+/* Checkbox with a text label. `checked` is the initial state; `handler_id`
+ * is the onChange handler (or MICRO_NO_HANDLER to disable). */
+MICRO_EXPORT int micro_native_create_checkbox(micro_native_t *native, uint32_t node_id, uint32_t parent_id,
+                                              const char *label, int checked, uint32_t handler_id);
+MICRO_EXPORT int micro_native_take_checkbox_change(micro_native_t *native, uint32_t *handler_id, int *checked);
 
 #endif

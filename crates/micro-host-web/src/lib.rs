@@ -4,7 +4,7 @@ mod system;
 #[cfg(any(target_arch = "wasm32", test))]
 use micro_ir::{FontFamily, FontWeight, TextStyle};
 
-pub use activation::{ActivationQueue, InputChangeQueue, SliderChangeQueue};
+pub use activation::{ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SliderChangeQueue};
 pub use system::{SystemIntent, SystemShell, SystemSnapshot};
 
 #[cfg(any(target_arch = "wasm32", test))]
@@ -106,7 +106,7 @@ mod wasm_host {
     use micro_renderer_web::WebRenderer;
     use wasm_bindgen::prelude::*;
 
-    use crate::{ActivationQueue, InputChangeQueue, SliderChangeQueue};
+    use crate::{ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SliderChangeQueue};
     use crate::dom::DomBridge;
 
     #[wasm_bindgen]
@@ -115,6 +115,7 @@ mod wasm_host {
         activations: ActivationQueue,
         input_changes: InputChangeQueue,
         slider_changes: SliderChangeQueue,
+        checkbox_changes: CheckboxChangeQueue,
     }
 
     #[wasm_bindgen]
@@ -141,12 +142,14 @@ mod wasm_host {
             let activations = ActivationQueue::default();
             let input_changes = InputChangeQueue::default();
             let slider_changes = SliderChangeQueue::default();
+            let checkbox_changes = CheckboxChangeQueue::default();
             let bridge = DomBridge::new(
                 document,
                 container,
                 activations.clone(),
                 input_changes.clone(),
                 slider_changes.clone(),
+                checkbox_changes.clone(),
             );
             let renderer = WebRenderer::new(bridge);
             let runtime = Runtime::new(image, renderer, event_budget).map_err(|error| {
@@ -157,6 +160,7 @@ mod wasm_host {
                 activations,
                 input_changes,
                 slider_changes,
+                checkbox_changes,
             })
         }
 
@@ -169,6 +173,9 @@ mod wasm_host {
             }
             while let Some((handler, value)) = self.slider_changes.pop() {
                 self.runtime.enqueue(Event::SliderChanged(handler, value));
+            }
+            while let Some((handler, checked)) = self.checkbox_changes.pop() {
+                self.runtime.enqueue(Event::CheckedChanged(handler, checked));
             }
 
             let mut processed = 0_u32;

@@ -47,6 +47,7 @@ const void *micro_runtime_ffi_keepalive(void)
 #define MICRO_UI_INPUT_CAPACITY 16U
 #define MICRO_UI_INPUT_TEXT_MAX 256U
 #define MICRO_UI_SLIDER_CAPACITY 32U
+#define MICRO_UI_CHECKBOX_CAPACITY 32U
 
 struct micro_click_context {
     uint32_t handler;
@@ -63,6 +64,11 @@ struct micro_slider_change {
     double value;
 };
 
+struct micro_checkbox_change {
+    uint32_t handler;
+    int checked;
+};
+
 static lv_obj_t *objects[MICRO_UI_MAX_NODES];
 static lv_obj_t *text_targets[MICRO_UI_MAX_NODES];
 static lv_obj_t *app_root;
@@ -76,6 +82,9 @@ static unsigned input_write;
 static struct micro_slider_change slider_changes[MICRO_UI_SLIDER_CAPACITY];
 static unsigned slider_read;
 static unsigned slider_write;
+static struct micro_checkbox_change checkbox_changes[MICRO_UI_CHECKBOX_CAPACITY];
+static unsigned checkbox_read;
+static unsigned checkbox_write;
 static lv_obj_t *s_keyboard;
 static lv_obj_t *s_candidate_bar;
 static lv_obj_t *s_pinyin_label;
@@ -439,6 +448,25 @@ static void slider_callback(lv_event_t *event)
     slider_changes[slider_write].handler = context->handler;
     slider_changes[slider_write].value = (double)lv_slider_get_value(target);
     slider_write = next;
+}
+
+static void checkbox_callback(lv_event_t *event)
+{
+    const struct micro_click_context *context = lv_event_get_user_data(event);
+    lv_obj_t *target = lv_event_get_target(event);
+    if (target == NULL) {
+        return;
+    }
+    unsigned next = (checkbox_write + 1U) % MICRO_UI_CHECKBOX_CAPACITY;
+    if (next == checkbox_read) {
+        ESP_LOGW("micro_ui", "checkbox queue full; dropping handler %lu",
+                 (unsigned long)context->handler);
+        return;
+    }
+    checkbox_changes[checkbox_write].handler = context->handler;
+    checkbox_changes[checkbox_write].checked =
+        lv_obj_has_state(target, LV_STATE_CHECKED) ? 1 : 0;
+    checkbox_write = next;
 }
 
 static lv_obj_t *parent_object(uint32_t parent)
@@ -810,6 +838,41 @@ int micro_esp_ui_create_slider(uint32_t node, uint32_t parent,
     return result;
 }
 
+int micro_esp_ui_create_checkbox(uint32_t node, uint32_t parent,
+                                 const uint8_t *label, size_t label_len,
+                                 int checked, uint32_t handler)
+{
+    char *copy = copy_text(label, label_len);
+    if (copy == NULL) return -5;
+    if (!lvgl_port_lock(0)) { free(copy); return -3; }
+    lv_obj_t *parent_obj;
+    int result = begin_create(node, parent, &parent_obj);
+    if (result == 0) {
+        lv_obj_t *checkbox = lv_checkbox_create(parent_obj);
+        if (checkbox == NULL) result = -4;
+        else {
+            lv_checkbox_set_text(checkbox, copy);
+            lv_obj_set_style_text_font(checkbox, &micro_ui_sans_24, LV_PART_MAIN);
+            lv_obj_set_style_text_color(checkbox, lv_color_hex(0x101820), LV_PART_MAIN);
+            if (checked) {
+                lv_obj_add_state(checkbox, LV_STATE_CHECKED);
+            }
+            if (handler == MICRO_UI_NO_HANDLER) {
+                lv_obj_remove_flag(checkbox, LV_OBJ_FLAG_CLICKABLE);
+            } else {
+                click_contexts[node].handler = handler;
+                lv_obj_add_event_cb(checkbox, checkbox_callback, LV_EVENT_VALUE_CHANGED,
+                                    &click_contexts[node]);
+            }
+            objects[node] = checkbox;
+            if (parent == MICRO_UI_NO_PARENT) app_root = checkbox;
+        }
+    }
+    lvgl_port_unlock();
+    free(copy);
+    return result;
+}
+
 int micro_esp_ui_set_slider_value(uint32_t node, double value)
 {
     if (!lvgl_port_lock(0)) return -3;
@@ -853,6 +916,8 @@ int micro_esp_ui_destroy_app_root(void)
     input_write = 0;
     slider_read = 0;
     slider_write = 0;
+    checkbox_read = 0;
+    checkbox_write = 0;
     lvgl_port_unlock();
     return 0;
 }
@@ -891,6 +956,23 @@ int micro_esp_ui_take_slider_change(uint32_t *handler_id, double *value)
     *handler_id = slider_changes[slider_read].handler;
     *value = slider_changes[slider_read].value;
     slider_read = (slider_read + 1U) % MICRO_UI_SLIDER_CAPACITY;
+    lvgl_port_unlock();
+    return 1;
+}
+
+int micro_esp_ui_take_checkbox_change(uint32_t *handler_id, int *checked)
+{
+    if (handler_id == NULL || checked == NULL) {
+        return -1;
+    }
+    if (!lvgl_port_lock(0)) return -3;
+    if (checkbox_read == checkbox_write) {
+        lvgl_port_unlock();
+        return 0;
+    }
+    *handler_id = checkbox_changes[checkbox_read].handler;
+    *checked = checkbox_changes[checkbox_read].checked;
+    checkbox_read = (checkbox_read + 1U) % MICRO_UI_CHECKBOX_CAPACITY;
     lvgl_port_unlock();
     return 1;
 }

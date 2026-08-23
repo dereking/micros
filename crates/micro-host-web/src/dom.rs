@@ -6,7 +6,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{Document, Element, Event};
 
-use crate::{ActivationQueue, InputChangeQueue, SliderChangeQueue, inline_text_style};
+use crate::{ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SliderChangeQueue, inline_text_style};
 
 pub struct DomBridge {
     document: Document,
@@ -15,6 +15,7 @@ pub struct DomBridge {
     activations: ActivationQueue,
     input_changes: InputChangeQueue,
     slider_changes: SliderChangeQueue,
+    checkbox_changes: CheckboxChangeQueue,
     click_handlers: Vec<Closure<dyn FnMut(Event)>>,
 }
 
@@ -25,6 +26,7 @@ impl DomBridge {
         activations: ActivationQueue,
         input_changes: InputChangeQueue,
         slider_changes: SliderChangeQueue,
+        checkbox_changes: CheckboxChangeQueue,
     ) -> Self {
         Self {
             document,
@@ -33,6 +35,7 @@ impl DomBridge {
             activations,
             input_changes,
             slider_changes,
+            checkbox_changes,
             click_handlers: Vec::new(),
         }
     }
@@ -211,9 +214,14 @@ impl WebDom for DomBridge {
             .elements
             .get(&node.0)
             .ok_or_else(|| format!("node {} is missing", node.0))?;
+        /* For a real checkbox input toggle the native property; otherwise
+         * fall back to the aria attribute used by the switch button. */
+        if let Ok(input) = element.clone().dyn_into::<web_sys::HtmlInputElement>() {
+            input.set_checked(checked);
+        }
         element
             .set_attribute("aria-checked", if checked { "true" } else { "false" })
-            .map_err(|error| format!("set switch aria: {error:?}"))
+            .map_err(|error| format!("set checked aria: {error:?}"))
     }
 
     fn create_input(
@@ -315,5 +323,56 @@ impl WebDom for DomBridge {
         element
             .set_attribute("value", &value.to_string())
             .map_err(|error| format!("set slider value: {error:?}"))
+    }
+
+    fn create_checkbox(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        label: &str,
+        checked: bool,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        let label_el = self.create_element("label", node, "micro-checkbox")?;
+        let input = self
+            .document
+            .create_element("input")
+            .map_err(|error| format!("create checkbox input: {error:?}"))?;
+        input
+            .set_attribute("type", "checkbox")
+            .map_err(|error| format!("set checkbox type: {error:?}"))?;
+        if checked {
+            input
+                .set_attribute("checked", "")
+                .map_err(|error| format!("set checkbox checked: {error:?}"))?;
+        }
+        if let Some(handler) = handler {
+            let checkbox_changes = self.checkbox_changes.clone();
+            let callback = Closure::wrap(Box::new(move |event: Event| {
+                if let Some(checked) = event
+                    .target()
+                    .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                    .map(|input| input.checked())
+                {
+                    checkbox_changes.push(handler, checked);
+                }
+            }) as Box<dyn FnMut(Event)>);
+            input
+                .add_event_listener_with_callback("change", callback.as_ref().unchecked_ref())
+                .map_err(|error| format!("listen for checkbox change: {error:?}"))?;
+            self.click_handlers.push(callback);
+        }
+        label_el
+            .append_child(&input)
+            .map_err(|error| format!("append checkbox input: {error:?}"))?;
+        let text = self
+            .document
+            .create_element("span")
+            .map_err(|error| format!("create checkbox label: {error:?}"))?;
+        text.set_text_content(Some(label));
+        label_el
+            .append_child(&text)
+            .map_err(|error| format!("append checkbox label: {error:?}"))?;
+        self.append(node, parent, label_el)
     }
 }

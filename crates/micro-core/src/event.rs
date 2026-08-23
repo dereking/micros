@@ -11,6 +11,8 @@ pub enum Event {
     /// A `ui.slider` position changed; the handler receives the new value as
     /// its single runtime argument.
     SliderChanged(FunctionId, f64),
+    /// A `ui.checkbox` toggled; the handler receives the new checked state.
+    CheckedChanged(FunctionId, bool),
 }
 
 #[derive(Debug, Default)]

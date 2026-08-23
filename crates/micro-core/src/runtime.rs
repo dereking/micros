@@ -25,6 +25,7 @@ pub enum RuntimeError {
     SwitchIsNotBoolean(NodeId),
     InputIsNotString(NodeId),
     SliderIsNotNumber(NodeId),
+    CheckboxIsNotBoolean(NodeId),
 }
 
 impl fmt::Display for RuntimeError {
@@ -107,6 +108,7 @@ impl<R: RenderPort> Runtime<R> {
             Event::Activate(id) => (id, None),
             Event::InputChanged(id, text) => (id, Some(Value::String(text))),
             Event::SliderChanged(id, value) => (id, Some(Value::Number(value))),
+            Event::CheckedChanged(id, checked) => (id, Some(Value::Bool(checked))),
         };
         if !matches!(
             self.image.functions.get(function_id.0 as usize),
@@ -191,7 +193,7 @@ impl<R: RenderPort> Runtime<R> {
                                 fraction: fraction.clamp(0.0, 1.0),
                             });
                         }
-                        UiKind::Switch => {
+                        UiKind::Switch | UiKind::Checkbox => {
                             let Value::Bool(checked) = &value else {
                                 return Err(RuntimeError::SwitchIsNotBoolean(node.id));
                             };
@@ -264,6 +266,10 @@ impl<R: RenderPort> Runtime<R> {
                 UiKind::Slider => match value {
                     Some(Value::Number(value)) => Some(Value::Number(value)),
                     _ => return Err(RuntimeError::SliderIsNotNumber(node.id)),
+                },
+                UiKind::Checkbox => match value {
+                    Some(Value::Bool(checked)) => Some(Value::Bool(checked)),
+                    _ => return Err(RuntimeError::CheckboxIsNotBoolean(node.id)),
                 },
                 _ => value,
             };

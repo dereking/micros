@@ -57,6 +57,14 @@ pub trait NativeUi {
         handler: Option<FunctionId>,
     ) -> Result<(), String>;
     fn set_slider_value(&mut self, node: NodeId, value: f64) -> Result<(), String>;
+    fn create_checkbox(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        label: &str,
+        checked: bool,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String>;
     fn destroy_app_root(&mut self) -> Result<(), String>;
 }
 
@@ -176,6 +184,17 @@ impl<B: NativeUi> LvglRenderer<B> {
                 };
                 self.bridge
                     .create_slider(node.id, parent, *value, node.range, node.on_click)
+            }
+            UiKind::Checkbox => {
+                let Some(Value::Bool(checked)) = node.value.as_ref() else {
+                    return Err(RenderError(format!(
+                        "checkbox {} has no boolean value",
+                        node.id.0
+                    )));
+                };
+                let label = self.checked_text(node.id, &node.text);
+                self.bridge
+                    .create_checkbox(node.id, parent, &label, *checked, node.on_click)
             }
         }
         .map_err(RenderError)?;

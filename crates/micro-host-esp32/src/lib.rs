@@ -180,6 +180,21 @@ impl<B: NativeUi> RuntimeHost<B> {
         Ok(())
     }
 
+    pub fn set_checkbox_checked(
+        &mut self,
+        handler: FunctionId,
+        checked: bool,
+    ) -> Result<(), HostError> {
+        if self.stopped {
+            return Err(HostError {
+                code: MicroErrorCode::Stopped,
+                diagnostic: "runtime is stopped".into(),
+            });
+        }
+        self.runtime.enqueue(Event::CheckedChanged(handler, checked));
+        Ok(())
+    }
+
     pub fn tick(&mut self) -> Result<bool, HostError> {
         if self.stopped {
             return Err(HostError {

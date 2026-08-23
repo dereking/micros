@@ -9,6 +9,7 @@ const level = state(3);
 const power = state(0);
 const note = state("micro");
 const volume = state(50);
+const alarm = state(0);
 
 ui.mount(
   ui.column([
@@ -87,5 +88,15 @@ ui.mount(
       onChange: (v) => { volume.value = v; },
     }),
     ui.text(bind(() => `volume: ${volume.value}`)),
+
+    ui.checkbox("alarm", bind(() => alarm.value === 1), {
+      onChange: (v) => {
+        if (v === true) { alarm.value = 1; } else { alarm.value = 0; }
+      },
+    }),
+    ui.text(bind(() => {
+      if (alarm.value === 1) { return "alarm: on"; }
+      return "alarm: off";
+    })),
   ]),
 );

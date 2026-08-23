@@ -37,5 +37,10 @@ declare const ui: {
     value: number | Binding<number>,
     options?: { min?: number; max?: number; onChange?: (value: number) => void },
   ): UiNode;
+  checkbox(
+    label: string,
+    checked: boolean | Binding<boolean>,
+    options?: { onChange?: (value: boolean) => void },
+  ): UiNode;
   mount(root: UiNode): void;
 };

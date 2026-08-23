@@ -222,6 +222,28 @@ impl<'a> Lowerer<'a> {
                 }
                 Ok(id)
             }
+            Some("ui.checkbox") => {
+                let id = self.reserve_node(UiKind::Checkbox);
+                let label = literal_constant(&call.args[0].expr)
+                    .filter(|constant| matches!(constant, Constant::String(_)))
+                    .ok_or_else(|| {
+                        self.error(
+                            call.args[0].span(),
+                            "MTS012",
+                            "checkbox label must be a string",
+                        )
+                    })?;
+                if let Constant::String(value) = &label {
+                    self.validate_literal_glyphs(call.args[0].span(), value)?;
+                }
+                self.nodes[id.0 as usize].text = Some(TextSource::Constant(self.intern(label)));
+                self.nodes[id.0 as usize].value =
+                    Some(self.lower_value_source(ScalarType::Bool, &call.args[1].expr)?);
+                if let Some(options) = call.args.get(2) {
+                    self.lower_checkbox_options(id, &options.expr)?;
+                }
+                Ok(id)
+            }
             _ => Err(self.error(call.span, "MTS012", "unsupported UI call")),
         }
     }
@@ -527,6 +549,69 @@ impl<'a> Lowerer<'a> {
         }
         if let (Some(min), Some(max)) = (min_value, max_value) {
             self.nodes[node.0 as usize].range = Some((min, max));
+        }
+        Ok(())
+    }
+
+    fn lower_checkbox_options(
+        &mut self,
+        node: NodeId,
+        expression: &Expr,
+    ) -> Result<(), Diagnostic> {
+        let Expr::Object(object) = expression else {
+            return Err(self.error(
+                expression.span(),
+                "MTS012",
+                "ui.checkbox options must be an object",
+            ));
+        };
+        let mut saw_change = false;
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.checkbox options cannot use spread",
+                ));
+            };
+            let Prop::KeyValue(property) = &**property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.checkbox options must use key-value pairs",
+                ));
+            };
+            let PropName::Ident(name) = &property.key else {
+                return Err(self.error(
+                    property.key.span(),
+                    "MTS012",
+                    "ui.checkbox option names must be identifiers",
+                ));
+            };
+            match name.sym.as_ref() {
+                "onChange" if !saw_change => {
+                    saw_change = true;
+                    let arrow = as_arrow(&property.value).ok_or_else(|| {
+                        self.error(property.value.span(), "MTS012", "onChange arrow is required")
+                    })?;
+                    self.nodes[node.0 as usize].on_click =
+                        Some(self.add_input_function(arrow, ScalarType::Bool)?);
+                }
+                "onChange" => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS012",
+                        format!("duplicate ui.checkbox property `{}`", name.sym),
+                    ));
+                }
+                _ => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS002",
+                        format!("unknown ui.checkbox property `{}`", name.sym),
+                    ));
+                }
+            }
         }
         Ok(())
     }

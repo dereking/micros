@@ -13,6 +13,7 @@
 #define MICRO_INPUT_CAPACITY 16U
 #define MICRO_INPUT_TEXT_MAX 256U
 #define MICRO_SLIDER_CAPACITY 32U
+#define MICRO_CHECKBOX_CAPACITY 32U
 
 typedef struct micro_click_context {
     struct micro_native *native;
@@ -29,6 +30,11 @@ typedef struct micro_slider_change {
     uint32_t handler_id;
     double value;
 } micro_slider_change_t;
+
+typedef struct micro_checkbox_change {
+    uint32_t handler_id;
+    int checked;
+} micro_checkbox_change_t;
 
 struct micro_native {
     SDL_Window *window;
@@ -53,6 +59,9 @@ struct micro_native {
     micro_slider_change_t slider_changes[MICRO_SLIDER_CAPACITY];
     unsigned slider_read;
     unsigned slider_write;
+    micro_checkbox_change_t checkbox_changes[MICRO_CHECKBOX_CAPACITY];
+    unsigned checkbox_read;
+    unsigned checkbox_write;
 };
 
 static void copy_error(char *target, size_t length, const char *message) {
@@ -127,6 +136,19 @@ static void slider_callback(lv_event_t *event) {
         change->handler_id = context->handler_id;
         change->value = (double)lv_slider_get_value(target);
         context->native->slider_write = next;
+    }
+}
+
+static void checkbox_callback(lv_event_t *event) {
+    micro_click_context_t *context = lv_event_get_user_data(event);
+    lv_obj_t *target = lv_event_get_target(event);
+    if (target == NULL) return;
+    unsigned next = (context->native->checkbox_write + 1U) % MICRO_CHECKBOX_CAPACITY;
+    if (next != context->native->checkbox_read) {
+        micro_checkbox_change_t *change = &context->native->checkbox_changes[context->native->checkbox_write];
+        change->handler_id = context->handler_id;
+        change->checked = lv_obj_has_state(target, LV_STATE_CHECKED) ? 1 : 0;
+        context->native->checkbox_write = next;
     }
 }
 
@@ -221,6 +243,8 @@ int micro_native_destroy_app_root(micro_native_t *native) {
     native->input_write = 0;
     native->slider_read = 0;
     native->slider_write = 0;
+    native->checkbox_read = 0;
+    native->checkbox_write = 0;
     return 1;
 }
 
@@ -466,6 +490,35 @@ int micro_native_create_slider(micro_native_t *native, uint32_t node_id, uint32_
 int micro_native_set_slider_value(micro_native_t *native, uint32_t node_id, double value) {
     if (native == NULL || node_id >= MICRO_MAX_NODES || native->objects[node_id] == NULL) return 0;
     lv_slider_set_value(native->objects[node_id], (int32_t)value, LV_ANIM_OFF);
+    return 1;
+}
+
+int micro_native_create_checkbox(micro_native_t *native, uint32_t node_id, uint32_t parent_id,
+                                 const char *label, int checked, uint32_t handler_id) {
+    if (native == NULL || node_id >= MICRO_MAX_NODES) return 0;
+    lv_obj_t *parent = parent_object(native, parent_id);
+    if (parent == NULL) return 0;
+    lv_obj_t *checkbox = lv_checkbox_create(parent);
+    lv_checkbox_set_text(checkbox, label);
+    if (checked) lv_obj_add_state(checkbox, LV_STATE_CHECKED);
+    if (handler_id == MICRO_NO_HANDLER) {
+        lv_obj_remove_flag(checkbox, LV_OBJ_FLAG_CLICKABLE);
+    } else {
+        native->clicks[node_id].native = native;
+        native->clicks[node_id].handler_id = handler_id;
+        lv_obj_add_event_cb(checkbox, checkbox_callback, LV_EVENT_VALUE_CHANGED,
+                            &native->clicks[node_id]);
+    }
+    native->objects[node_id] = checkbox;
+    return 1;
+}
+
+int micro_native_take_checkbox_change(micro_native_t *native, uint32_t *handler_id, int *checked) {
+    if (native == NULL || handler_id == NULL || checked == NULL) return 0;
+    if (native->checkbox_read == native->checkbox_write) return 0;
+    *handler_id = native->checkbox_changes[native->checkbox_read].handler_id;
+    *checked = native->checkbox_changes[native->checkbox_read].checked;
+    native->checkbox_read = (native->checkbox_read + 1U) % MICRO_CHECKBOX_CAPACITY;
     return 1;
 }
 

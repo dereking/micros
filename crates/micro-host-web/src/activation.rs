@@ -44,3 +44,17 @@ impl SliderChangeQueue {
         self.0.borrow_mut().pop_front()
     }
 }
+
+/// Queue of `ui.checkbox` onChange events: the handler id plus the new state.
+#[derive(Clone, Default)]
+pub struct CheckboxChangeQueue(Rc<RefCell<VecDeque<(FunctionId, bool)>>>);
+
+impl CheckboxChangeQueue {
+    pub fn push(&self, handler: FunctionId, checked: bool) {
+        self.0.borrow_mut().push_back((handler, checked));
+    }
+
+    pub fn pop(&mut self) -> Option<(FunctionId, bool)> {
+        self.0.borrow_mut().pop_front()
+    }
+}

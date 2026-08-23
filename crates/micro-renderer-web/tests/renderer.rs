@@ -124,6 +124,17 @@ impl WebDom for FakeDom {
         Ok(())
     }
 
+    fn create_checkbox(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _label: &str,
+        _checked: bool,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
     fn set_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
         self.operations.push(Call::SetText(node, text.into()));
         Ok(())

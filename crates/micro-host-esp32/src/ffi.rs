@@ -56,6 +56,14 @@ unsafe extern "C" {
         handler: u32,
     ) -> c_int;
     fn micro_esp_ui_set_slider_value(node: u32, value: f64) -> c_int;
+    fn micro_esp_ui_create_checkbox(
+        node: u32,
+        parent: u32,
+        label: *const u8,
+        label_len: usize,
+        checked: c_int,
+        handler: u32,
+    ) -> c_int;
     fn micro_esp_ui_destroy_app_root() -> c_int;
     fn micro_esp_ui_take_activation(handler_id: *mut u32) -> c_int;
     fn micro_esp_ui_take_input_change(
@@ -65,6 +73,7 @@ unsafe extern "C" {
         text_len: *mut usize,
     ) -> c_int;
     fn micro_esp_ui_take_slider_change(handler_id: *mut u32, value: *mut f64) -> c_int;
+    fn micro_esp_ui_take_checkbox_change(handler_id: *mut u32, checked: *mut c_int) -> c_int;
     fn micro_esp_ui_report_diagnostic(node: u32, message: *const u8, len: usize);
 }
 
@@ -222,6 +231,26 @@ impl NativeUi for EspNativeUi {
 
     fn set_slider_value(&mut self, node: NodeId, value: f64) -> Result<(), String> {
         native_result(unsafe { micro_esp_ui_set_slider_value(node.0, value) })
+    }
+
+    fn create_checkbox(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        label: &str,
+        checked: bool,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        native_result(unsafe {
+            micro_esp_ui_create_checkbox(
+                node.0,
+                parent_id(parent),
+                label.as_ptr(),
+                label.len(),
+                c_int::from(checked),
+                handler.map_or(u32::MAX, |id| id.0),
+            )
+        })
     }
 
     fn destroy_app_root(&mut self) -> Result<(), String> {
@@ -469,6 +498,30 @@ pub unsafe extern "C" fn micro_runtime_tick(
                     HostError {
                         code: MicroErrorCode::Ui,
                         diagnostic: format!("ESP slider-change queue failed with code {code}"),
+                    },
+                    error,
+                    error_length,
+                );
+            }
+        }
+    }
+    loop {
+        let mut handler = 0;
+        let mut checked = 0;
+        match unsafe { micro_esp_ui_take_checkbox_change(&raw mut handler, &raw mut checked) } {
+            1 => {
+                if let Err(runtime_error) =
+                    runtime.set_checkbox_checked(FunctionId(handler), checked != 0)
+                {
+                    return report(runtime_error, error, error_length);
+                }
+            }
+            0 => break,
+            code => {
+                return report(
+                    HostError {
+                        code: MicroErrorCode::Ui,
+                        diagnostic: format!("ESP checkbox-change queue failed with code {code}"),
                     },
                     error,
                     error_length,
