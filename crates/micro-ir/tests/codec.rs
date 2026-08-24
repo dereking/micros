@@ -1,8 +1,8 @@
 use micro_ir::{
-    AppImage, BindingId, Constant, DecodeError, FontFamily, FontWeight, Function, FunctionId,
-    FunctionKind, HostCallKind, HostRequest, Instruction, LayoutSpec, NodeId, ScalarType,
-    StateDecl, StateId, TextSource, TextStyle, TextStyleError, UiKind, UiNodeSpec, ValueSource,
-    decode, encode, validate,
+    AppImage, AppMetadata, BindingId, Constant, DecodeError, FontFamily, FontWeight, Function,
+    FunctionId, FunctionKind, HostCallKind, HostRequest, Instruction, LayoutSpec, NodeId,
+    ScalarType, StateDecl, StateId, TextSource, TextStyle, TextStyleError, UiKind, UiNodeSpec,
+    ValueSource, decode, encode, validate,
 };
 
 fn fixture() -> AppImage {
@@ -38,6 +38,11 @@ fn fixture() -> AppImage {
             layout: None,
         }],
         host_requests: vec![],
+        metadata: AppMetadata {
+            id: "fixture".into(),
+            name: "Fixture".into(),
+            icon: "F".into(),
+        },
         root: NodeId(0),
     }
 }
@@ -46,6 +51,25 @@ fn fixture() -> AppImage {
 fn round_trips_a_valid_image() {
     let image = fixture();
     assert_eq!(decode(&encode(&image).unwrap()).unwrap(), image);
+}
+
+#[test]
+fn round_trips_metadata() {
+    let mut image = fixture();
+    image.metadata = AppMetadata {
+        id: "counter".into(),
+        name: "Counter".into(),
+        icon: "C".into(),
+    };
+    let decoded = decode(&encode(&image).unwrap()).unwrap();
+    assert_eq!(
+        decoded.metadata,
+        AppMetadata {
+            id: "counter".into(),
+            name: "Counter".into(),
+            icon: "C".into(),
+        }
+    );
 }
 
 #[test]
@@ -176,6 +200,11 @@ fn round_trips_progress_and_switch_values() {
             },
         ],
         host_requests: vec![],
+        metadata: AppMetadata {
+            id: "demo".into(),
+            name: "Demo".into(),
+            icon: "D".into(),
+        },
         root: NodeId(0),
     };
     let decoded = decode(&encode(&image).unwrap()).unwrap();
@@ -278,8 +307,8 @@ fn rejects_bad_magic_and_version() {
 #[test]
 fn rejects_a_bad_text_style_tag() {
     let mut bytes = encode(&fixture()).unwrap();
-    /* The trailing empty host_requests section adds 9 bytes (tag + length + 4-byte count). */
-    let style_tag = bytes.len() - 20;
+    /* Trailing sections after section 4: empty host_requests (9 bytes) + metadata (32 bytes). */
+    let style_tag = bytes.len() - 52;
     bytes[style_tag] = 2;
     refresh_checksum(&mut bytes);
 
@@ -297,8 +326,8 @@ fn rejects_an_unsupported_serialized_text_size() {
     let mut image = fixture();
     image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
     let mut bytes = encode(&image).unwrap();
-    /* The trailing empty host_requests section adds 9 bytes (tag + length + 4-byte count). */
-    let size_px = bytes.len() - 22;
+    /* Trailing sections after section 4: empty host_requests (9 bytes) + metadata (32 bytes). */
+    let size_px = bytes.len() - 54;
     bytes[size_px] = 16;
     refresh_checksum(&mut bytes);
 
@@ -315,8 +344,8 @@ fn rejects_non_regular_serialized_font_weight() {
     let mut image = fixture();
     image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
     let mut bytes = encode(&image).unwrap();
-    /* The trailing empty host_requests section adds 9 bytes (tag + length + 4-byte count). */
-    let weight = bytes.len() - 21;
+    /* Trailing sections after section 4: empty host_requests (9 bytes) + metadata (32 bytes). */
+    let weight = bytes.len() - 53;
     bytes[weight] = 1;
     refresh_checksum(&mut bytes);
     assert_eq!(
@@ -333,8 +362,8 @@ fn rejects_an_unsupported_serialized_line_height_pair() {
     let mut image = fixture();
     image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
     let mut bytes = encode(&image).unwrap();
-    /* The trailing empty host_requests section adds 9 bytes (tag + length + 4-byte count). */
-    let line_height_px = bytes.len() - 20;
+    /* Trailing sections after section 4: empty host_requests (9 bytes) + metadata (32 bytes). */
+    let line_height_px = bytes.len() - 52;
     bytes[line_height_px] = 17;
     refresh_checksum(&mut bytes);
 

@@ -1,4 +1,5 @@
 #include <inttypes.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -17,7 +18,7 @@
 
 #include "micro_bsp_lcd7.h"
 #include "micro_runtime_ffi.h"
-#include "micro_system_ui.h"
+#include "micro_wifi.h"
 
 #define MICRO_EXPECTED_MEMORY_BYTES (8U * 1024U * 1024U)
 #define MICRO_APP_PARTITION_LABEL "micro_app"
@@ -27,7 +28,6 @@
 #define MICRO_OS_MAX_ACTIONS 16U
 #define MICRO_BOOT_BUTTON_GPIO 0U
 #define MICRO_BOOT_DEBOUNCE_TICKS 4U
-#define MICRO_WIFI_CONNECT_STEP_TICKS 2U
 
 /* MBC1 file layout (little-endian, see crates/micro-ir/src/codec.rs):
  *   offset 0..4   magic "MBC1"
@@ -37,89 +37,207 @@
  *   offset 14..   payload bytes
  * The total file size is therefore 14 + payload_length. */
 #define MICRO_MBC_HEADER_SIZE 14U
+/* Payload sections are [tag:u8][len:u32][bytes]; the metadata section is 6. */
+#define MICRO_MBC_SECTION_HEADER_SIZE 5U
+#define MICRO_MBC_SECTION_METADATA 6U
+
+#define MICRO_APPS_MAX 8U
+#define MICRO_APP_NAME_MAX 32U
+#define MICRO_APP_ICON_MAX 8U
 
 static const char *TAG = "micro_os";
 
 static micro_os_t *s_os;
 static micro_bsp_display_t s_display;
-static micro_runtime_t *s_app_runtime;
-static uint32_t s_app_session;
-static bool s_app_running;
+static const esp_partition_t *s_partition;
+static micro_runtime_t *s_runtime;
+static bool s_is_shell;
 static char s_runtime_error[MICRO_RUNTIME_ERROR_BUFFER_SIZE];
 
 static micro_action_t s_actions[MICRO_OS_MAX_ACTIONS];
 static micro_action_buffer_t s_action_buffer;
 
-static bool s_shell_visible;
-static bool s_shell_settings;
-static char s_wifi_state[16] = "off";
-static char s_wifi_ssid[64] = "";
 static uint32_t s_backlight = 3;
-static bool s_wifi_connecting;
-static uint32_t s_wifi_connect_ticks;
 
 static uint32_t s_boot_level_count;
+
+/* --- installed-app registry (from the micro_app partition scan) --- */
+
+typedef struct {
+    uint32_t offset; /* partition offset of this MBC */
+    uint32_t len;    /* total MBC length (header + payload) */
+    char id[MICRO_APP_NAME_MAX];
+    char name[MICRO_APP_NAME_MAX];
+    char icon[MICRO_APP_ICON_MAX];
+} micro_app_entry_t;
+
+static micro_app_entry_t s_apps[MICRO_APPS_MAX];
+static uint32_t s_app_count;
 
 static void micro_os_apply_action(const micro_action_t *action);
 static size_t micro_os_apply_batch(const micro_action_t *actions, size_t count);
 static void os_dispatch_event(const micro_event_t *event);
 
-static void micro_boot_button_init(void)
+static uint32_t read_u32_le(const uint8_t *bytes)
 {
-    gpio_config_t config = {
-        .pin_bit_mask = 1ULL << MICRO_BOOT_BUTTON_GPIO,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&config);
-    s_boot_level_count = 0;
+    uint32_t value = 0;
+    memcpy(&value, bytes, sizeof value);
+    return value;
 }
 
-/* The BOOT button acts as Back. Debounced: requires several consecutive
- * pressed samples before it is reported. */
-static bool micro_boot_button_back_pressed(void)
+/* Parse the metadata section: three put_bytes strings in order id, name, icon. */
+static int micro_app_parse_metadata(const uint8_t *section, uint32_t len,
+                                    micro_app_entry_t *out)
 {
-    bool pressed = gpio_get_level(MICRO_BOOT_BUTTON_GPIO) == 0;
-    if (pressed) {
-        if (s_boot_level_count < MICRO_BOOT_DEBOUNCE_TICKS) {
-            s_boot_level_count++;
+    const uint8_t *cursor = section;
+    const uint8_t *end = section + len;
+    for (int field = 0; field < 3; ++field) {
+        if (cursor + 4 > end) {
+            return -1;
         }
-        return s_boot_level_count >= MICRO_BOOT_DEBOUNCE_TICKS;
+        uint32_t field_len = read_u32_le(cursor);
+        cursor += 4;
+        if (cursor + field_len > end) {
+            return -1;
+        }
+        char *target = field == 0 ? out->id : (field == 1 ? out->name : out->icon);
+        size_t capacity = field == 2 ? sizeof out->icon : sizeof out->name;
+        size_t room = field_len < capacity - 1 ? field_len : capacity - 1;
+        memcpy(target, cursor, room);
+        target[room] = '\0';
+        cursor += field_len;
     }
-    s_boot_level_count = 0;
-    return false;
+    return 0;
 }
 
-static void micro_shell_render(void)
+static int micro_app_scan_metadata(const uint8_t *mbc, micro_app_entry_t *out)
 {
-    if (s_shell_settings) {
-        micro_system_ui_show_settings(s_wifi_state, s_wifi_ssid, s_backlight);
-    } else {
-        micro_system_ui_show_launcher(s_wifi_state, s_wifi_ssid, s_backlight);
+    uint32_t payload_len = read_u32_le(mbc + 6);
+    const uint8_t *cursor = mbc + MICRO_MBC_HEADER_SIZE;
+    const uint8_t *end = cursor + payload_len;
+    while (cursor + MICRO_MBC_SECTION_HEADER_SIZE <= end) {
+        uint8_t tag = cursor[0];
+        uint32_t section_len = read_u32_le(cursor + 1);
+        const uint8_t *section = cursor + MICRO_MBC_SECTION_HEADER_SIZE;
+        if (section + section_len > end) {
+            return -1;
+        }
+        if (tag == MICRO_MBC_SECTION_METADATA) {
+            return micro_app_parse_metadata(section, section_len, out);
+        }
+        cursor = section + section_len;
     }
+    return -1;
 }
 
-static void micro_wifi_set_state(const char *state, const char *ssid)
+/* Walk the consecutive MBCs in the micro_app partition (each is self-describing:
+ * 14 + payload_len bytes). Index 0 is the shell; the rest are installed apps. */
+static void micro_app_scan(void)
 {
-    if (state != NULL) {
-        snprintf(s_wifi_state, sizeof s_wifi_state, "%s", state);
+    s_partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+                                           ESP_PARTITION_SUBTYPE_ANY,
+                                           MICRO_APP_PARTITION_LABEL);
+    if (s_partition == NULL) {
+        ESP_LOGE(TAG, "micro_app partition not found in partition table");
+        return;
     }
-    if (ssid != NULL) {
-        snprintf(s_wifi_ssid, sizeof s_wifi_ssid, "%s", ssid);
+    s_app_count = 0;
+    uint32_t offset = 0;
+    while (s_app_count < MICRO_APPS_MAX) {
+        uint8_t header[MICRO_MBC_HEADER_SIZE] = {0};
+        if (esp_partition_read(s_partition, offset, header, sizeof header) != ESP_OK) {
+            break;
+        }
+        if (memcmp(header, "MBC1", 4U) != 0) {
+            break;
+        }
+        uint32_t payload_len = read_u32_le(header + 6);
+        uint32_t total = MICRO_MBC_HEADER_SIZE + payload_len;
+        if (total < MICRO_MBC_HEADER_SIZE ||
+            (uint64_t)offset + total > s_partition->size) {
+            break;
+        }
+        uint8_t *mbc = heap_caps_malloc(total, MALLOC_CAP_SPIRAM);
+        if (mbc == NULL) {
+            ESP_LOGE(TAG, "failed to allocate %" PRIu32 " bytes for MBC scan", total);
+            break;
+        }
+        if (esp_partition_read(s_partition, offset, mbc, total) != ESP_OK) {
+            heap_caps_free(mbc);
+            break;
+        }
+        micro_app_entry_t *entry = &s_apps[s_app_count];
+        memset(entry, 0, sizeof *entry);
+        entry->offset = offset;
+        entry->len = total;
+        if (micro_app_scan_metadata(mbc, entry) != 0) {
+            snprintf(entry->id, sizeof entry->id, "app%" PRIu32, s_app_count);
+            snprintf(entry->name, sizeof entry->name, "App %" PRIu32, s_app_count);
+            entry->icon[0] = (char)('A' + s_app_count % 26);
+        }
+        heap_caps_free(mbc);
+        ESP_LOGI(TAG, "scanned MBC[%u] %s (%s) @ 0x%" PRIx32 " (%" PRIu32 " B)",
+                 s_app_count, entry->id, entry->name, offset, total);
+        offset += total;
+        s_app_count += 1;
     }
-    micro_esp_host_set_wifi_state(s_wifi_state, s_wifi_ssid);
+
+    /* The host app registry indexes the installable apps (skips the shell at
+     * partition index 0), so os.appName(0) is the first installed app. */
+    uint32_t host_count = s_app_count > 0 ? s_app_count - 1 : 0;
+    micro_esp_host_set_app_count(host_count);
+    for (uint32_t i = 1; i < s_app_count; ++i) {
+        micro_esp_host_set_app_entry(i - 1, s_apps[i].name, s_apps[i].icon);
+    }
+    ESP_LOGI(TAG, "scanned %" PRIu32 " MBC(s); %" PRIu32 " installable app(s)",
+             s_app_count, host_count);
 }
 
-static void micro_wifi_begin_connect(const char *ssid)
+static int micro_runtime_boot_index(uint32_t registry_index)
 {
-    micro_wifi_set_state("connecting", ssid);
-    s_wifi_connecting = true;
-    s_wifi_connect_ticks = 0;
-    if (s_shell_visible) {
-        micro_shell_render();
+    if (registry_index >= s_app_count || s_app_count == 0) {
+        ESP_LOGE(TAG, "boot index %" PRIu32 " out of range", registry_index);
+        return -1;
     }
+    if (s_runtime != NULL) {
+        micro_runtime_destroy(s_runtime);
+        s_runtime = NULL;
+    }
+    const micro_app_entry_t *entry = &s_apps[registry_index];
+    uint8_t *mbc = heap_caps_malloc(entry->len, MALLOC_CAP_SPIRAM);
+    if (mbc == NULL) {
+        ESP_LOGE(TAG, "failed to allocate %" PRIu32 " bytes for %s", entry->len,
+                 entry->id);
+        return -1;
+    }
+    esp_err_t result = esp_partition_read(s_partition, entry->offset, mbc, entry->len);
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "failed to read MBC %s: %s", entry->id, esp_err_to_name(result));
+        heap_caps_free(mbc);
+        return -1;
+    }
+    micro_runtime_t *runtime = micro_runtime_create(
+        mbc, entry->len, MICRO_RUNTIME_EVENT_BUDGET, s_runtime_error,
+        sizeof s_runtime_error);
+    heap_caps_free(mbc);
+    if (runtime == NULL) {
+        ESP_LOGE(TAG, "micro_runtime_create failed: %s", s_runtime_error);
+        return -1;
+    }
+    s_runtime = runtime;
+    s_is_shell = (registry_index == 0);
+    ESP_LOGI(TAG, "%s runtime created: %s", s_is_shell ? "shell" : "app", entry->id);
+    return 0;
+}
+
+static int micro_runtime_boot_shell(void)
+{
+    return micro_runtime_boot_index(0);
+}
+
+static int micro_runtime_boot_app(uint32_t host_index)
+{
+    return micro_runtime_boot_index(host_index + 1);
 }
 
 static void micro_backlight_apply(uint32_t level)
@@ -128,6 +246,8 @@ static void micro_backlight_apply(uint32_t level)
     micro_esp_host_mirror_backlight(s_backlight);
     micro_bsp_backlight_set(&s_display, s_backlight > 1);
 }
+
+/* --- OS reducer (boot chain + reboot; runtime switching is direct) --- */
 
 static void os_dispatch_event(const micro_event_t *event)
 {
@@ -163,195 +283,26 @@ static size_t micro_os_apply_batch(const micro_action_t *actions, size_t count)
     return 1;
 }
 
-static int micro_app_load(uint8_t **out_buffer, size_t *out_size)
-{
-    const esp_partition_t *partition = esp_partition_find_first(
-        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, MICRO_APP_PARTITION_LABEL);
-    if (partition == NULL) {
-        ESP_LOGE(TAG, "micro_app partition not found in partition table");
-        return -1;
-    }
-
-    uint8_t header[MICRO_MBC_HEADER_SIZE] = {0};
-    esp_err_t result = esp_partition_read(partition, 0, header, sizeof header);
-    if (result != ESP_OK) {
-        ESP_LOGE(TAG, "failed to read MBC header: %s", esp_err_to_name(result));
-        return -1;
-    }
-    if (memcmp(header, "MBC1", 4U) != 0) {
-        ESP_LOGE(TAG, "no MBC1 magic in micro_app partition");
-        return -1;
-    }
-    uint32_t payload_length = 0U;
-    memcpy(&payload_length, header + 6U, sizeof payload_length);
-    const uint64_t total_size = (uint64_t)MICRO_MBC_HEADER_SIZE + payload_length;
-    if (total_size > partition->size || total_size > UINT32_MAX) {
-        ESP_LOGE(TAG, "MBC payload length %" PRIu32 " exceeds partition size",
-                 payload_length);
-        return -1;
-    }
-    uint8_t *buffer = heap_caps_malloc((size_t)total_size, MALLOC_CAP_SPIRAM);
-    if (buffer == NULL) {
-        ESP_LOGE(TAG, "failed to allocate %" PRIu64 " bytes in PSRAM for MBC",
-                 total_size);
-        return -1;
-    }
-    result = esp_partition_read(partition, 0, buffer, (size_t)total_size);
-    if (result != ESP_OK) {
-        ESP_LOGE(TAG, "failed to read MBC body: %s", esp_err_to_name(result));
-        heap_caps_free(buffer);
-        return -1;
-    }
-    ESP_LOGI(TAG, "loaded MBC: %" PRIu64 " bytes from micro_app partition",
-             total_size);
-    *out_buffer = buffer;
-    *out_size = (size_t)total_size;
-    return 0;
-}
-
-static void micro_os_start_app(uint32_t session)
-{
-    if (s_app_running) {
-        return;
-    }
-    uint8_t *mbc = NULL;
-    size_t mbc_size = 0;
-    if (micro_app_load(&mbc, &mbc_size) != 0) {
-        micro_event_t event = {0};
-        event.kind = MICRO_EVENT_APP_FAILED;
-        event.session_id = session;
-        event.failure = MICRO_FAILURE_INTERNAL;
-        os_dispatch_event(&event);
-        return;
-    }
-    micro_runtime_t *runtime = micro_runtime_create(
-        mbc, mbc_size, MICRO_RUNTIME_EVENT_BUDGET, s_runtime_error,
-        sizeof s_runtime_error);
-    heap_caps_free(mbc);
-    if (runtime == NULL) {
-        ESP_LOGE(TAG, "micro_runtime_create failed: %s", s_runtime_error);
-        micro_event_t event = {0};
-        event.kind = MICRO_EVENT_APP_FAILED;
-        event.session_id = session;
-        event.failure = MICRO_FAILURE_APP_CRASHED;
-        os_dispatch_event(&event);
-        return;
-    }
-    s_app_runtime = runtime;
-    s_app_session = session;
-    s_app_running = true;
-    micro_system_ui_hide();
-    s_shell_visible = false;
-
-    /* AppStarted/AppStopped/AppFailed carry only session_id (and failure);
-     * the app field must stay Unused (validate_canonical). */
-    micro_event_t event = {0};
-    event.kind = MICRO_EVENT_APP_STARTED;
-    event.session_id = session;
-    os_dispatch_event(&event);
-    ESP_LOGI(TAG, "micro runtime created; app session %" PRIu32, (uint32_t)session);
-}
-
-static void micro_os_stop_app(uint32_t session)
-{
-    if (!s_app_running) {
-        return;
-    }
-    micro_runtime_destroy(s_app_runtime);
-    s_app_runtime = NULL;
-    s_app_running = false;
-
-    micro_event_t event = {0};
-    event.kind = MICRO_EVENT_APP_STOPPED;
-    event.session_id = session;
-    os_dispatch_event(&event);
-}
-
 static void micro_os_apply_action(const micro_action_t *action)
 {
     switch (action->kind) {
-    case MICRO_ACTION_SHOW_LAUNCHER:
-        s_shell_visible = true;
-        s_shell_settings = false;
-        micro_shell_render();
-        break;
-    case MICRO_ACTION_SHOW_SETTINGS:
-        s_shell_visible = true;
-        s_shell_settings = true;
-        micro_shell_render();
-        break;
     case MICRO_ACTION_SHOW_APP_ERROR:
-        ESP_LOGW(TAG, "app error page (reason=%d); returning to launcher",
+        ESP_LOGW(TAG, "app error page (reason=%d); returning to shell",
                  (int)action->failure);
-        s_shell_visible = true;
-        s_shell_settings = false;
-        micro_shell_render();
-        break;
-    case MICRO_ACTION_START_APP:
-        micro_os_start_app(action->session_id);
-        break;
-    case MICRO_ACTION_STOP_APP:
-        micro_os_stop_app(action->session_id);
-        break;
-    case MICRO_ACTION_APPLY_BACKLIGHT:
-        micro_backlight_apply((uint32_t)action->backlight);
-        if (s_shell_visible) {
-            micro_shell_render();
-        }
+        micro_runtime_boot_shell();
         break;
     case MICRO_ACTION_REBOOT:
         ESP_LOGW(TAG, "reboot requested");
         esp_restart();
         break;
     default:
-        /* No-op: the demo simulates Wi-Fi directly in the shell; the reducer's
-         * Wi-Fi actions (scan/connect/persist) are not driven on-device. */
+        /* The shell MBC owns all OS UI; the reducer's launcher/settings/Wi-Fi
+         * actions are not driven on-device. */
         break;
     }
 }
 
-static void micro_os_handle_tap(micro_system_ui_tap_t tap)
-{
-    switch (tap) {
-    case MICRO_SYSTEM_UI_TAP_OPEN_COUNTER: {
-        micro_event_t event = {0};
-        event.kind = MICRO_EVENT_OPEN_APP;
-        event.app = MICRO_APP_COUNTER;
-        os_dispatch_event(&event);
-        break;
-    }
-    case MICRO_SYSTEM_UI_TAP_OPEN_SETTINGS: {
-        micro_event_t event = {0};
-        event.kind = MICRO_EVENT_OPEN_SETTINGS;
-        os_dispatch_event(&event);
-        break;
-    }
-    case MICRO_SYSTEM_UI_TAP_BACK: {
-        micro_event_t event = {0};
-        event.kind = MICRO_EVENT_BACK_PRESSED;
-        os_dispatch_event(&event);
-        break;
-    }
-    case MICRO_SYSTEM_UI_TAP_BACKLIGHT_TOGGLE:
-        micro_backlight_apply(s_backlight > 1 ? 1 : 4);
-        if (s_shell_visible) {
-            micro_shell_render();
-        }
-        break;
-    case MICRO_SYSTEM_UI_TAP_WIFI_CONNECT:
-        micro_wifi_begin_connect("micro-demo");
-        break;
-    case MICRO_SYSTEM_UI_TAP_WIFI_DISCONNECT:
-        s_wifi_connecting = false;
-        micro_wifi_set_state("off", "");
-        if (s_shell_visible) {
-            micro_shell_render();
-        }
-        break;
-    default:
-        break;
-    }
-}
+/* --- host-intent drain (app → kernel via micro_esp_host pending intents) --- */
 
 static void micro_os_drain_host_intents(void)
 {
@@ -363,47 +314,75 @@ static void micro_os_drain_host_intents(void)
     char pass[65] = {0};
     if (micro_esp_host_take_wifi_connect(ssid, sizeof ssid, pass, sizeof pass)) {
         ESP_LOGI(TAG, "app requested Wi-Fi connect to %s", ssid);
-        micro_wifi_begin_connect(ssid);
+        micro_wifi_connect(ssid, pass);
     }
     if (micro_esp_host_take_wifi_disconnect()) {
-        s_wifi_connecting = false;
-        micro_wifi_set_state("off", "");
+        ESP_LOGI(TAG, "app requested Wi-Fi disconnect");
+        micro_wifi_disconnect();
     }
+    uint32_t launch = 0;
+    if (micro_esp_host_take_launch_index(&launch)) {
+        ESP_LOGI(TAG, "shell requested launch of app index %" PRIu32, launch);
+        if (s_is_shell) {
+            micro_runtime_boot_app(launch);
+        }
+    }
+    if (micro_esp_host_take_back()) {
+        ESP_LOGI(TAG, "app requested goBack");
+        if (!s_is_shell) {
+            micro_runtime_boot_shell();
+        }
+    }
+}
+
+/* --- BOOT button (acts as Back) --- */
+
+static void micro_boot_button_init(void)
+{
+    gpio_config_t config = {
+        .pin_bit_mask = 1ULL << MICRO_BOOT_BUTTON_GPIO,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&config);
+    s_boot_level_count = 0;
+}
+
+static bool micro_boot_button_back_pressed(void)
+{
+    bool pressed = gpio_get_level(MICRO_BOOT_BUTTON_GPIO) == 0;
+    if (pressed) {
+        if (s_boot_level_count < MICRO_BOOT_DEBOUNCE_TICKS) {
+            s_boot_level_count++;
+        }
+        return s_boot_level_count >= MICRO_BOOT_DEBOUNCE_TICKS;
+    }
+    s_boot_level_count = 0;
+    return false;
 }
 
 static void micro_os_tick_cb(lv_timer_t *timer)
 {
     (void)timer;
 
-    micro_system_ui_tap_t tap;
-    while ((tap = micro_system_ui_take_tap()) != MICRO_SYSTEM_UI_TAP_NONE) {
-        micro_os_handle_tap(tap);
-    }
     micro_os_drain_host_intents();
 
     if (micro_boot_button_back_pressed()) {
-        micro_event_t event = {0};
-        event.kind = MICRO_EVENT_BACK_PRESSED;
-        os_dispatch_event(&event);
-    }
-
-    if (s_wifi_connecting) {
-        if (++s_wifi_connect_ticks >= MICRO_WIFI_CONNECT_STEP_TICKS) {
-            s_wifi_connecting = false;
-            micro_wifi_set_state("connected", s_wifi_ssid[0] != '\0' ? s_wifi_ssid : "micro-demo");
-            if (s_shell_visible) {
-                micro_shell_render();
-            }
+        if (!s_is_shell) {
+            ESP_LOGI(TAG, "BOOT back: returning to shell");
+            micro_runtime_boot_shell();
         }
     }
 
-    if (s_app_running && s_app_runtime != NULL) {
-        micro_error_t result = micro_runtime_tick(s_app_runtime, s_runtime_error,
+    if (s_runtime != NULL) {
+        micro_error_t result = micro_runtime_tick(s_runtime, s_runtime_error,
                                                   sizeof s_runtime_error);
         if (result != MICRO_OK) {
-            ESP_LOGE(TAG, "app runtime tick failed: code=%d message=%s",
+            ESP_LOGE(TAG, "runtime tick failed: code=%d message=%s",
                      (int)result, s_runtime_error);
-            micro_os_stop_app(s_app_session);
+            micro_runtime_boot_shell();
         }
     }
 }
@@ -475,6 +454,10 @@ void app_main(void)
     micro_boot_button_init();
     micro_backlight_apply(3);
 
+    /* Bring up the STA radio (default NVS, netif, event loop). A network
+     * persisted by a previous connect auto-reconnects from this point. */
+    micro_wifi_init();
+
     s_os = micro_os_create();
     if (s_os == NULL) {
         ESP_LOGE(TAG, "micro_os_create failed");
@@ -496,13 +479,12 @@ void app_main(void)
         os_dispatch_event(&boot_events[i]);
     }
 
-    /* TEMP-HEADLESS-TEST: auto-open the Counter app so the full app lifecycle
-     * (load MBC, create runtime, host calls, AppRunning) can be verified over
-     * the serial log without touching the screen. REMOVE AFTER TESTING. */
-    micro_event_t auto_open = {0};
-    auto_open.kind = MICRO_EVENT_OPEN_APP;
-    auto_open.app = MICRO_APP_COUNTER;
-    os_dispatch_event(&auto_open);
+    /* Scan the app partition and boot the shell MBC (index 0). */
+    micro_app_scan();
+    if (micro_runtime_boot_shell() != 0) {
+        ESP_LOGE(TAG, "failed to boot the OS shell; aborting");
+        abort();
+    }
 
     ESP_LOGI(TAG, "OS shell ready; ticking every %u ms",
              (unsigned)MICRO_RUNTIME_TICK_PERIOD_MS);

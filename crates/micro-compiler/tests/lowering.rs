@@ -173,6 +173,33 @@ ui.mount(ui.button("Run", { onClick: () => {
 }
 
 #[test]
+fn lowers_app_manifest_into_metadata() {
+    let image = compile_source(
+        "meta.ts",
+        r#"
+app({ id: "counter", name: "Counter", icon: "C" });
+const count = state(0);
+ui.mount(ui.column([ui.text(bind(() => count.value))]));
+"#,
+    )
+    .unwrap();
+    assert_eq!(image.metadata.id, "counter");
+    assert_eq!(image.metadata.name, "Counter");
+    assert_eq!(image.metadata.icon, "C");
+
+    // Without an app() call the manifest falls back to a default.
+    let fallback = compile_source(
+        "plain.ts",
+        r#"
+const count = state(0);
+ui.mount(ui.column([ui.text(bind(() => count.value))]));
+"#,
+    )
+    .unwrap();
+    assert_eq!(fallback.metadata.name, "App");
+}
+
+#[test]
 fn lowers_host_calls_into_requests_and_instructions() {
     let source = r#"
 const list = state("");
@@ -237,6 +264,60 @@ ui.mount(ui.column([
         })
         .count();
     assert!(host_callers >= 3);
+}
+
+#[test]
+fn lowers_os_calls_into_requests() {
+    let source = r#"
+const app0 = state("");
+ui.mount(ui.column([
+  ui.text(bind(() => os.appName(0))),
+  ui.button(bind(() => os.appIcon(0)), { onClick: () => { os.launchIndex(0); } }),
+  ui.button("back", { onClick: () => { os.goBack(); } }),
+  ui.button("poll", { onClick: () => { os.delay(500, (s) => { app0.value = s; }); } }),
+]));
+"#;
+    let image = compile_source("os.ts", source).unwrap();
+
+    use micro_ir::HostCallKind;
+    let kinds: Vec<_> = image.host_requests.iter().map(|r| r.kind).collect();
+    assert!(kinds.contains(&HostCallKind::OsAppName));
+    assert!(kinds.contains(&HostCallKind::OsAppIcon));
+    assert!(kinds.contains(&HostCallKind::OsLaunchIndex));
+    assert!(kinds.contains(&HostCallKind::OsGoBack));
+    assert!(kinds.contains(&HostCallKind::OsDelay));
+
+    let app_name = image
+        .host_requests
+        .iter()
+        .find(|r| r.kind == HostCallKind::OsAppName)
+        .unwrap();
+    assert_eq!(app_name.arg_kinds, [ScalarType::Number]);
+    assert_eq!(app_name.result_kind, Some(ScalarType::String));
+
+    let launch = image
+        .host_requests
+        .iter()
+        .find(|r| r.kind == HostCallKind::OsLaunchIndex)
+        .unwrap();
+    assert_eq!(launch.arg_kinds, [ScalarType::Number]);
+    assert_eq!(launch.result_kind, None);
+
+    let delay = image
+        .host_requests
+        .iter()
+        .find(|r| r.kind == HostCallKind::OsDelay)
+        .unwrap();
+    assert_eq!(delay.arg_kinds, [ScalarType::Number]);
+    assert!(delay.callback.is_some());
+
+    // os.appIcon(0) inside a ui.button label lowers to a Binding text source.
+    let button = image
+        .nodes
+        .iter()
+        .find(|node| matches!(node.kind, UiKind::Button))
+        .unwrap();
+    assert!(matches!(button.text, Some(TextSource::Binding(_))));
 }
 
 #[test]

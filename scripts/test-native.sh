@@ -26,12 +26,16 @@ step "Build native host (LVGL + SDL3)"
 cargo build -p micro-host-sdl --features native
 
 step "Headless smoke test (Counter -> state 2)"
-cargo run -q -p micro-host-sdl --features native -- --smoke apps/counter/dist/app.mbc
+cargo run -q -p micro-host-sdl --features native -- --smoke apps/counter/dist/counter.mbc
 echo "  smoke OK"
+
+step "Headless OS-shell smoke (shell -> app -> shell)"
+cargo run -q -p micro-host-sdl --features native -- --os-smoke apps/shell/dist/shell.mbc apps/counter/dist/counter.mbc
+echo "  OS smoke OK"
 
 if "$only_smoke"; then
   echo "  --smoke: skipped the demo window."
 else
-  step "Launching demo window (480x320) — close it to exit"
-  cargo run -q -p micro-host-sdl --features native -- apps/counter/dist/app.mbc
+  step "Launching OS shell window (480x320) — close it to exit"
+  cargo run -q -p micro-host-sdl --features native -- --os apps/shell/dist/shell.mbc apps/counter/dist/counter.mbc
 fi

@@ -1,16 +1,17 @@
 use std::fmt;
 
 use crate::{
-    AnchorSpec, AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId,
-    FunctionKind, HandlerId, HostCallKind, HostRequest, Instruction, LayoutSpec, NodeId,
-    ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind, UiNodeSpec, ValidationError,
-    ValueSource, validate,
+    AnchorSpec, AppImage, AppMetadata, BindingId, Constant, FontFamily, FontWeight, Function,
+    FunctionId, FunctionKind, HandlerId, HostCallKind, HostRequest, Instruction, LayoutSpec,
+    NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind, UiNodeSpec,
+    ValidationError, ValueSource, validate,
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
-/// MBC v16 adds the `host_requests` section and the `HostCall` instruction
+/// MBC v17 adds the `metadata` section (app manifest: id/name/icon).
+/// MBC v16 added the `host_requests` section and the `HostCall` instruction
 /// (v15 split the per-node layout into ltwh base geometry + anchor edges).
-const VERSION: u16 = 16;
+const VERSION: u16 = 17;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,6 +63,7 @@ pub fn encode(image: &AppImage) -> Result<Vec<u8>, EncodeError> {
     write_section(&mut payload, 3, encode_functions(&image.functions)?)?;
     write_section(&mut payload, 4, encode_ui(&image.nodes, image.root)?)?;
     write_section(&mut payload, 5, encode_host_requests(&image.host_requests)?)?;
+    write_section(&mut payload, 6, encode_metadata(&image.metadata)?)?;
     let payload_len = u32::try_from(payload.len()).map_err(|_| EncodeError::TooLarge)?;
 
     let mut bytes = Vec::with_capacity(HEADER_LEN + payload.len());
@@ -100,6 +102,7 @@ pub fn decode(bytes: &[u8]) -> Result<AppImage, DecodeError> {
     let functions = decode_functions(&mut section(&mut reader, 3)?)?;
     let (nodes, root) = decode_ui(&mut section(&mut reader, 4)?)?;
     let host_requests = decode_host_requests(&mut section(&mut reader, 5)?)?;
+    let metadata = decode_metadata(&mut section(&mut reader, 6)?)?;
     reader.finish()?;
     let image = AppImage {
         constants,
@@ -107,6 +110,7 @@ pub fn decode(bytes: &[u8]) -> Result<AppImage, DecodeError> {
         functions,
         nodes,
         host_requests,
+        metadata,
         root,
     };
     validate(&image)?;
@@ -663,6 +667,28 @@ fn decode_host_requests(reader: &mut Reader<'_>) -> Result<Vec<HostRequest>, Dec
     Ok(requests)
 }
 
+fn encode_metadata(metadata: &AppMetadata) -> Result<Vec<u8>, EncodeError> {
+    let mut out = Vec::new();
+    put_bytes(&mut out, metadata.id.as_bytes())?;
+    put_bytes(&mut out, metadata.name.as_bytes())?;
+    put_bytes(&mut out, metadata.icon.as_bytes())?;
+    Ok(out)
+}
+
+fn decode_metadata(reader: &mut Reader<'_>) -> Result<AppMetadata, DecodeError> {
+    let id = std::str::from_utf8(reader.bytes()?)
+        .map_err(|_| DecodeError::InvalidUtf8)?
+        .to_owned();
+    let name = std::str::from_utf8(reader.bytes()?)
+        .map_err(|_| DecodeError::InvalidUtf8)?
+        .to_owned();
+    let icon = std::str::from_utf8(reader.bytes()?)
+        .map_err(|_| DecodeError::InvalidUtf8)?
+        .to_owned();
+    reader.finish()?;
+    Ok(AppMetadata { id, name, icon })
+}
+
 fn host_call_kind_tag(kind: HostCallKind) -> u8 {
     match kind {
         HostCallKind::DeviceName => 0,
@@ -678,6 +704,11 @@ fn host_call_kind_tag(kind: HostCallKind) -> u8 {
         HostCallKind::NetWifiDisconnect => 10,
         HostCallKind::NetScanWifi => 11,
         HostCallKind::NetHttpGet => 12,
+        HostCallKind::OsAppName => 13,
+        HostCallKind::OsAppIcon => 14,
+        HostCallKind::OsLaunchIndex => 15,
+        HostCallKind::OsGoBack => 16,
+        HostCallKind::OsDelay => 17,
     }
 }
 
@@ -696,6 +727,11 @@ fn decode_host_call_kind(tag: u8) -> Result<HostCallKind, DecodeError> {
         10 => Ok(HostCallKind::NetWifiDisconnect),
         11 => Ok(HostCallKind::NetScanWifi),
         12 => Ok(HostCallKind::NetHttpGet),
+        13 => Ok(HostCallKind::OsAppName),
+        14 => Ok(HostCallKind::OsAppIcon),
+        15 => Ok(HostCallKind::OsLaunchIndex),
+        16 => Ok(HostCallKind::OsGoBack),
+        17 => Ok(HostCallKind::OsDelay),
         tag => Err(DecodeError::InvalidTag {
             section: "host call kind",
             tag,

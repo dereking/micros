@@ -2,8 +2,10 @@
 # https://github.com/esp-rs/esp-idf-template/tree/08115a069d167a5ee37363e84f168a565f17bbca/cmake/components
 set(RUST_DEPS "pthread" "newlib" "lvgl__lvgl" "espressif__esp_lvgl_port")
 
-# micro_esp_host.c reads real IDF values (Flash/PSRAM size, reset reason).
-set(ESP_HOST_DEPS "esp_psram" "esp_system" "spi_flash")
+# micro_esp_host.c reads real IDF values (Flash/PSRAM size, reset reason), the
+# uptime clock (esp_timer) that drives os.delay, and the real Wi-Fi state /
+# scan results through the micro_wifi component.
+set(ESP_HOST_DEPS "esp_psram" "esp_system" "spi_flash" "esp_timer" "micro_wifi")
 
 # pinyin_table.h is generated from assets/fonts/ui-sans-common.txt and consumed
 # by the on-screen IME in placeholder.c.

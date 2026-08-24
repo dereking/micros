@@ -2,13 +2,14 @@
 //!
 //! Device reads call the `micro_esp_host_*` C exports in
 //! `micro_runtime_ffi/micro_esp_host.c`, which read real IDF values
-//! (`esp_flash_get_size`, `esp_psram_get_size`, `esp_reset_reason`) and plain
-//! C globals mirrored by the OS shell (`main.c`). Wi-Fi connect/disconnect set
-//! pending intents that the OS shell drains into the reducer on its next tick.
+//! (`esp_flash_get_size`, `esp_psram_get_size`, `esp_reset_reason`) and a plain
+//! C backlight global mirrored by `main.c`. Wi-Fi state/SSID/scan read the real
+//! STA radio through the `micro_wifi` component; connect/disconnect set pending
+//! intents that `main.c` drains into the radio on its next tick.
 //!
-//! Async requests (`net.scanWifi` / `net.httpGet`) complete one platform tick
-//! later with a simulated result: the demo does not wire a real radio or HTTP
-//! client, so the OS shell's Wi-Fi state is what `net.*` reports.
+//! `net.scanWifi` is genuinely async: it starts a real radio scan and the
+//! callback fires via `drain_results` once `WIFI_EVENT_SCAN_DONE` completes it.
+//! `net.httpGet` stays simulated (no HTTP client is wired).
 
 use std::ffi::c_int;
 
@@ -34,12 +35,32 @@ unsafe extern "C" {
         pass_len: usize,
     ) -> c_int;
     fn micro_esp_host_wifi_disconnect() -> c_int;
+    fn micro_esp_host_scan_start() -> c_int;
+    fn micro_esp_host_take_scan_result(buf: *mut u8, cap: usize) -> c_int;
+    fn micro_esp_host_app_name(index: u32, buf: *mut u8, cap: usize) -> c_int;
+    fn micro_esp_host_app_icon(index: u32, buf: *mut u8, cap: usize) -> c_int;
+    fn micro_esp_host_set_launch_index(index: u32);
+    fn micro_esp_host_set_back_intent();
+    fn micro_esp_host_uptime_ms() -> u32;
 }
 
 /// Reads a NUL-terminated string produced by a `micro_esp_host_*` export.
 fn read_c_string(read: unsafe extern "C" fn(*mut u8, usize) -> c_int) -> String {
     let mut buffer = [0_u8; 128];
     if unsafe { read(buffer.as_mut_ptr(), buffer.len()) } != 0 {
+        return String::new();
+    }
+    let len = buffer.iter().position(|&byte| byte == 0).unwrap_or(buffer.len());
+    String::from_utf8_lossy(&buffer[..len]).into_owned()
+}
+
+/// Reads a NUL-terminated string from an indexed `micro_esp_host_*` export.
+fn read_c_string_arg(
+    read: unsafe extern "C" fn(u32, *mut u8, usize) -> c_int,
+    index: u32,
+) -> String {
+    let mut buffer = [0_u8; 64];
+    if unsafe { read(index, buffer.as_mut_ptr(), buffer.len()) } != 0 {
         return String::new();
     }
     let len = buffer.iter().position(|&byte| byte == 0).unwrap_or(buffer.len());
@@ -53,14 +74,27 @@ fn string_arg(args: &[Value], index: usize) -> String {
     }
 }
 
+fn numeric_arg(args: &[Value], index: usize) -> Option<f64> {
+    match args.get(index) {
+        Some(Value::Number(value)) => Some(*value),
+        _ => None,
+    }
+}
+
 pub struct EspHost {
     pending: Vec<(FunctionId, Value)>,
+    /// `os.delay` callbacks waiting for their deadline (uptime ms).
+    pending_delays: Vec<(u32, FunctionId)>,
+    /// `net.scanWifi` callback waiting for the async radio scan to finish.
+    scan_callback: Option<FunctionId>,
 }
 
 impl EspHost {
     pub fn new() -> Self {
         Self {
             pending: Vec::new(),
+            pending_delays: Vec::new(),
+            scan_callback: None,
         }
     }
 }
@@ -113,10 +147,10 @@ impl HostAccess for EspHost {
                 let callback = request.callback.ok_or_else(|| {
                     VmError::Host("net.scanWifi has no callback".into())
                 })?;
-                self.pending.push((
-                    callback,
-                    Value::String("micro-demo\nguest\nmicro-os (sim)".into()),
-                ));
+                /* Kick the real STA scan; drain_results delivers the AP list
+                 * to the callback once WIFI_EVENT_SCAN_DONE completes it. */
+                unsafe { micro_esp_host_scan_start() };
+                self.scan_callback = Some(callback);
                 None
             }
             NetHttpGet => {
@@ -131,10 +165,61 @@ impl HostAccess for EspHost {
                 ));
                 None
             }
+            OsAppName => {
+                let index = numeric_arg(args, 0).unwrap_or(0.0) as u32;
+                Some(Value::String(read_c_string_arg(micro_esp_host_app_name, index)))
+            }
+            OsAppIcon => {
+                let index = numeric_arg(args, 0).unwrap_or(0.0) as u32;
+                Some(Value::String(read_c_string_arg(micro_esp_host_app_icon, index)))
+            }
+            OsLaunchIndex => {
+                let index = numeric_arg(args, 0).unwrap_or(0.0) as u32;
+                unsafe { micro_esp_host_set_launch_index(index) };
+                None
+            }
+            OsGoBack => {
+                unsafe { micro_esp_host_set_back_intent() };
+                None
+            }
+            OsDelay => {
+                let callback = request
+                    .callback
+                    .ok_or_else(|| VmError::Host("os.delay has no callback".into()))?;
+                let ms = numeric_arg(args, 0).unwrap_or(0.0) as u32;
+                let now = unsafe { micro_esp_host_uptime_ms() };
+                self.pending_delays.push((now.wrapping_add(ms), callback));
+                None
+            }
         })
     }
 
     fn drain_results(&mut self) -> Vec<(FunctionId, Value)> {
-        std::mem::take(&mut self.pending)
+        let mut out = std::mem::take(&mut self.pending);
+        let now = unsafe { micro_esp_host_uptime_ms() };
+        self.pending_delays.retain(|(deadline, callback)| {
+            if now >= *deadline {
+                out.push((*callback, Value::String(String::new())));
+                false
+            } else {
+                true
+            }
+        });
+        if let Some(callback) = self.scan_callback.take() {
+            let mut buffer = [0_u8; 512];
+            let fresh =
+                unsafe { micro_esp_host_take_scan_result(buffer.as_mut_ptr(), buffer.len()) } == 1;
+            if fresh {
+                let len = buffer.iter().position(|&byte| byte == 0).unwrap_or(buffer.len());
+                out.push((
+                    callback,
+                    Value::String(String::from_utf8_lossy(&buffer[..len]).into_owned()),
+                ));
+            } else {
+                /* Scan still running; check again on the next tick. */
+                self.scan_callback = Some(callback);
+            }
+        }
+        out
     }
 }

@@ -1,5 +1,6 @@
 use std::ffi::{CString, c_char, c_int, c_uint, c_void};
 use std::ptr::NonNull;
+use std::rc::Rc;
 
 use micro_ir::{FontFamily, FontWeight, FunctionId, NodeId, TextStyle};
 use micro_lvgl::NativeUi;
@@ -120,8 +121,17 @@ unsafe extern "C" {
     fn micro_native_destroy_app_root(native: *mut c_void) -> c_int;
 }
 
-pub struct NativeBridge {
+/// The underlying `micro_native_t` C handle.
+struct NativeInner {
     raw: NonNull<c_void>,
+}
+
+/// Owns (via `Rc`) the native SDL/LVGL environment. Cheap to clone so the shell
+/// and app runtimes can share one window/display; the C handle is destroyed
+/// when the last clone (including the main-loop copy) drops.
+#[derive(Clone)]
+pub struct NativeBridge {
+    inner: Rc<NativeInner>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -260,40 +270,44 @@ impl NativeBridge {
             let bytes: Vec<u8> = error[..length].iter().map(|byte| *byte as u8).collect();
             String::from_utf8_lossy(&bytes).into_owned()
         })?;
-        Ok(Self { raw })
+        Ok(Self {
+            inner: Rc::new(NativeInner { raw }),
+        })
     }
 
     pub fn as_ptr(&self) -> *mut c_void {
-        self.raw.as_ptr()
+        self.inner.raw.as_ptr()
     }
 
     pub fn poll(&mut self) -> bool {
-        unsafe { micro_native_poll(self.raw.as_ptr()) != 0 }
+        unsafe { micro_native_poll(self.inner.raw.as_ptr()) != 0 }
     }
 
     pub fn timer(&mut self) -> u32 {
-        unsafe { micro_native_timer(self.raw.as_ptr()) }
+        unsafe { micro_native_timer(self.inner.raw.as_ptr()) }
     }
 
     pub fn take_activation(&mut self) -> Option<FunctionId> {
         let mut id = 0;
-        (unsafe { micro_native_take_activation(self.raw.as_ptr(), &mut id) } != 0)
+        (unsafe { micro_native_take_activation(self.inner.raw.as_ptr(), &mut id) } != 0)
             .then_some(FunctionId(id))
     }
 
     pub fn inject_activation(&mut self, id: FunctionId) {
-        unsafe { micro_native_inject_activation(self.raw.as_ptr(), id.0) };
+        unsafe { micro_native_inject_activation(self.inner.raw.as_ptr(), id.0) };
     }
 
     pub fn queue_click(&mut self, node: NodeId) -> Result<(), String> {
         native_result(
-            unsafe { micro_native_queue_click(self.raw.as_ptr(), node.0) },
+            unsafe { micro_native_queue_click(self.inner.raw.as_ptr(), node.0) },
             "queue click",
         )
     }
 }
 
-impl Drop for NativeBridge {
+/// Frees the native SDL/LVGL environment when the last `NativeBridge` clone
+/// drops (Rc calls the inner's `Drop` exactly once, at strong count zero).
+impl Drop for NativeInner {
     fn drop(&mut self) {
         unsafe { micro_native_destroy(self.raw.as_ptr()) };
     }
@@ -306,21 +320,21 @@ impl NativeUi for NativeBridge {
 
     fn create_column(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
         native_result(
-            unsafe { micro_native_create_column(self.raw.as_ptr(), node.0, parent_id(parent)) },
+            unsafe { micro_native_create_column(self.inner.raw.as_ptr(), node.0, parent_id(parent)) },
             "create column",
         )
     }
 
     fn create_row(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
         native_result(
-            unsafe { micro_native_create_row(self.raw.as_ptr(), node.0, parent_id(parent)) },
+            unsafe { micro_native_create_row(self.inner.raw.as_ptr(), node.0, parent_id(parent)) },
             "create row",
         )
     }
 
     fn create_list(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
         native_result(
-            unsafe { micro_native_create_list(self.raw.as_ptr(), node.0, parent_id(parent)) },
+            unsafe { micro_native_create_list(self.inner.raw.as_ptr(), node.0, parent_id(parent)) },
             "create list",
         )
     }
@@ -335,7 +349,7 @@ impl NativeUi for NativeBridge {
         native_result(
             unsafe {
                 micro_native_create_tabview(
-                    self.raw.as_ptr(),
+                    self.inner.raw.as_ptr(),
                     node.0,
                     parent_id(parent),
                     joined.as_ptr(),
@@ -347,7 +361,7 @@ impl NativeUi for NativeBridge {
 
     fn create_tab_content(&mut self, index: u32) -> Result<(), String> {
         native_result(
-            unsafe { micro_native_create_tab_content(self.raw.as_ptr(), index) },
+            unsafe { micro_native_create_tab_content(self.inner.raw.as_ptr(), index) },
             "create tab content",
         )
     }
@@ -360,7 +374,7 @@ impl NativeUi for NativeBridge {
     ) -> Result<(), String> {
         native_result(
             unsafe {
-                micro_native_create_progress(self.raw.as_ptr(), node.0, parent_id(parent), fraction)
+                micro_native_create_progress(self.inner.raw.as_ptr(), node.0, parent_id(parent), fraction)
             },
             "create progress",
         )
@@ -376,7 +390,7 @@ impl NativeUi for NativeBridge {
         native_result(
             unsafe {
                 micro_native_create_switch(
-                    self.raw.as_ptr(),
+                    self.inner.raw.as_ptr(),
                     node.0,
                     parent_id(parent),
                     c_int::from(checked),
@@ -389,7 +403,7 @@ impl NativeUi for NativeBridge {
 
     fn set_progress_value(&mut self, node: NodeId, fraction: f64) -> Result<(), String> {
         native_result(
-            unsafe { micro_native_set_progress_value(self.raw.as_ptr(), node.0, fraction) },
+            unsafe { micro_native_set_progress_value(self.inner.raw.as_ptr(), node.0, fraction) },
             "set progress value",
         )
     }
@@ -397,7 +411,7 @@ impl NativeUi for NativeBridge {
     fn set_switch_checked(&mut self, node: NodeId, checked: bool) -> Result<(), String> {
         native_result(
             unsafe {
-                micro_native_set_switch_checked(self.raw.as_ptr(), node.0, c_int::from(checked))
+                micro_native_set_switch_checked(self.inner.raw.as_ptr(), node.0, c_int::from(checked))
             },
             "set switch checked",
         )
@@ -417,7 +431,7 @@ impl NativeUi for NativeBridge {
             "create label",
             |selected| unsafe {
                 micro_native_create_label(
-                    self.raw.as_ptr(),
+                    self.inner.raw.as_ptr(),
                     node.0,
                     parent_id(parent),
                     text.as_ptr(),
@@ -443,7 +457,7 @@ impl NativeUi for NativeBridge {
             "create button",
             |selected| unsafe {
                 micro_native_create_button(
-                    self.raw.as_ptr(),
+                    self.inner.raw.as_ptr(),
                     node.0,
                     parent_id(parent),
                     text.as_ptr(),
@@ -458,7 +472,7 @@ impl NativeUi for NativeBridge {
     fn set_label_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
         let text = c_string(text)?;
         native_result(
-            unsafe { micro_native_set_label_text(self.raw.as_ptr(), node.0, text.as_ptr()) },
+            unsafe { micro_native_set_label_text(self.inner.raw.as_ptr(), node.0, text.as_ptr()) },
             "set label text",
         )
     }
@@ -480,7 +494,7 @@ impl NativeUi for NativeBridge {
             "create input",
             |selected| unsafe {
                 micro_native_create_input(
-                    self.raw.as_ptr(),
+                    self.inner.raw.as_ptr(),
                     node.0,
                     parent_id(parent),
                     text.as_ptr(),
@@ -496,7 +510,7 @@ impl NativeUi for NativeBridge {
     fn set_input_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
         let text = c_string(text)?;
         native_result(
-            unsafe { micro_native_set_input_text(self.raw.as_ptr(), node.0, text.as_ptr()) },
+            unsafe { micro_native_set_input_text(self.inner.raw.as_ptr(), node.0, text.as_ptr()) },
             "set input text",
         )
     }
@@ -513,7 +527,7 @@ impl NativeUi for NativeBridge {
         native_result(
             unsafe {
                 micro_native_create_slider(
-                    self.raw.as_ptr(),
+                    self.inner.raw.as_ptr(),
                     node.0,
                     parent_id(parent),
                     value,
@@ -528,7 +542,7 @@ impl NativeUi for NativeBridge {
 
     fn set_slider_value(&mut self, node: NodeId, value: f64) -> Result<(), String> {
         native_result(
-            unsafe { micro_native_set_slider_value(self.raw.as_ptr(), node.0, value) },
+            unsafe { micro_native_set_slider_value(self.inner.raw.as_ptr(), node.0, value) },
             "set slider value",
         )
     }
@@ -545,7 +559,7 @@ impl NativeUi for NativeBridge {
         native_result(
             unsafe {
                 micro_native_create_checkbox(
-                    self.raw.as_ptr(),
+                    self.inner.raw.as_ptr(),
                     node.0,
                     parent_id(parent),
                     label.as_ptr(),
@@ -569,7 +583,7 @@ impl NativeUi for NativeBridge {
         native_result(
             unsafe {
                 micro_native_create_dropdown(
-                    self.raw.as_ptr(),
+                    self.inner.raw.as_ptr(),
                     node.0,
                     parent_id(parent),
                     joined.as_ptr(),
@@ -593,7 +607,7 @@ impl NativeUi for NativeBridge {
         native_result(
             unsafe {
                 micro_native_set_layout_spec(
-                    self.raw.as_ptr(),
+                    self.inner.raw.as_ptr(),
                     node.0,
                     mask,
                     layout.left.unwrap_or(0.0),
@@ -615,7 +629,7 @@ impl NativeUi for NativeBridge {
         native_result(
             unsafe {
                 micro_native_apply_delphi_layout(
-                    self.raw.as_ptr(),
+                    self.inner.raw.as_ptr(),
                     container.0,
                     ids.as_ptr(),
                     ids.len() as c_uint,
@@ -627,24 +641,24 @@ impl NativeUi for NativeBridge {
 
     fn create_led(&mut self, node: NodeId, parent: Option<NodeId>, on: bool) -> Result<(), String> {
         native_result(
-            unsafe { micro_native_create_led(self.raw.as_ptr(), node.0, parent_id(parent), c_int::from(on)) },
+            unsafe { micro_native_create_led(self.inner.raw.as_ptr(), node.0, parent_id(parent), c_int::from(on)) },
             "create led",
         )
     }
 
     fn set_led(&mut self, node: NodeId, on: bool) -> Result<(), String> {
-        native_result(unsafe { micro_native_set_led(self.raw.as_ptr(), node.0, c_int::from(on)) }, "set led")
+        native_result(unsafe { micro_native_set_led(self.inner.raw.as_ptr(), node.0, c_int::from(on)) }, "set led")
     }
 
     fn create_spinner(&mut self, node: NodeId, parent: Option<NodeId>, active: bool) -> Result<(), String> {
         native_result(
-            unsafe { micro_native_create_spinner(self.raw.as_ptr(), node.0, parent_id(parent), c_int::from(active)) },
+            unsafe { micro_native_create_spinner(self.inner.raw.as_ptr(), node.0, parent_id(parent), c_int::from(active)) },
             "create spinner",
         )
     }
 
     fn set_spinner(&mut self, node: NodeId, active: bool) -> Result<(), String> {
-        native_result(unsafe { micro_native_set_spinner(self.raw.as_ptr(), node.0, c_int::from(active)) }, "set spinner")
+        native_result(unsafe { micro_native_set_spinner(self.inner.raw.as_ptr(), node.0, c_int::from(active)) }, "set spinner")
     }
 
     fn create_scale(
@@ -656,13 +670,13 @@ impl NativeUi for NativeBridge {
     ) -> Result<(), String> {
         let (min, max) = range.unwrap_or((0.0, 100.0));
         native_result(
-            unsafe { micro_native_create_scale(self.raw.as_ptr(), node.0, parent_id(parent), value, min, max) },
+            unsafe { micro_native_create_scale(self.inner.raw.as_ptr(), node.0, parent_id(parent), value, min, max) },
             "create scale",
         )
     }
 
     fn set_scale_value(&mut self, node: NodeId, value: f64) -> Result<(), String> {
-        native_result(unsafe { micro_native_set_scale_value(self.raw.as_ptr(), node.0, value) }, "set scale value")
+        native_result(unsafe { micro_native_set_scale_value(self.inner.raw.as_ptr(), node.0, value) }, "set scale value")
     }
 
     fn create_roller(
@@ -677,7 +691,7 @@ impl NativeUi for NativeBridge {
         native_result(
             unsafe {
                 micro_native_create_roller(
-                    self.raw.as_ptr(),
+                    self.inner.raw.as_ptr(),
                     node.0,
                     parent_id(parent),
                     joined.as_ptr(),
@@ -691,14 +705,14 @@ impl NativeUi for NativeBridge {
 
     fn set_selection_value(&mut self, node: NodeId, index: f64) -> Result<(), String> {
         native_result(
-            unsafe { micro_native_set_selection_value(self.raw.as_ptr(), node.0, index) },
+            unsafe { micro_native_set_selection_value(self.inner.raw.as_ptr(), node.0, index) },
             "set selection value",
         )
     }
 
     fn destroy_app_root(&mut self) -> Result<(), String> {
         native_result(
-            unsafe { micro_native_destroy_app_root(self.raw.as_ptr()) },
+            unsafe { micro_native_destroy_app_root(self.inner.raw.as_ptr()) },
             "destroy app root",
         )
     }

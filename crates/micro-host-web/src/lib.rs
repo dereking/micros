@@ -109,7 +109,16 @@ mod wasm_host {
 
     use crate::{ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SelectionChangeQueue, SliderChangeQueue};
     use crate::dom::DomBridge;
-    use crate::host::WebHost;
+    use crate::host::{ShellState, WebHost};
+
+    /// Decode an app MBC's manifest as a `name|icon` string for the launcher
+    /// registry (reads the metadata section without running the app).
+    #[wasm_bindgen]
+    pub fn decode_app_metadata(mbc: &[u8]) -> Result<String, JsValue> {
+        let image = decode(mbc)
+            .map_err(|error| js_error("WEB_MBC", &format!("cannot decode MBC: {error}")))?;
+        Ok(format!("{}|{}", image.metadata.name, image.metadata.icon))
+    }
 
     #[wasm_bindgen]
     pub struct MicroWebRuntime {
@@ -119,6 +128,8 @@ mod wasm_host {
         slider_changes: SliderChangeQueue,
         checkbox_changes: CheckboxChangeQueue,
         selection_changes: SelectionChangeQueue,
+        /// Shared OS-shell state: app registry + pending launch/back intents.
+        nav: std::rc::Rc<std::cell::RefCell<ShellState>>,
     }
 
     #[wasm_bindgen]
@@ -128,6 +139,7 @@ mod wasm_host {
             container_id: &str,
             mbc: &[u8],
             event_budget: u64,
+            apps: &str,
         ) -> Result<MicroWebRuntime, JsValue> {
             let window = web_sys::window()
                 .ok_or_else(|| js_error("WEB_CONTAINER", "window is unavailable"))?;
@@ -157,15 +169,20 @@ mod wasm_host {
                 selection_changes.clone(),
             );
             let renderer = WebRenderer::new(bridge);
-            let runtime = Runtime::new_with_host(
-                image,
-                renderer,
-                event_budget,
-                Box::new(WebHost::new()),
-            )
-            .map_err(|error| {
-                js_error("WEB_RUNTIME", &format!("cannot create Runtime: {error}"))
-            })?;
+            // The app registry must be present before the initial binding loop
+            // materializes (the shell's os.appName/Icon bindings read it).
+            let nav = std::rc::Rc::new(std::cell::RefCell::new(ShellState::default()));
+            nav.borrow_mut().apps = apps
+                .lines()
+                .filter_map(|line| line.split_once('|'))
+                .map(|(name, icon)| (name.to_owned(), icon.to_owned()))
+                .collect();
+            let mut host = WebHost::new();
+            host.nav = nav.clone();
+            let runtime = Runtime::new_with_host(image, renderer, event_budget, Box::new(host))
+                .map_err(|error| {
+                    js_error("WEB_RUNTIME", &format!("cannot create Runtime: {error}"))
+                })?;
             Ok(Self {
                 runtime,
                 activations,
@@ -173,7 +190,33 @@ mod wasm_host {
                 slider_changes,
                 checkbox_changes,
                 selection_changes,
+                nav,
             })
+        }
+
+        /// Set the installed-app registry: `\n`-joined `name|icon` lines.
+        pub fn set_apps(&mut self, apps: &str) {
+            self.nav.borrow_mut().apps = apps
+                .lines()
+                .filter_map(|line| line.split_once('|'))
+                .map(|(name, icon)| (name.to_owned(), icon.to_owned()))
+                .collect();
+        }
+
+        /// Drain the pending `os.launchIndex(i)` request, or -1 when none.
+        pub fn take_nav_launch(&mut self) -> i32 {
+            match self.nav.borrow_mut().pending_launch.take() {
+                Some(index) => index as i32,
+                None => -1,
+            }
+        }
+
+        /// Drain the pending `os.goBack` request.
+        pub fn take_nav_back(&mut self) -> bool {
+            let mut nav = self.nav.borrow_mut();
+            let pending = nav.pending_back;
+            nav.pending_back = false;
+            pending
         }
 
         pub fn tick(&mut self) -> Result<u32, JsValue> {

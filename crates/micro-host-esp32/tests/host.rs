@@ -46,6 +46,8 @@ impl HostAccess for SimHost {
                 ));
                 None
             }
+            HostCallKind::OsAppName | HostCallKind::OsAppIcon => Some(Value::String(String::new())),
+            HostCallKind::OsLaunchIndex | HostCallKind::OsGoBack | HostCallKind::OsDelay => None,
         })
     }
 

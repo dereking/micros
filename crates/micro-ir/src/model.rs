@@ -161,6 +161,19 @@ pub enum HostCallKind {
     /// `net.httpGet(url, onResult)` — async; host calls back with the response
     /// body string.
     NetHttpGet,
+    /// `os.appName(i)` → display name of the installed app at index `i`
+    /// (empty when no app is installed at that index).
+    OsAppName,
+    /// `os.appIcon(i)` → single glyph of the installed app at index `i`.
+    OsAppIcon,
+    /// `os.launchIndex(i)` — boot the installed app at index `i` (the kernel
+    /// tears down the current shell runtime and boots that app).
+    OsLaunchIndex,
+    /// `os.goBack()` — exit the current app and return to the shell.
+    OsGoBack,
+    /// `os.delay(ms, onResult)` — async; the host calls back after `ms`
+    /// milliseconds (drives the shell's polling heartbeat).
+    OsDelay,
 }
 
 /// A single host call referenced by `Instruction::HostCall`. Sync reads carry
@@ -387,6 +400,20 @@ pub struct UiNodeSpec {
     pub layout: Option<LayoutSpec>,
 }
 
+/// App manifest metadata, declared in the app source as
+/// `app({ id, name, icon })` and serialized into the MBC's metadata section.
+/// The OS launcher reads `id` (to launch), `name` (to display) and `icon`
+/// (a single display glyph) without decoding the whole app.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AppMetadata {
+    /// Stable ASCII identifier used to launch the app (e.g. `"counter"`).
+    pub id: String,
+    /// Human-readable display name shown under the launcher icon.
+    pub name: String,
+    /// Single glyph rendered as the launcher icon (ASCII/kept in the LVGL font).
+    pub icon: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppImage {
     pub constants: Vec<Constant>,
@@ -394,6 +421,8 @@ pub struct AppImage {
     pub functions: Vec<Function>,
     pub nodes: Vec<UiNodeSpec>,
     pub host_requests: Vec<HostRequest>,
+    /// App manifest (`app({ id, name, icon })`).
+    pub metadata: AppMetadata,
     pub root: NodeId,
 }
 
@@ -413,6 +442,12 @@ fn invalid(message: impl Into<String>) -> ValidationError {
 }
 
 pub fn validate(image: &AppImage) -> Result<(), ValidationError> {
+    if image.metadata.id.is_empty() || image.metadata.name.is_empty() {
+        return Err(invalid("app metadata requires a non-empty id and name"));
+    }
+    if image.metadata.icon.chars().count() != 1 {
+        return Err(invalid("app metadata icon must be a single glyph"));
+    }
     if image.nodes.is_empty() {
         return Err(invalid("UI tree is empty"));
     }

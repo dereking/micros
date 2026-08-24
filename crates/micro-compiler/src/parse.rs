@@ -60,6 +60,7 @@ pub fn parse_validated(path: &str, source: &str) -> Result<ParsedProgram, Vec<Di
         path,
         known: BTreeSet::new(),
         mount_count: 0,
+        app_count: 0,
         errors: Vec::new(),
     };
     validator.module(&module);
@@ -97,6 +98,7 @@ struct Validator<'a> {
     path: &'a str,
     known: BTreeSet<String>,
     mount_count: usize,
+    app_count: usize,
     errors: Vec<Diagnostic>,
 }
 
@@ -163,7 +165,7 @@ impl Validator<'_> {
             Expr::Ident(identifier) => {
                 let name = identifier.sym.as_ref();
                 if !self.known.contains(name)
-                    && !matches!(name, "state" | "bind" | "ui" | "device" | "net")
+                    && !matches!(name, "state" | "bind" | "ui" | "device" | "net" | "os" | "app")
                 {
                     self.unsupported(identifier.span, format!("global `{name}`"));
                 }
@@ -231,11 +233,15 @@ impl Validator<'_> {
             "ui.dropdown" => 2..=3,
             "ui.roller" => 2..=3,
             "ui.button" => 2..=2,
+            "app" => 1..=1,
             "device.name" | "device.chip" | "device.flashBytes" | "device.psramBytes"
             | "device.resetReason" | "device.backlight" | "net.wifiState" | "net.wifiSsid"
             | "net.wifiDisconnect" => 0..=0,
-            "device.setBacklight" | "net.scanWifi" => 1..=1,
+            "device.setBacklight" | "net.scanWifi" | "os.appName" | "os.appIcon"
+            | "os.launchIndex" => 1..=1,
             "net.wifiConnect" | "net.httpGet" => 2..=2,
+            "os.goBack" => 0..=0,
+            "os.delay" => 2..=2,
             _ => {
                 self.unsupported(call.span, format!("call `{name}`"));
                 return;
@@ -264,6 +270,18 @@ impl Validator<'_> {
                     call.span,
                     "MTS003",
                     "exactly one ui.mount call is allowed".into(),
+                ));
+            }
+        }
+        if name == "app" {
+            self.app_count += 1;
+            if self.app_count > 1 {
+                self.errors.push(diagnostic_at(
+                    self.source_map,
+                    self.path,
+                    call.span,
+                    "MTS003",
+                    "exactly one app() manifest call is allowed".into(),
                 ));
             }
         }
@@ -328,7 +346,10 @@ impl Validator<'_> {
             "ui.tabview" => {
                 self.tabview_tabs(&call.args[0].expr);
             }
-            _ if name.starts_with("device.") || name.starts_with("net.") => {
+            "app" => {
+                self.app_options(&call.args[0].expr);
+            }
+            _ if name.starts_with("device.") || name.starts_with("net.") || name.starts_with("os.") => {
                 self.host_call_args(name.as_str(), &call.args);
             }
             _ => {
@@ -344,7 +365,7 @@ impl Validator<'_> {
     /// arrows and must be validated through `arrow_with_params`, because
     /// `expression()` does not accept arrow expressions.
     fn host_call_args(&mut self, name: &str, args: &[swc_ecma_ast::ExprOrSpread]) {
-        let callback_is_last = matches!(name, "net.scanWifi" | "net.httpGet");
+        let callback_is_last = matches!(name, "net.scanWifi" | "net.httpGet" | "os.delay");
         for (index, argument) in args.iter().enumerate() {
             if callback_is_last && index == args.len() - 1 {
                 match &*argument.expr {
@@ -745,6 +766,66 @@ impl Validator<'_> {
             }
             if name.sym == *"onClick" {
                 self.expression(&property.value);
+            }
+        }
+    }
+
+    /// Validate the `app({ id, name, icon })` manifest object literal.
+    fn app_options(&mut self, expression: &Expr) {
+        let Expr::Object(object) = expression else {
+            self.sdk_error(
+                expression.span(),
+                "app() manifest must be an object literal".into(),
+            );
+            return;
+        };
+        let mut seen = std::collections::BTreeSet::new();
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                self.unsupported(property.span(), "spread");
+                continue;
+            };
+            let Prop::KeyValue(property) = &**property else {
+                self.unsupported(property.span(), "app property");
+                continue;
+            };
+            let PropName::Ident(name) = &property.key else {
+                self.unsupported(property.key.span(), "computed app property");
+                continue;
+            };
+            let field = name.sym.as_ref();
+            if !matches!(field, "id" | "name" | "icon") {
+                self.errors.push(diagnostic_at(
+                    self.source_map,
+                    self.path,
+                    name.span,
+                    "MTS002",
+                    format!("unknown app() field `{field}`"),
+                ));
+            }
+            if !seen.insert(field.to_string()) {
+                self.errors.push(diagnostic_at(
+                    self.source_map,
+                    self.path,
+                    name.span,
+                    "MTS002",
+                    format!("duplicate app() field `{field}`"),
+                ));
+            }
+            match &*property.value {
+                Expr::Lit(Lit::Str(_)) => {}
+                _ => self.sdk_error(property.value.span(), "app() fields must be string literals".into()),
+            }
+        }
+        for required in ["id", "name", "icon"] {
+            if !seen.contains(required) {
+                self.errors.push(diagnostic_at(
+                    self.source_map,
+                    self.path,
+                    expression.span(),
+                    "MTS002",
+                    format!("app() is missing required field `{required}`"),
+                ));
             }
         }
     }

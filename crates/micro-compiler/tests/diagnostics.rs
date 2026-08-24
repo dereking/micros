@@ -64,6 +64,7 @@ fn rejects_unknown_host_calls() {
         ("device-bogus.ts", "ui.mount(ui.text(device.bogus()));", "MTS001", 1, 18),
         ("net-bogus.ts", "ui.mount(ui.text(net.bogus()));", "MTS001", 1, 18),
         ("net-member.ts", "const x = net.wifiState;", "MTS001", 1, 11),
+        ("os-bogus.ts", "ui.mount(ui.text(os.bogus()));", "MTS001", 1, 18),
     ];
     for (path, source, code, line, column) in cases {
         let errors = validate_source(path, source).unwrap_err();

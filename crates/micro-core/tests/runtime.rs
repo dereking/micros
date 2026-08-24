@@ -2,9 +2,9 @@ use micro_core::{
     Event, EventQueue, MicroUiTree, RenderError, RenderPatch, RenderPort, Runtime, RuntimeError,
 };
 use micro_ir::{
-    AppImage, BindingId, Constant, FontWeight, Function, FunctionId, FunctionKind, HandlerId,
-    HostCallKind, HostRequest, Instruction, NodeId, ScalarType, StateDecl, StateId, TextSource,
-    TextStyle, UiKind, UiNodeSpec, ValueSource,
+    AppImage, AppMetadata, BindingId, Constant, FontWeight, Function, FunctionId, FunctionKind,
+    HandlerId, HostCallKind, HostRequest, Instruction, NodeId, ScalarType, StateDecl, StateId,
+    TextSource, TextStyle, UiKind, UiNodeSpec, ValueSource,
 };
 use micro_vm::{HostAccess, Value, VmError};
 
@@ -145,6 +145,11 @@ fn counter_image() -> AppImage {
             },
         ],
         host_requests: vec![],
+        metadata: AppMetadata {
+            id: "counter".into(),
+            name: "Counter".into(),
+            icon: "C".into(),
+        },
         root: NodeId(0),
     }
 }
@@ -353,6 +358,11 @@ fn replaces_binding_dependencies_after_each_evaluation() {
             layout: None,
         }],
         host_requests: vec![],
+        metadata: AppMetadata {
+            id: "tick".into(),
+            name: "Tick".into(),
+            icon: "T".into(),
+        },
         root: NodeId(0),
     };
     let mut runtime = Runtime::new(image, RecordingRenderer::default(), 10_000).unwrap();
@@ -480,6 +490,11 @@ fn value_image() -> AppImage {
             },
         ],
         host_requests: vec![],
+        metadata: AppMetadata {
+            id: "values".into(),
+            name: "Values".into(),
+            icon: "V".into(),
+        },
         root: NodeId(0),
     }
 }
@@ -621,6 +636,11 @@ fn host_image() -> AppImage {
             vec![],
             FunctionId(1),
         )],
+        metadata: AppMetadata {
+            id: "host".into(),
+            name: "Host".into(),
+            icon: "H".into(),
+        },
         root: NodeId(0),
     }
 }

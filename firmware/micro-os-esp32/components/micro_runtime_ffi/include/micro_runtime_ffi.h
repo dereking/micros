@@ -295,12 +295,26 @@ int micro_esp_host_wifi_ssid(char *buf, size_t cap);
 int micro_esp_host_wifi_connect(const uint8_t *ssid, size_t ssid_len,
                                 const uint8_t *pass, size_t pass_len);
 int micro_esp_host_wifi_disconnect(void);
+/* Start an asynchronous scan; the result is polled via take_scan_result
+ * (returns 1 with a fresh "\n"-joined AP list, 0 when none is ready). */
+void micro_esp_host_scan_start(void);
+int micro_esp_host_take_scan_result(char *buf, size_t cap);
 /* OS-shell accessors: drain the app's pending intents into the reducer. */
 uint32_t micro_esp_host_take_backlight_intent(uint32_t *level);
 uint32_t micro_esp_host_take_wifi_connect(char *ssid, size_t ssid_cap,
                                           char *pass, size_t pass_cap);
 uint32_t micro_esp_host_take_wifi_disconnect(void);
-void micro_esp_host_set_wifi_state(const char *state, const char *ssid);
+/* App registry (populated by main.c from the micro_app partition scan). */
+void micro_esp_host_set_app_count(uint32_t count);
+void micro_esp_host_set_app_entry(uint32_t index, const char *name, const char *icon);
+int micro_esp_host_app_name(uint32_t index, char *buf, size_t cap);
+int micro_esp_host_app_icon(uint32_t index, char *buf, size_t cap);
+/* os.* navigation intents (set by the app host, drained by main.c). */
+void micro_esp_host_set_launch_index(uint32_t index);
+uint32_t micro_esp_host_take_launch_index(uint32_t *out);
+void micro_esp_host_set_back_intent(void);
+uint32_t micro_esp_host_take_back(void);
+uint32_t micro_esp_host_uptime_ms(void);
 
 int micro_esp_ui_create_column(uint32_t node, uint32_t parent);
 int micro_esp_ui_create_row(uint32_t node, uint32_t parent);

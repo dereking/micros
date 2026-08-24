@@ -1,10 +1,10 @@
 /* ESP32 host capabilities for the app SDK (`device.*` / `net.*`).
  *
  * Device reads use real IDF values (Flash/PSRAM size, reset reason). Backlight
- * and Wi-Fi live in plain C globals mirrored by the OS shell (main.c): the
- * App's `device.backlight()` / `net.wifiState()` read them, and
- * `device.setBacklight` / `net.wifiConnect` / `net.wifiDisconnect` set pending
- * intents that main.c drains into the OS reducer on its next tick.
+ * lives in a plain C global mirrored by main.c. Wi-Fi state/SSID/scan read the
+ * real STA radio through the micro_wifi component (spinlock-guarded shared
+ * state); connect/disconnect set pending intents that main.c drains into
+ * micro_wifi_connect / micro_wifi_disconnect on its next tick.
  *
  * None of these functions take the LVGL lock: the app runtime calls them from
  * inside micro_runtime_tick on the LVGL task, where the lock is already held.
@@ -17,18 +17,21 @@
 #include "esp_flash.h"
 #include "esp_psram.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 
 #include "micro_runtime_ffi.h"
+#include "micro_wifi.h"
 
 static uint32_t s_host_backlight = 3;
-static char s_host_wifi_state[16] = "off";
-static char s_host_wifi_ssid[64] = "";
 static uint32_t s_host_backlight_intent_pending = 0;
 static uint32_t s_host_backlight_intent_level = 3;
 static uint32_t s_host_wifi_connect_pending = 0;
 static char s_host_wifi_connect_ssid[33] = "";
 static char s_host_wifi_connect_pass[65] = "";
 static uint32_t s_host_wifi_disconnect_pending = 0;
+static uint32_t s_host_launch_index_pending = 0;
+static uint32_t s_host_launch_index_value = 0;
+static uint32_t s_host_back_intent_pending = 0;
 
 static int copy_str(char *buf, size_t cap, const char *value)
 {
@@ -141,12 +144,22 @@ void micro_esp_host_mirror_backlight(uint32_t level)
 
 int micro_esp_host_wifi_state(char *buf, size_t cap)
 {
-    return copy_str(buf, cap, s_host_wifi_state);
+    return micro_wifi_state(buf, cap);
 }
 
 int micro_esp_host_wifi_ssid(char *buf, size_t cap)
 {
-    return copy_str(buf, cap, s_host_wifi_ssid);
+    return micro_wifi_ssid(buf, cap);
+}
+
+void micro_esp_host_scan_start(void)
+{
+    micro_wifi_start_scan();
+}
+
+int micro_esp_host_take_scan_result(char *buf, size_t cap)
+{
+    return micro_wifi_take_scan_result(buf, cap);
 }
 
 int micro_esp_host_wifi_connect(const uint8_t *ssid, size_t ssid_len,
@@ -210,14 +223,82 @@ uint32_t micro_esp_host_take_wifi_disconnect(void)
     return 1;
 }
 
-void micro_esp_host_set_wifi_state(const char *state, const char *ssid)
+/* --- os.* host calls (app registry + navigation intents) ---
+ * The app registry is populated by main.c (partition scan) via
+ * micro_esp_host_set_app_count / micro_esp_host_set_app_entry. Until then the
+ * registry is empty, so appName/appIcon return "". */
+
+#define MICRO_HOST_MAX_APPS 8U
+
+static uint32_t s_host_app_count = 0;
+static char s_host_app_name[MICRO_HOST_MAX_APPS][32];
+static char s_host_app_icon[MICRO_HOST_MAX_APPS][4];
+
+void micro_esp_host_set_app_count(uint32_t count)
 {
-    if (state != NULL) {
-        copy_str(s_host_wifi_state, sizeof s_host_wifi_state, state);
+    s_host_app_count = count > MICRO_HOST_MAX_APPS ? MICRO_HOST_MAX_APPS : count;
+}
+
+void micro_esp_host_set_app_entry(uint32_t index, const char *name, const char *icon)
+{
+    if (index >= MICRO_HOST_MAX_APPS) {
+        return;
     }
-    if (ssid != NULL) {
-        copy_str(s_host_wifi_ssid, sizeof s_host_wifi_ssid, ssid);
+    copy_str(s_host_app_name[index], sizeof s_host_app_name[index], name != NULL ? name : "");
+    copy_str(s_host_app_icon[index], sizeof s_host_app_icon[index], icon != NULL ? icon : "");
+}
+
+int micro_esp_host_app_name(uint32_t index, char *buf, size_t cap)
+{
+    if (index >= s_host_app_count) {
+        return copy_str(buf, cap, "");
     }
+    return copy_str(buf, cap, s_host_app_name[index]);
+}
+
+int micro_esp_host_app_icon(uint32_t index, char *buf, size_t cap)
+{
+    if (index >= s_host_app_count) {
+        return copy_str(buf, cap, "");
+    }
+    return copy_str(buf, cap, s_host_app_icon[index]);
+}
+
+void micro_esp_host_set_launch_index(uint32_t index)
+{
+    s_host_launch_index_pending = 1;
+    s_host_launch_index_value = index;
+}
+
+uint32_t micro_esp_host_take_launch_index(uint32_t *out)
+{
+    if (s_host_launch_index_pending == 0) {
+        return 0;
+    }
+    s_host_launch_index_pending = 0;
+    if (out != NULL) {
+        *out = s_host_launch_index_value;
+    }
+    return 1;
+}
+
+void micro_esp_host_set_back_intent(void)
+{
+    s_host_back_intent_pending = 1;
+}
+
+uint32_t micro_esp_host_take_back(void)
+{
+    if (s_host_back_intent_pending == 0) {
+        return 0;
+    }
+    s_host_back_intent_pending = 0;
+    return 1;
+}
+
+uint32_t micro_esp_host_uptime_ms(void)
+{
+    return (uint32_t)(esp_timer_get_time() / 1000);
 }
 
 /* Forces this object file into the final link via

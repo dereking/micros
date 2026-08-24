@@ -22,6 +22,13 @@ type UiTextStyle =
 declare function state<T extends Scalar>(initial: T): State<T>;
 declare function bind<T extends Scalar>(read: () => T): Binding<T>;
 
+/**
+ * Declare the app manifest. `id` is a stable identifier used to launch the
+ * app, `name` is shown under its launcher icon, and `icon` is a single glyph
+ * rendered as the icon (keep it in the platform font: letters/ASCII).
+ */
+declare function app(options: { id: string; name: string; icon: string }): void;
+
 /** ESP32 hardware capabilities. Sync reads are sampled when the binding runs. */
 declare const device: {
   name(): string;
@@ -31,6 +38,24 @@ declare const device: {
   resetReason(): string;
   backlight(): number;
   setBacklight(level: number): void;
+};
+
+/**
+ * Operating-system (shell) capabilities. The launcher reads the installed app
+ * list by index; `launchIndex` boots an app (tearing down the shell) and
+ * `goBack` returns from an app to the shell. `delay` is a polling heartbeat.
+ */
+declare const os: {
+  /** Display name of the installed app at index `i`, or "" when none. */
+  appName(i: number): string;
+  /** Single glyph of the installed app at index `i`, or "" when none. */
+  appIcon(i: number): string;
+  /** Boot the installed app at index `i` (the shell is replaced). */
+  launchIndex(i: number): void;
+  /** Exit the current app and return to the shell. */
+  goBack(): void;
+  /** Calls back with "" after `ms` milliseconds. */
+  delay(ms: number, onResult: (result: string) => void): void;
 };
 
 /** Network (Wi-Fi) capabilities. Dynamic values arrive via async callbacks. */

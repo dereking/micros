@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
 use micro_ir::{
-    AnchorSpec, AppImage, BindingId, Constant, FontFamily, FontWeight, Function, FunctionId,
-    FunctionKind, HandlerId, HostCallKind, HostRequest, Instruction, LayoutSpec, NodeId,
-    ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind, UiNodeSpec, ValueSource,
-    validate,
+    AnchorSpec, AppImage, AppMetadata, BindingId, Constant, FontFamily, FontWeight, Function,
+    FunctionId, FunctionKind, HandlerId, HostCallKind, HostRequest, Instruction, LayoutSpec,
+    NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind, UiNodeSpec,
+    ValueSource, validate,
 };
 use swc_common::{SourceMap, Span, Spanned, sync::Lrc};
 use swc_ecma_ast::{
@@ -35,6 +35,7 @@ struct Lowerer<'a> {
     functions: Vec<Function>,
     nodes: Vec<UiNodeSpec>,
     host_requests: Vec<micro_ir::HostRequest>,
+    metadata: AppMetadata,
     binding_count: u32,
     handler_count: u32,
 }
@@ -50,6 +51,7 @@ impl<'a> Lowerer<'a> {
             functions: Vec::new(),
             nodes: Vec::new(),
             host_requests: Vec::new(),
+            metadata: AppMetadata::default(),
             binding_count: 0,
             handler_count: 0,
         }
@@ -86,6 +88,13 @@ impl<'a> Lowerer<'a> {
             })
             .ok_or_else(|| self.error(module.span, "MTS010", "ui.mount call is missing"))?;
         let root = self.lower_ui(mount_argument)?;
+        self.metadata = self
+            .metadata_from_module(module)
+            .unwrap_or_else(|| AppMetadata {
+                id: "app".to_owned(),
+                name: "App".to_owned(),
+                icon: "A".to_owned(),
+            });
         let source_map = self.source_map;
         let path = self.path;
         let image = AppImage {
@@ -94,11 +103,55 @@ impl<'a> Lowerer<'a> {
             functions: self.functions,
             nodes: self.nodes,
             host_requests: self.host_requests,
+            metadata: self.metadata,
             root,
         };
         validate(&image)
             .map_err(|error| diagnostic_at(source_map, path, module.span, "MTS010", error.0))?;
         Ok(image)
+    }
+
+    /// Extract the app manifest from a top-level `app({ id, name, icon })`
+    /// call, mirroring the `ui.mount` `find_map` pattern. Returns `None` when
+    /// no `app()` call is present (caller supplies a default).
+    fn metadata_from_module(&self, module: &Module) -> Option<AppMetadata> {
+        let object = module.body.iter().find_map(|item| {
+            let ModuleItem::Stmt(Stmt::Expr(statement)) = item else {
+                return None;
+            };
+            let Expr::Call(call) = &*statement.expr else {
+                return None;
+            };
+            if call_name(call).as_deref() != Some("app") {
+                return None;
+            }
+            match &*call.args[0].expr {
+                Expr::Object(object) => Some(object),
+                _ => None,
+            }
+        })?;
+        let mut metadata = AppMetadata::default();
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                continue;
+            };
+            let Prop::KeyValue(property) = &**property else {
+                continue;
+            };
+            let PropName::Ident(name) = &property.key else {
+                continue;
+            };
+            let Expr::Lit(Lit::Str(value)) = &*property.value else {
+                continue;
+            };
+            match name.sym.as_ref() {
+                "id" => metadata.id = value.value.to_string_lossy().into_owned(),
+                "name" => metadata.name = value.value.to_string_lossy().into_owned(),
+                "icon" => metadata.icon = value.value.to_string_lossy().into_owned(),
+                _ => {}
+            }
+        }
+        Some(metadata)
     }
 
     fn lower_state(&mut self, name: &str, initializer: &Expr) -> Result<(), Diagnostic> {
@@ -204,19 +257,30 @@ impl<'a> Lowerer<'a> {
             }
             Some("ui.button") => {
                 let id = self.reserve_node(UiKind::Button);
-                let label = literal_constant(&call.args[0].expr)
-                    .filter(|constant| matches!(constant, Constant::String(_)))
-                    .ok_or_else(|| {
-                        self.error(
-                            call.args[0].span(),
-                            "MTS012",
-                            "button label must be a string",
-                        )
+                let source = if call_name_expr(&call.args[0].expr).as_deref() == Some("bind") {
+                    let Expr::Call(binding) = &*call.args[0].expr else {
+                        unreachable!()
+                    };
+                    let arrow = as_arrow(&binding.args[0].expr).ok_or_else(|| {
+                        self.error(binding.args[0].span(), "MTS012", "bind expects an arrow")
                     })?;
-                if let Constant::String(value) = &label {
-                    self.validate_literal_glyphs(call.args[0].span(), value)?;
-                }
-                self.nodes[id.0 as usize].text = Some(TextSource::Constant(self.intern(label)));
+                    TextSource::Binding(self.add_function(arrow, true)?)
+                } else {
+                    let constant = literal_constant(&call.args[0].expr)
+                        .filter(|constant| matches!(constant, Constant::String(_)))
+                        .ok_or_else(|| {
+                            self.error(
+                                call.args[0].span(),
+                                "MTS012",
+                                "button label must be a string or bind",
+                            )
+                        })?;
+                    if let Constant::String(value) = &constant {
+                        self.validate_literal_glyphs(call.args[0].span(), value)?;
+                    }
+                    TextSource::Constant(self.intern(constant))
+                };
+                self.nodes[id.0 as usize].text = Some(source);
                 let (arrow, text_style) = self.lower_button_options(&call.args[1].expr)?;
                 self.nodes[id.0 as usize].on_click = Some(self.add_function(arrow, false)?);
                 self.nodes[id.0 as usize].text_style =
@@ -1686,7 +1750,10 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                 let Some(name) = call_name(call) else {
                     return Err(self.error(expression.span(), "unsupported function call"));
                 };
-                if !(name.starts_with("device.") || name.starts_with("net.")) {
+                if !(name.starts_with("device.")
+                    || name.starts_with("net.")
+                    || name.starts_with("os."))
+                {
                     return Err(self.error(expression.span(), "unsupported function call"));
                 }
                 self.host_call(&name, call)
@@ -1939,6 +2006,11 @@ fn host_call_spec(
         "net.wifiDisconnect" => (HostCallKind::NetWifiDisconnect, vec![], false, None),
         "net.scanWifi" => (HostCallKind::NetScanWifi, vec![], true, None),
         "net.httpGet" => (HostCallKind::NetHttpGet, vec![ScalarType::String], true, None),
+        "os.appName" => (HostCallKind::OsAppName, vec![ScalarType::Number], false, Some(ScalarType::String)),
+        "os.appIcon" => (HostCallKind::OsAppIcon, vec![ScalarType::Number], false, Some(ScalarType::String)),
+        "os.launchIndex" => (HostCallKind::OsLaunchIndex, vec![ScalarType::Number], false, None),
+        "os.goBack" => (HostCallKind::OsGoBack, vec![], false, None),
+        "os.delay" => (HostCallKind::OsDelay, vec![ScalarType::Number], true, None),
         _ => return None,
     })
 }

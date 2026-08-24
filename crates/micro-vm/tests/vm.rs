@@ -1,6 +1,6 @@
 use micro_ir::{
-    AppImage, Constant, Function, FunctionId, FunctionKind, HandlerId, Instruction, NodeId,
-    ScalarType, StateDecl, StateId, TextSource, UiKind, UiNodeSpec,
+    AppImage, AppMetadata, Constant, Function, FunctionId, FunctionKind, HandlerId, Instruction,
+    NodeId, ScalarType, StateDecl, StateId, TextSource, UiKind, UiNodeSpec,
 };
 use micro_vm::{Execution, HostAccess, StateAccess, StateError, Value, Vm, VmError};
 
@@ -58,6 +58,11 @@ fn image(kind: FunctionKind, code: Vec<Instruction>, max_stack: u16) -> AppImage
             layout: None,
         }],
         host_requests: vec![],
+        metadata: AppMetadata {
+            id: "vm".into(),
+            name: "Vm".into(),
+            icon: "V".into(),
+        },
         root: NodeId(0),
     }
 }
@@ -237,6 +242,11 @@ fn host_image(
             layout: None,
         }],
         host_requests: requests,
+        metadata: AppMetadata {
+            id: "host".into(),
+            name: "Host".into(),
+            icon: "H".into(),
+        },
         root: NodeId(0),
     }
 }
