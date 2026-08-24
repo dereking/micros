@@ -28,19 +28,19 @@ ui.mount(
       ui.place(ui.spinner(bind(() => {
         wifiState.value;
         return net.wifiState() === "connecting";
-      })), { left: 0, top: 10, width: 20, height: 20 }),
+      })), { left: 0, top: 0, width: 20, height: 20 }),
       ui.place(ui.led(bind(() => {
         wifiState.value;
         return net.wifiState() === "connected";
-      })), { left: 3, top: 13, width: 14, height: 14 }),
+      })), { left: 3, top: 3, width: 14, height: 14 }),
       ui.place(ui.text(bind(() => {
         wifiState.value;
         const current = net.wifiSsid();
         if (current !== "") { return current; }
         return net.wifiState();
-      }), { font: "uiSans", size: 14, weight: "regular", lineHeight: 18 }), { left: 30, top: 11, width: 460, height: 18 }),
+      }), { font: "uiSans", size: 14, weight: "regular", lineHeight: 18 }), { left: 30, top: 1, width: 460, height: 18 }),
       ui.place(ui.text("Settings", { font: "uiSans", size: 14, weight: "regular", lineHeight: 18 }),
-        { left: 680, top: 11, width: 120, height: 18 }),
+        { left: 680, top: 1, width: 120, height: 18 }),
     ]), { height: 40, anchor: { left: 0, right: 0, top: 0 } }),
 
     // --- settings pages: tabview fills everything below the status bar. ---
