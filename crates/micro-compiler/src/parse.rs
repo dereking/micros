@@ -237,9 +237,10 @@ impl Validator<'_> {
             "device.name" | "device.chip" | "device.flashBytes" | "device.psramBytes"
             | "device.resetReason" | "device.backlight" | "net.wifiState" | "net.wifiSsid"
             | "net.wifiDisconnect" => 0..=0,
-            "device.setBacklight" | "net.scanWifi" | "os.appName" | "os.appIcon"
-            | "os.launchIndex" => 1..=1,
-            "net.wifiConnect" | "net.httpGet" => 2..=2,
+            "device.setBacklight" | "device.gpioRead" | "net.scanWifi" | "os.appName"
+            | "os.appIcon" | "os.launchIndex" => 1..=1,
+            "device.gpioSetup" | "device.gpioWrite" | "net.wifiConnect" | "net.httpGet" => 2..=2,
+            "net.httpRequest" => 4..=4,
             "os.goBack" => 0..=0,
             "os.delay" => 2..=2,
             _ => {
@@ -365,7 +366,8 @@ impl Validator<'_> {
     /// arrows and must be validated through `arrow_with_params`, because
     /// `expression()` does not accept arrow expressions.
     fn host_call_args(&mut self, name: &str, args: &[swc_ecma_ast::ExprOrSpread]) {
-        let callback_is_last = matches!(name, "net.scanWifi" | "net.httpGet" | "os.delay");
+        let callback_is_last =
+            matches!(name, "net.scanWifi" | "net.httpGet" | "net.httpRequest" | "os.delay");
         for (index, argument) in args.iter().enumerate() {
             if callback_is_last && index == args.len() - 1 {
                 match &*argument.expr {

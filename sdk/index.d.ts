@@ -38,6 +38,12 @@ declare const device: {
   resetReason(): string;
   backlight(): number;
   setBacklight(level: number): void;
+  /** Configure a GPIO: "in" | "out" | "in-pullup" | "in-pulldown". */
+  gpioSetup(pin: number, mode: string): void;
+  /** Drive an output GPIO high (1) or low (0). */
+  gpioWrite(pin: number, level: number): void;
+  /** Read a GPIO input level (0 or 1). */
+  gpioRead(pin: number): number;
 };
 
 /**
@@ -70,6 +76,17 @@ declare const net: {
   scanWifi(onResult: (list: string) => void): void;
   /** Calls back with the HTTP response body (or an error line). */
   httpGet(url: string, onResult: (response: string) => void): void;
+  /**
+   * HTTP request with an explicit method (GET/POST/PUT/DELETE/HEAD…) and body.
+   * On the ESP32 this runs over the connected Wi-Fi link; simulators reply with
+   * a canned response. Calls back with "HTTP <status>\n<body>" (or an error).
+   */
+  httpRequest(
+    method: string,
+    url: string,
+    body: string,
+    onResult: (response: string) => void,
+  ): void;
 };
 
 declare const ui: {

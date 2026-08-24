@@ -35,11 +35,14 @@ impl HostAccess for SimHost {
             HostCallKind::DeviceResetReason => Some(Value::String("power-on (sim)".into())),
             HostCallKind::DeviceBacklight => Some(Value::Number(3.0)),
             HostCallKind::DeviceSetBacklight
+            | HostCallKind::DeviceGpioSetup
+            | HostCallKind::DeviceGpioWrite
             | HostCallKind::NetWifiConnect
             | HostCallKind::NetWifiDisconnect => None,
+            HostCallKind::DeviceGpioRead => Some(Value::Number(0.0)),
             HostCallKind::NetWifiState => Some(Value::String("connected".into())),
             HostCallKind::NetWifiSsid => Some(Value::String("micro-demo".into())),
-            HostCallKind::NetScanWifi | HostCallKind::NetHttpGet => {
+            HostCallKind::NetScanWifi | HostCallKind::NetHttpGet | HostCallKind::NetHttpRequest => {
                 self.pending.push((
                     request.callback.unwrap(),
                     Value::String("HTTP 200\nOK".into()),

@@ -9,6 +9,7 @@
 //! the pending-intent pattern the ESP32 host uses on the C side.
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use micro_ir::{FunctionId, HostRequest};
@@ -31,6 +32,8 @@ pub struct ShellState {
 pub struct NativeHost {
     backlight: u8,
     pending: Vec<(FunctionId, Value)>,
+    /// Simulated GPIO output registers (pin → level) so read-after-write works.
+    gpio: BTreeMap<u32, u8>,
     /// Shared OS-shell state, drained by the SDL main loop.
     pub nav: Rc<RefCell<ShellState>>,
 }
@@ -56,6 +59,21 @@ impl HostAccess for NativeHost {
                 }
                 None
             }
+            DeviceGpioSetup => {
+                let pin = numeric_arg(args, 0).unwrap_or(0.0) as u32;
+                self.gpio.entry(pin).or_insert(0);
+                None
+            }
+            DeviceGpioWrite => {
+                let pin = numeric_arg(args, 0).unwrap_or(0.0) as u32;
+                let level = numeric_arg(args, 1).unwrap_or(0.0) as u8;
+                self.gpio.insert(pin, level);
+                None
+            }
+            DeviceGpioRead => {
+                let pin = numeric_arg(args, 0).unwrap_or(0.0) as u32;
+                Some(Value::Number(f64::from(self.gpio.get(&pin).copied().unwrap_or(0))))
+            }
             NetWifiState => Some(Value::String("connected".into())),
             NetWifiSsid => Some(Value::String("micro-demo".into())),
             NetWifiConnect | NetWifiDisconnect => None,
@@ -76,6 +94,18 @@ impl HostAccess for NativeHost {
                 self.pending.push((
                     callback,
                     Value::String("HTTP 200\nHello from the native simulator".into()),
+                ));
+                None
+            }
+            NetHttpRequest => {
+                let callback = request.callback.ok_or_else(|| {
+                    VmError::Host("net.httpRequest has no callback".into())
+                })?;
+                let method = string_arg(args, 0);
+                let url = string_arg(args, 1);
+                self.pending.push((
+                    callback,
+                    Value::String(format!("HTTP 200\n{method} {url} (native simulator)")),
                 ));
                 None
             }
@@ -131,5 +161,12 @@ fn numeric_arg(args: &[Value], index: usize) -> Option<f64> {
     match args.get(index) {
         Some(Value::Number(value)) => Some(*value),
         _ => None,
+    }
+}
+
+fn string_arg(args: &[Value], index: usize) -> String {
+    match args.get(index) {
+        Some(Value::String(value)) => value.clone(),
+        _ => String::new(),
     }
 }

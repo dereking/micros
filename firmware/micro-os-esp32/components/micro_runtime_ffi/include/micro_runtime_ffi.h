@@ -299,6 +299,18 @@ int micro_esp_host_wifi_disconnect(void);
  * (returns 1 with a fresh "\n"-joined AP list, 0 when none is ready). */
 void micro_esp_host_scan_start(void);
 int micro_esp_host_take_scan_result(char *buf, size_t cap);
+/* Start an asynchronous HTTP/1.0 GET (real lwip socket); 0 on accept, -1 when
+ * rejected (busy/malformed). The result is polled via take_http_result
+ * (returns 1 with "HTTP <status>\n<body>", 0 when still pending). */
+int micro_esp_host_http_get(const uint8_t *url, size_t url_len);
+int micro_esp_host_http_request(const uint8_t *method, size_t method_len,
+                                const uint8_t *url, size_t url_len,
+                                const uint8_t *body, size_t body_len);
+int micro_esp_host_http_take_result(char *buf, size_t cap);
+/* device.gpio* — configure a pin mode, drive an output, read an input level. */
+int micro_esp_host_gpio_setup(uint32_t pin, const uint8_t *mode, size_t mode_len);
+int micro_esp_host_gpio_write(uint32_t pin, uint32_t level);
+int micro_esp_host_gpio_read(uint32_t pin);
 /* OS-shell accessors: drain the app's pending intents into the reducer. */
 uint32_t micro_esp_host_take_backlight_intent(uint32_t *level);
 uint32_t micro_esp_host_take_wifi_connect(char *ssid, size_t ssid_cap,

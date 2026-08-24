@@ -147,6 +147,13 @@ pub enum HostCallKind {
     DeviceBacklight,
     /// `device.setBacklight(level)` — fire-and-forget backlight action.
     DeviceSetBacklight,
+    /// `device.gpioSetup(pin, mode)` — configure a GPIO as `"in"`, `"out"`,
+    /// `"in-pullup"` or `"in-pulldown"`.
+    DeviceGpioSetup,
+    /// `device.gpioWrite(pin, level)` — set an output GPIO high (1) / low (0).
+    DeviceGpioWrite,
+    /// `device.gpioRead(pin)` → current input level (0 or 1).
+    DeviceGpioRead,
     /// `net.wifiState()` → `"off"|"connecting"|"connected"|"error"`.
     NetWifiState,
     /// `net.wifiSsid()` → connected SSID string (empty when not connected).
@@ -161,6 +168,10 @@ pub enum HostCallKind {
     /// `net.httpGet(url, onResult)` — async; host calls back with the response
     /// body string.
     NetHttpGet,
+    /// `net.httpRequest(method, url, body, onResult)` — async; like httpGet but
+    /// with an explicit HTTP method (GET/POST/PUT/DELETE/HEAD…) and a request
+    /// body.
+    NetHttpRequest,
     /// `os.appName(i)` → display name of the installed app at index `i`
     /// (empty when no app is installed at that index).
     OsAppName,
@@ -182,7 +193,7 @@ pub enum HostCallKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostRequest {
     pub kind: HostCallKind,
-    /// Argument types in source order (0..=2 for the current SDK surface).
+    /// Argument types in source order (0..=3 for the current SDK surface).
     pub arg_kinds: Vec<ScalarType>,
     /// Async requests: the 1-arg Handler the host invokes with the result.
     pub callback: Option<FunctionId>,
@@ -472,7 +483,7 @@ pub fn validate(image: &AppImage) -> Result<(), ValidationError> {
     }
 
     for (index, request) in image.host_requests.iter().enumerate() {
-        if request.arg_kinds.len() > 2 {
+        if request.arg_kinds.len() > 3 {
             return Err(invalid(format!(
                 "host request {index} has too many arguments"
             )));

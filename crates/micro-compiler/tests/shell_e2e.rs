@@ -44,7 +44,9 @@ impl HostAccess for SimHost {
                 None
             }
             HostCallKind::OsGoBack | HostCallKind::NetWifiConnect | HostCallKind::NetWifiDisconnect
-            | HostCallKind::DeviceSetBacklight => None,
+            | HostCallKind::DeviceSetBacklight | HostCallKind::DeviceGpioSetup
+            | HostCallKind::DeviceGpioWrite => None,
+            HostCallKind::DeviceGpioRead => Some(Value::Number(0.0)),
             HostCallKind::OsDelay => {
                 self.pending
                     .push((request.callback.unwrap(), Value::String(String::new())));
@@ -66,7 +68,7 @@ impl HostAccess for SimHost {
             }
             HostCallKind::DeviceResetReason => Some(Value::String("power-on (sim)".into())),
             HostCallKind::DeviceBacklight => Some(Value::Number(3.0)),
-            HostCallKind::NetHttpGet => {
+            HostCallKind::NetHttpGet | HostCallKind::NetHttpRequest => {
                 self.pending.push((
                     request.callback.unwrap(),
                     Value::String("HTTP 200\nOK".into()),

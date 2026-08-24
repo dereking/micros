@@ -19,7 +19,11 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 
+#include "driver/gpio.h"
+#include "esp_err.h"
+
 #include "micro_runtime_ffi.h"
+#include "micro_http.h"
 #include "micro_wifi.h"
 
 static uint32_t s_host_backlight = 3;
@@ -160,6 +164,78 @@ void micro_esp_host_scan_start(void)
 int micro_esp_host_take_scan_result(char *buf, size_t cap)
 {
     return micro_wifi_take_scan_result(buf, cap);
+}
+
+int micro_esp_host_http_get(const uint8_t *url, size_t url_len)
+{
+    return micro_http_get((const char *)url, url_len);
+}
+
+int micro_esp_host_http_request(const uint8_t *method, size_t method_len,
+                                const uint8_t *url, size_t url_len,
+                                const uint8_t *body, size_t body_len)
+{
+    return micro_http_request((const char *)method, method_len, (const char *)url,
+                              url_len, (const char *)body, body_len);
+}
+
+int micro_esp_host_http_take_result(char *buf, size_t cap)
+{
+    return micro_http_take_result(buf, cap);
+}
+
+/* --- device.gpio* (real GPIO, no lock: the app runtime calls these from
+ * inside micro_runtime_tick on the LVGL task) --- */
+
+int micro_esp_host_gpio_setup(uint32_t pin, const uint8_t *mode, size_t mode_len)
+{
+    if (mode == NULL || mode_len == 0 || mode_len > 8 || pin >= GPIO_NUM_MAX) {
+        return -1;
+    }
+    char mode_str[9] = {0};
+    memcpy(mode_str, mode, mode_len);
+    gpio_mode_t gpio_mode;
+    bool pull_up = false;
+    bool pull_down = false;
+    if (strcmp(mode_str, "in") == 0) {
+        gpio_mode = GPIO_MODE_INPUT;
+    } else if (strcmp(mode_str, "in-pullup") == 0) {
+        gpio_mode = GPIO_MODE_INPUT;
+        pull_up = true;
+    } else if (strcmp(mode_str, "in-pulldown") == 0) {
+        gpio_mode = GPIO_MODE_INPUT;
+        pull_down = true;
+    } else if (strcmp(mode_str, "out") == 0) {
+        /* Input/output so the app can drive the pin and read it back: a pure
+         * output keeps the input buffer off, so gpio_get_level would read 0. */
+        gpio_mode = GPIO_MODE_INPUT_OUTPUT;
+    } else {
+        return -1;
+    }
+    gpio_config_t io = {
+        .pin_bit_mask = UINT64_C(1) << pin,
+        .mode = gpio_mode,
+        .pull_up_en = pull_up ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE,
+        .pull_down_en = pull_down ? GPIO_PULLDOWN_ENABLE : GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    return gpio_config(&io) == ESP_OK ? 0 : -1;
+}
+
+int micro_esp_host_gpio_write(uint32_t pin, uint32_t level)
+{
+    if (pin >= GPIO_NUM_MAX) {
+        return -1;
+    }
+    return gpio_set_level((gpio_num_t)pin, level ? 1 : 0) == ESP_OK ? 0 : -1;
+}
+
+int micro_esp_host_gpio_read(uint32_t pin)
+{
+    if (pin >= GPIO_NUM_MAX) {
+        return -1;
+    }
+    return gpio_get_level((gpio_num_t)pin);
 }
 
 int micro_esp_host_wifi_connect(const uint8_t *ssid, size_t ssid_len,

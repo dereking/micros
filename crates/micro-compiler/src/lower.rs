@@ -1995,6 +1995,19 @@ fn host_call_spec(
         "device.resetReason" => (HostCallKind::DeviceResetReason, vec![], false, Some(ScalarType::String)),
         "device.backlight" => (HostCallKind::DeviceBacklight, vec![], false, Some(ScalarType::Number)),
         "device.setBacklight" => (HostCallKind::DeviceSetBacklight, vec![ScalarType::Number], false, None),
+        "device.gpioSetup" => (
+            HostCallKind::DeviceGpioSetup,
+            vec![ScalarType::Number, ScalarType::String],
+            false,
+            None,
+        ),
+        "device.gpioWrite" => (
+            HostCallKind::DeviceGpioWrite,
+            vec![ScalarType::Number, ScalarType::Number],
+            false,
+            None,
+        ),
+        "device.gpioRead" => (HostCallKind::DeviceGpioRead, vec![ScalarType::Number], false, Some(ScalarType::Number)),
         "net.wifiState" => (HostCallKind::NetWifiState, vec![], false, Some(ScalarType::String)),
         "net.wifiSsid" => (HostCallKind::NetWifiSsid, vec![], false, Some(ScalarType::String)),
         "net.wifiConnect" => (
@@ -2006,6 +2019,12 @@ fn host_call_spec(
         "net.wifiDisconnect" => (HostCallKind::NetWifiDisconnect, vec![], false, None),
         "net.scanWifi" => (HostCallKind::NetScanWifi, vec![], true, None),
         "net.httpGet" => (HostCallKind::NetHttpGet, vec![ScalarType::String], true, None),
+        "net.httpRequest" => (
+            HostCallKind::NetHttpRequest,
+            vec![ScalarType::String, ScalarType::String, ScalarType::String],
+            true,
+            None,
+        ),
         "os.appName" => (HostCallKind::OsAppName, vec![ScalarType::Number], false, Some(ScalarType::String)),
         "os.appIcon" => (HostCallKind::OsAppIcon, vec![ScalarType::Number], false, Some(ScalarType::String)),
         "os.launchIndex" => (HostCallKind::OsLaunchIndex, vec![ScalarType::Number], false, None),

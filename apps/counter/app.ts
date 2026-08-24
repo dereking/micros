@@ -19,6 +19,9 @@ const loading = state(0);
 const gauge = state(50);
 const wifiList = state("");
 const httpRes = state("");
+// GPIO demo: drive GPIO 6 (a free pin — wire an LED) and read it back.
+const gpioOut = state(0);   // last level written to the demo output pin
+const gpioLevel = state(0); // last level read back from that pin
 
 ui.mount(
   ui.tabview([
@@ -169,6 +172,36 @@ ui.mount(
           { height: 24, anchor: { left: 0, right: 0, top: 84 } }),
         ui.place(ui.text(bind(() => `backlight: ${device.backlight()}`)),
           { height: 24, anchor: { left: 0, right: 0, top: 112 } }),
+
+        // GPIO: GPIO 6 is free on this board (wire an LED); "read" reads the
+        // pin back so the demo proves the write actually stuck.
+        ui.place(ui.text("gpio:", { font: "uiSans", size: 12, weight: "regular", lineHeight: 14 }),
+          { height: 20, anchor: { left: 0, right: 0, top: 144 } }),
+        ui.place(ui.row([
+          ui.place(ui.button("led on", {
+            onClick: () => {
+              device.gpioSetup(6, "out");
+              device.gpioWrite(6, 1);
+              gpioOut.value = 1;
+            },
+          }), { left: 0, width: 96, height: 40 }),
+          ui.place(ui.button("led off", {
+            onClick: () => {
+              device.gpioSetup(6, "out");
+              device.gpioWrite(6, 0);
+              gpioOut.value = 0;
+            },
+          }), { left: 104, width: 96, height: 40 }),
+          ui.place(ui.button("read", {
+            onClick: () => {
+              gpioLevel.value = device.gpioRead(6);
+            },
+          }), { left: 208, width: 120, height: 40 }),
+        ]), { top: 170, height: 40, anchor: { left: 0, right: 0 } }),
+        ui.place(ui.text(bind(() => `out ${gpioOut.value} | pin6 ${gpioLevel.value}`),
+          { font: "uiSans", size: 12, weight: "regular", lineHeight: 14 }),
+          { height: 20, anchor: { left: 0, right: 0, top: 216 } }),
+
         ui.place(ui.row([
           ui.place(ui.button("dim", {
             onClick: () => { device.setBacklight(1); },
@@ -181,18 +214,38 @@ ui.mount(
               net.scanWifi((list) => { wifiList.value = list; });
             },
           }), { left: 168, width: 84, height: 40 }),
-          ui.place(ui.button("http", {
+        ]), { top: 242, height: 40, anchor: { left: 0, right: 0 } }),
+
+        // HTTP methods: GET uses net.httpGet; the rest go through httpRequest.
+        ui.place(ui.row([
+          ui.place(ui.button("GET", {
             onClick: () => {
               net.httpGet("http://example.com", (res) => { httpRes.value = res; });
             },
+          }), { left: 0, width: 68, height: 40 }),
+          ui.place(ui.button("POST", {
+            onClick: () => {
+              net.httpRequest("POST", "http://example.com", "hello", (res) => { httpRes.value = res; });
+            },
+          }), { left: 76, width: 84, height: 40 }),
+          ui.place(ui.button("PUT", {
+            onClick: () => {
+              net.httpRequest("PUT", "http://example.com", "hello", (res) => { httpRes.value = res; });
+            },
+          }), { left: 168, width: 84, height: 40 }),
+          ui.place(ui.button("DELETE", {
+            onClick: () => {
+              net.httpRequest("DELETE", "http://example.com", "", (res) => { httpRes.value = res; });
+            },
           }), { left: 260, width: 84, height: 40 }),
-        ]), { top: 144, height: 40, anchor: { left: 0, right: 0 } }),
-        ui.place(ui.text(bind(() => `wifi: ${net.wifiState()} ${net.wifiSsid()}`)),
-          { height: 24, anchor: { left: 0, right: 0, top: 190 } }),
-        ui.place(ui.text(bind(() => `APs: ${wifiList.value}`)),
-          { height: 48, anchor: { left: 0, right: 0, top: 218 } }),
+        ]), { top: 288, height: 40, anchor: { left: 0, right: 0 } }),
         ui.place(ui.text(bind(() => `http: ${httpRes.value}`)),
-          { height: 48, anchor: { left: 0, right: 0, top: 270 } }),
+          { height: 48, anchor: { left: 0, right: 0, top: 334 } }),
+
+        ui.place(ui.text(bind(() => `wifi: ${net.wifiState()} ${net.wifiSsid()}`)),
+          { height: 24, anchor: { left: 0, right: 0, top: 388 } }),
+        ui.place(ui.text(bind(() => `APs: ${wifiList.value}`)),
+          { height: 48, anchor: { left: 0, right: 0, top: 418 } }),
       ]),
     },
   ]),
