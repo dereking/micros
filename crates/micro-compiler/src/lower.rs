@@ -1727,6 +1727,9 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                     BinaryOp::Gt | BinaryOp::GtEq => (Instruction::Gt, ScalarType::Bool),
                     _ => return Err(self.error(binary.span, "unsupported binary operator")),
                 };
+                /* `!==` / `!=` is the negation of equality; without the Not the
+                 * two operators would lower identically. */
+                let negate = matches!(binary.op, BinaryOp::NotEq | BinaryOp::NotEqEq);
                 if matches!(
                     instruction,
                     Instruction::Add
@@ -1739,6 +1742,9 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                     return Err(self.error(binary.span, "arithmetic operands must be numbers"));
                 }
                 self.code.push(instruction);
+                if negate {
+                    self.code.push(Instruction::Not);
+                }
                 Ok(ty)
             }
             Expr::Update(update) => self.update(&update.arg, update.op),
@@ -2018,6 +2024,12 @@ fn host_call_spec(
         ),
         "net.wifiDisconnect" => (HostCallKind::NetWifiDisconnect, vec![], false, None),
         "net.scanWifi" => (HostCallKind::NetScanWifi, vec![], true, None),
+        "net.wifiApName" => (
+            HostCallKind::NetWifiApName,
+            vec![ScalarType::Number],
+            false,
+            Some(ScalarType::String),
+        ),
         "net.httpGet" => (HostCallKind::NetHttpGet, vec![ScalarType::String], true, None),
         "net.httpRequest" => (
             HostCallKind::NetHttpRequest,

@@ -34,6 +34,8 @@ pub struct WebHost {
     pending: Vec<(FunctionId, Value)>,
     /// Simulated GPIO output registers (pin → level) so read-after-write works.
     gpio: BTreeMap<u32, u8>,
+    /// SSIDs from the most recent `net.scanWifi`, indexed by `net.wifiApName`.
+    scan_aps: Vec<String>,
     /// Shared OS-shell state, drained by the JS main loop.
     pub nav: Rc<RefCell<ShellState>>,
 }
@@ -81,11 +83,16 @@ impl HostAccess for WebHost {
                 let callback = request.callback.ok_or_else(|| {
                     VmError::Host("net.scanWifi has no callback".into())
                 })?;
-                self.pending.push((
-                    callback,
-                    Value::String("micro-demo\nguest\nmicro-os".into()),
-                ));
+                let list = "micro-demo\nguest\nmicro-os";
+                self.scan_aps = list.split('\n').map(str::to_owned).collect();
+                self.pending.push((callback, Value::String(list.into())));
                 None
+            }
+            NetWifiApName => {
+                let index = numeric_arg(args, 0).unwrap_or(0.0) as usize;
+                Some(Value::String(
+                    self.scan_aps.get(index).cloned().unwrap_or_default(),
+                ))
             }
             NetHttpGet => {
                 let callback = request.callback.ok_or_else(|| {

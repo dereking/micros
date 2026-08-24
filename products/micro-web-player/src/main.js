@@ -9,7 +9,7 @@ import "./style.css";
 // MBC metadata) through `os.appName/Icon` and boots apps via `os.launchIndex`;
 // apps return to the shell via `os.goBack`. This mirrors the ESP32 firmware.
 const SHELL_URL = "/apps/shell.mbc";
-const APP_URLS = ["/apps/counter.mbc"];
+const APP_URLS = ["/apps/counter.mbc", "/apps/settings.mbc"];
 
 // Edge-swipe back gesture (Android gesture-nav style): a drag that starts
 // within EDGE_ZONE px of the left/right edge of the 800-wide canvas and moves

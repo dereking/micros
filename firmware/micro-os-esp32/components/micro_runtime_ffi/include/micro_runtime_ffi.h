@@ -299,6 +299,8 @@ int micro_esp_host_wifi_disconnect(void);
  * (returns 1 with a fresh "\n"-joined AP list, 0 when none is ready). */
 void micro_esp_host_scan_start(void);
 int micro_esp_host_take_scan_result(char *buf, size_t cap);
+/* Copies the SSID of the AP at scan index `index` ("" out of range / no scan). */
+int micro_esp_host_wifi_ap_name(uint32_t index, char *buf, size_t cap);
 /* Start an asynchronous HTTP/1.0 GET (real lwip socket); 0 on accept, -1 when
  * rejected (busy/malformed). The result is polled via take_http_result
  * (returns 1 with "HTTP <status>\n<body>", 0 when still pending). */

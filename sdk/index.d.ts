@@ -74,6 +74,8 @@ declare const net: {
   wifiDisconnect(): void;
   /** Calls back with the SSID list, one per line. */
   scanWifi(onResult: (list: string) => void): void;
+  /** SSID of the AP at scan index `i` from the last scan ("" when none). */
+  wifiApName(i: number): string;
   /** Calls back with the HTTP response body (or an error line). */
   httpGet(url: string, onResult: (response: string) => void): void;
   /**

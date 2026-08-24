@@ -165,6 +165,9 @@ pub enum HostCallKind {
     /// `net.scanWifi(onResult)` — async; host calls back with a `\n`-joined
     /// SSID list.
     NetScanWifi,
+    /// `net.wifiApName(i)` → SSID of the AP at scan index `i` from the most
+    /// recent scan ("" when the scan is empty or `i` is out of range).
+    NetWifiApName,
     /// `net.httpGet(url, onResult)` — async; host calls back with the response
     /// body string.
     NetHttpGet,

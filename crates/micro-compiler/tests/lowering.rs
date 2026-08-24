@@ -173,6 +173,29 @@ ui.mount(ui.button("Run", { onClick: () => {
 }
 
 #[test]
+fn not_equal_lowers_to_equality_then_negation() {
+    let source = r#"
+const count = state(0);
+ui.mount(ui.button("Run", { onClick: () => {
+  if (count.value !== 0) { count.value = 1; }
+} }));
+"#;
+    let image = compile_source("flow.ts", source).unwrap();
+    let handler = image
+        .functions
+        .iter()
+        .find(|function| matches!(function.kind, FunctionKind::Handler(_)))
+        .unwrap();
+    // `!==` must be Eq followed by Not (not a plain Eq, which would invert the
+    // condition). Find an Eq that is immediately followed by Not.
+    let has_eq_then_not = handler
+        .code
+        .windows(2)
+        .any(|window| matches!((&window[0], &window[1]), (Instruction::Eq, Instruction::Not)));
+    assert!(has_eq_then_not, "`!==` must lower to Eq + Not");
+}
+
+#[test]
 fn lowers_app_manifest_into_metadata() {
     let image = compile_source(
         "meta.ts",

@@ -61,6 +61,7 @@ impl HostAccess for SimHost {
             }
             HostCallKind::NetWifiState => Some(Value::String("off".into())),
             HostCallKind::NetWifiSsid => Some(Value::String(String::new())),
+            HostCallKind::NetWifiApName => Some(Value::String(String::new())),
             HostCallKind::DeviceName => Some(Value::String("micro-os".into())),
             HostCallKind::DeviceChip => Some(Value::String("ESP32-S3 (sim)".into())),
             HostCallKind::DeviceFlashBytes | HostCallKind::DevicePsramBytes => {

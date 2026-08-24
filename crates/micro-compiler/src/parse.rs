@@ -237,8 +237,8 @@ impl Validator<'_> {
             "device.name" | "device.chip" | "device.flashBytes" | "device.psramBytes"
             | "device.resetReason" | "device.backlight" | "net.wifiState" | "net.wifiSsid"
             | "net.wifiDisconnect" => 0..=0,
-            "device.setBacklight" | "device.gpioRead" | "net.scanWifi" | "os.appName"
-            | "os.appIcon" | "os.launchIndex" => 1..=1,
+            "device.setBacklight" | "device.gpioRead" | "net.scanWifi" | "net.wifiApName"
+            | "os.appName" | "os.appIcon" | "os.launchIndex" => 1..=1,
             "device.gpioSetup" | "device.gpioWrite" | "net.wifiConnect" | "net.httpGet" => 2..=2,
             "net.httpRequest" => 4..=4,
             "os.goBack" => 0..=0,

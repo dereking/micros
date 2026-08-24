@@ -11,13 +11,14 @@ idf_component_register(
 # must come first. Re-running `npm run build:app` refreshes the staged copy.
 set(MBC_SHELL_PATH "${CMAKE_SOURCE_DIR}/../../apps/shell/dist/shell.mbc")
 set(MBC_APP_PATH "${CMAKE_SOURCE_DIR}/../../apps/counter/dist/counter.mbc")
+set(MBC_SETTINGS_PATH "${CMAKE_SOURCE_DIR}/../../apps/settings/dist/settings.mbc")
 set(MBC_STAGED_PATH "${CMAKE_CURRENT_BINARY_DIR}/micro_app.bin")
 
 add_custom_command(
   OUTPUT "${MBC_STAGED_PATH}"
-  COMMAND sh -c "cat '${MBC_SHELL_PATH}' '${MBC_APP_PATH}' > '${MBC_STAGED_PATH}'"
-  DEPENDS "${MBC_SHELL_PATH}" "${MBC_APP_PATH}"
-  COMMENT "Staging shell + counter MBCs as micro_app partition image"
+  COMMAND sh -c "cat '${MBC_SHELL_PATH}' '${MBC_APP_PATH}' '${MBC_SETTINGS_PATH}' > '${MBC_STAGED_PATH}'"
+  DEPENDS "${MBC_SHELL_PATH}" "${MBC_APP_PATH}" "${MBC_SETTINGS_PATH}"
+  COMMENT "Staging shell + counter + settings MBCs as micro_app partition image"
   VERBATIM
 )
 add_custom_target(stage_counter_mbc ALL DEPENDS "${MBC_STAGED_PATH}")

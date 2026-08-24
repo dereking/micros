@@ -166,6 +166,11 @@ int micro_esp_host_take_scan_result(char *buf, size_t cap)
     return micro_wifi_take_scan_result(buf, cap);
 }
 
+int micro_esp_host_wifi_ap_name(uint32_t index, char *buf, size_t cap)
+{
+    return micro_wifi_ap_name(index, buf, cap);
+}
+
 int micro_esp_host_http_get(const uint8_t *url, size_t url_len)
 {
     return micro_http_get((const char *)url, url_len);

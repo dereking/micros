@@ -2,6 +2,7 @@
 #define MICRO_WIFI_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,6 +24,10 @@ void micro_wifi_start_scan(void);
  * line per AP) if a scan completed since the last read, 0 when none is ready,
  * and a negative value on a NULL/empty buf. The ready flag clears on read. */
 int micro_wifi_take_scan_result(char *buf, size_t cap);
+
+/* Copies the SSID of the AP at scan index `index` ("" out of range or when no
+ * scan has completed). Thread-safe (spinlock-guarded). */
+int micro_wifi_ap_name(uint32_t index, char *buf, size_t cap);
 
 /* Connects the STA radio to the given network. Credentials are persisted to
  * the default NVS partition on a successful connect so a reboot auto-reconnects

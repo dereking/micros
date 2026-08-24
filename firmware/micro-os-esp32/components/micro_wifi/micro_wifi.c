@@ -37,6 +37,10 @@ static const char *TAG = "micro_wifi";
 #define MICRO_WIFI_PASS_CAP 65U
 #define MICRO_WIFI_SCAN_CAP 512U
 #define MICRO_WIFI_MAX_APS 16U
+/* How many times the boot-time auto-reconnect retries before giving up. The
+ * first attempt happens from WIFI_EVENT_STA_START; each STA_DISCONNECTED during
+ * the pending auto-reconnect bumps the count. */
+#define MICRO_WIFI_RECONNECT_MAX 5U
 
 /* Shared radio state (see file header). */
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -50,6 +54,7 @@ static char s_scan_result[MICRO_WIFI_SCAN_CAP];
 static char s_last_ssid[MICRO_WIFI_SSID_CAP] = "";
 static char s_last_pass[MICRO_WIFI_PASS_CAP] = "";
 static bool s_auto_connect; /* persisted creds loaded; connect on STA_START */
+static uint8_t s_reconnect_tries; /* auto-reconnect attempts so far */
 
 static void set_state(const char *state, const char *ssid)
 {
@@ -235,6 +240,38 @@ int micro_wifi_take_scan_result(char *buf, size_t cap)
     return fresh ? 1 : 0;
 }
 
+/* SSID of the AP at scan index `index` ("" out of range / no scan yet). The
+ * scan result is "SSID, -rssi dBm" per line, so the "," suffix is trimmed. */
+int micro_wifi_ap_name(uint32_t index, char *buf, size_t cap)
+{
+    if (buf == NULL || cap == 0) {
+        return -1;
+    }
+    buf[0] = '\0';
+    portENTER_CRITICAL(&s_lock);
+    const char *cursor = s_scan_result;
+    uint32_t current = 0;
+    while (*cursor != '\0' && current < index) {
+        while (*cursor != '\0' && *cursor != '\n') {
+            ++cursor;
+        }
+        if (*cursor == '\n') {
+            ++cursor;
+        }
+        ++current;
+    }
+    if (*cursor != '\0' && current == index) {
+        size_t used = 0;
+        while (*cursor != '\0' && *cursor != '\n' && *cursor != ',' &&
+               used + 1 < cap) {
+            buf[used++] = *cursor++;
+        }
+        buf[used] = '\0';
+    }
+    portEXIT_CRITICAL(&s_lock);
+    return 0;
+}
+
 /* --- state reads --- */
 
 int micro_wifi_state(char *buf, size_t cap)
@@ -272,24 +309,34 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id,
     switch (id) {
     case WIFI_EVENT_STA_START:
         if (s_auto_connect) {
-            s_auto_connect = false;
             ESP_LOGI(TAG, "auto-reconnecting to %s", s_last_ssid);
             start_connect(s_last_ssid, s_last_pass);
         }
         break;
     case WIFI_EVENT_STA_CONNECTED:
+        s_auto_connect = false;
+        s_reconnect_tries = 0;
         set_state("connected", s_last_ssid);
         persist_creds(s_last_ssid, s_last_pass);
         break;
     case WIFI_EVENT_STA_DISCONNECTED:
         /* Not an "off" transition (deliberate disconnect clears state before
-         * esp_wifi_disconnect), so this is a failed attempt or a dropped link. */
+         * esp_wifi_disconnect), so this is a failed auto-reconnect attempt or
+         * a dropped link. A pending auto-reconnect retries up to the cap; a
+         * post-connect drop surfaces as "error" (no retry loop). */
         char state[MICRO_WIFI_STATE_CAP];
         portENTER_CRITICAL(&s_lock);
         strncpy(state, s_state, sizeof state - 1);
         state[sizeof state - 1] = '\0';
         portEXIT_CRITICAL(&s_lock);
-        if (strcmp(state, "off") != 0) {
+        if (s_auto_connect && s_reconnect_tries < MICRO_WIFI_RECONNECT_MAX) {
+            ++s_reconnect_tries;
+            ESP_LOGW(TAG, "auto-reconnect attempt %u/%u failed; retrying %s",
+                     s_reconnect_tries, MICRO_WIFI_RECONNECT_MAX, s_last_ssid);
+            set_state("connecting", s_last_ssid);
+            esp_wifi_connect();
+        } else if (strcmp(state, "off") != 0) {
+            s_auto_connect = false;
             set_state("error", s_last_ssid);
         }
         break;

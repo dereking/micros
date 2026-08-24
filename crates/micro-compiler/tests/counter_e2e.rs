@@ -30,6 +30,7 @@ impl HostAccess for SimHost {
             HostCallKind::DeviceGpioRead => Some(Value::Number(0.0)),
             HostCallKind::NetWifiState => Some(Value::String("connected".into())),
             HostCallKind::NetWifiSsid => Some(Value::String("micro-demo".into())),
+            HostCallKind::NetWifiApName => Some(Value::String(String::new())),
             HostCallKind::NetScanWifi | HostCallKind::NetHttpGet | HostCallKind::NetHttpRequest => {
                 self.pending.push((
                     request.callback.unwrap(),

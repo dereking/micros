@@ -52,10 +52,10 @@ test("Counter app and shell use fixed logical typography on the device canvas", 
   await page.goto("/");
   await page.locator("html").evaluate((element) => { element.style.fontSize = "20px"; });
 
-  // Shell launcher typography (icon tile is 32px, name label is 12px).
+  // Shell launcher typography (icon tile is 32px, name label is 14px).
   const iconTile = page.locator("#system-screen").getByRole("button", { name: "C", exact: true });
   await expect(iconTile).toHaveCSS("font-size", "32px");
-  await expect(page.getByText("Counter")).toHaveCSS("font-size", "12px");
+  await expect(page.getByText("Counter")).toHaveCSS("font-size", "14px");
 
   // Boot the Counter app.
   await iconTile.click();
@@ -72,16 +72,58 @@ test("Counter app and shell use fixed logical typography on the device canvas", 
   await expect(page.getByRole("button", { name: "Add" })).toHaveCSS("line-height", "18px");
 });
 
-test("shell exposes Home / Settings / WiFi tabs and the monitor reflects touch", async ({ page }) => {
+test("shell launcher is an icon grid; Settings boots as a separate tabbed app", async ({ page }) => {
   await page.goto("/");
 
-  // The shell MBC's tabview is its page navigation.
+  // The shell is a launcher grid directly (no tab bar): Counter and Settings
+  // tiles are separate entries.
   await expect(page.locator("#system-screen")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Home" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Settings" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "WiFi" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Home" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "WiFi" })).toBeHidden();
+  await expect(page.locator("#system-screen").getByRole("button", { name: "C", exact: true })).toBeVisible();
+  await expect(page.locator("#system-screen").getByRole("button", { name: "S", exact: true })).toBeVisible();
+  await expect(page.getByText("Counter")).toBeVisible();
+  await expect(page.getByText("Settings")).toBeVisible();
 
-  // The board monitor reports device-level statics + live touch coordinates.
+  // Tapping the Settings tile boots the Settings app, whose pages are tabs
+  // (Wi-Fi is one of them).
+  await page.locator("#system-screen").getByRole("button", { name: "S", exact: true }).click();
+  await expect(page.locator("#system-screen")).toBeHidden();
+  await expect(page.locator("#app-shell")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Device" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Wi-Fi" })).toBeVisible();
+
+  // Back returns to the launcher grid.
+  await page.locator(".app-back").click();
+  await expect(page.getByText("Counter")).toBeVisible();
+  await expect(page.getByText("Settings")).toBeVisible();
+});
+
+test("Settings Wi-Fi tab scans, lists APs, and a tap fills the SSID field", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#system-screen").getByRole("button", { name: "S", exact: true }).click();
+  await expect(page.locator("#app-shell")).toBeVisible();
+  await page.getByRole("button", { name: "Wi-Fi" }).click();
+
+  // Scan exposes the simulator's AP list as buttons.
+  await page.getByRole("button", { name: "Scan", exact: true }).click();
+  await expect(page.getByRole("button", { name: "micro-demo", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "guest", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "micro-os", exact: true })).toBeVisible();
+
+  // Tapping an AP fills the SSID input; the Device tab shows backlight as a
+  // property only (the dim/bright buttons are gone).
+  await page.getByRole("button", { name: "guest", exact: true }).click();
+  await expect(page.locator("#app-screen input").first()).toHaveValue("guest");
+  await page.getByRole("button", { name: "Device" }).click();
+  await expect(page.getByText("backlight:")).toBeVisible();
+  await expect(page.getByRole("button", { name: "dim" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "bright" })).toBeHidden();
+});
+
+test("board monitor reports device-level statics and live touch coordinates", async ({ page }) => {
+  await page.goto("/");
+
   await expect(page.locator('[data-monitor="display"]')).toHaveText(/RGB565/);
   await page.locator("[data-device-screen]").hover({ position: { x: 200, y: 120 } });
   await expect(page.locator('[data-monitor="touch"]')).toHaveText(/GT911 · \d+, \d+/);

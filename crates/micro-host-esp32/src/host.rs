@@ -38,6 +38,7 @@ unsafe extern "C" {
     fn micro_esp_host_wifi_disconnect() -> c_int;
     fn micro_esp_host_scan_start() -> c_int;
     fn micro_esp_host_take_scan_result(buf: *mut u8, cap: usize) -> c_int;
+    fn micro_esp_host_wifi_ap_name(index: u32, buf: *mut u8, cap: usize) -> c_int;
     fn micro_esp_host_http_get(url: *const u8, url_len: usize) -> c_int;
     fn micro_esp_host_http_request(
         method: *const u8,
@@ -186,6 +187,13 @@ impl HostAccess for EspHost {
                 unsafe { micro_esp_host_scan_start() };
                 self.scan_callback = Some(callback);
                 None
+            }
+            NetWifiApName => {
+                let index = numeric_arg(args, 0).unwrap_or(0.0) as u32;
+                Some(Value::String(read_c_string_arg(
+                    micro_esp_host_wifi_ap_name,
+                    index,
+                )))
             }
             NetHttpGet => {
                 let callback = request.callback.ok_or_else(|| {

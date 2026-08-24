@@ -17,7 +17,6 @@ const size = state(1);
 const powerOn = state(0);
 const loading = state(0);
 const gauge = state(50);
-const wifiList = state("");
 const httpRes = state("");
 // GPIO demo: drive GPIO 6 (a free pin — wire an LED) and read it back.
 const gpioOut = state(0);   // last level written to the demo output pin
@@ -184,37 +183,32 @@ ui.mount(
               device.gpioWrite(6, 1);
               gpioOut.value = 1;
             },
-          }), { left: 0, width: 96, height: 40 }),
+          }), { left: 0, width: 96, height: 80 }),
           ui.place(ui.button("led off", {
             onClick: () => {
               device.gpioSetup(6, "out");
               device.gpioWrite(6, 0);
               gpioOut.value = 0;
             },
-          }), { left: 104, width: 96, height: 40 }),
+          }), { left: 104, width: 96, height: 80 }),
           ui.place(ui.button("read", {
             onClick: () => {
               gpioLevel.value = device.gpioRead(6);
             },
-          }), { left: 208, width: 120, height: 40 }),
-        ]), { top: 170, height: 40, anchor: { left: 0, right: 0 } }),
+          }), { left: 208, width: 120, height: 80 }),
+        ]), { top: 170, height: 80, anchor: { left: 0, right: 0 } }),
         ui.place(ui.text(bind(() => `out ${gpioOut.value} | pin6 ${gpioLevel.value}`),
           { font: "uiSans", size: 12, weight: "regular", lineHeight: 14 }),
-          { height: 20, anchor: { left: 0, right: 0, top: 216 } }),
+          { height: 20, anchor: { left: 0, right: 0, top: 256 } }),
 
         ui.place(ui.row([
           ui.place(ui.button("dim", {
             onClick: () => { device.setBacklight(1); },
-          }), { left: 0, width: 68, height: 40 }),
+          }), { left: 0, width: 68, height: 80 }),
           ui.place(ui.button("bright", {
             onClick: () => { device.setBacklight(4); },
-          }), { left: 76, width: 84, height: 40 }),
-          ui.place(ui.button("scan", {
-            onClick: () => {
-              net.scanWifi((list) => { wifiList.value = list; });
-            },
-          }), { left: 168, width: 84, height: 40 }),
-        ]), { top: 242, height: 40, anchor: { left: 0, right: 0 } }),
+          }), { left: 76, width: 84, height: 80 }),
+        ]), { top: 282, height: 80, anchor: { left: 0, right: 0 } }),
 
         // HTTP methods: GET uses net.httpGet; the rest go through httpRequest.
         ui.place(ui.row([
@@ -222,30 +216,30 @@ ui.mount(
             onClick: () => {
               net.httpGet("http://example.com", (res) => { httpRes.value = res; });
             },
-          }), { left: 0, width: 68, height: 40 }),
+          }), { left: 0, width: 68, height: 80 }),
           ui.place(ui.button("POST", {
             onClick: () => {
               net.httpRequest("POST", "http://example.com", "hello", (res) => { httpRes.value = res; });
             },
-          }), { left: 76, width: 84, height: 40 }),
+          }), { left: 76, width: 84, height: 80 }),
           ui.place(ui.button("PUT", {
             onClick: () => {
               net.httpRequest("PUT", "http://example.com", "hello", (res) => { httpRes.value = res; });
             },
-          }), { left: 168, width: 84, height: 40 }),
+          }), { left: 168, width: 84, height: 80 }),
           ui.place(ui.button("DELETE", {
             onClick: () => {
               net.httpRequest("DELETE", "http://example.com", "", (res) => { httpRes.value = res; });
             },
-          }), { left: 260, width: 84, height: 40 }),
-        ]), { top: 288, height: 40, anchor: { left: 0, right: 0 } }),
+          }), { left: 260, width: 84, height: 80 }),
+        ]), { top: 368, height: 80, anchor: { left: 0, right: 0 } }),
+
+        // HTTP result: a tall output area for the response body.
         ui.place(ui.text(bind(() => `http: ${httpRes.value}`)),
-          { height: 48, anchor: { left: 0, right: 0, top: 334 } }),
+          { height: 400, anchor: { left: 0, right: 0, top: 484 } }),
 
         ui.place(ui.text(bind(() => `wifi: ${net.wifiState()} ${net.wifiSsid()}`)),
-          { height: 24, anchor: { left: 0, right: 0, top: 388 } }),
-        ui.place(ui.text(bind(() => `APs: ${wifiList.value}`)),
-          { height: 48, anchor: { left: 0, right: 0, top: 418 } }),
+          { height: 24, anchor: { left: 0, right: 0, top: 454 } }),
       ]),
     },
   ]),

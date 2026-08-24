@@ -87,7 +87,7 @@ fn run_os_smoke(shell_path: &PathBuf, app_paths: &[PathBuf]) -> Result<(), Strin
         })
         .collect::<Result<Vec<_>, String>>()?;
 
-    let bridge = NativeBridge::create(480, 320, true)?;
+    let bridge = NativeBridge::create(800, 480, true)?;
     let nav = Rc::new(RefCell::new(ShellState {
         apps: registry
             .iter()
@@ -185,7 +185,7 @@ fn run_os(smoke: bool, shell_path: &PathBuf, app_paths: &[PathBuf]) -> Result<()
         })
         .collect::<Result<Vec<_>, String>>()?;
 
-    let mut bridge = NativeBridge::create(480, 320, smoke)?;
+    let mut bridge = NativeBridge::create(800, 480, smoke)?;
     let nav = Rc::new(RefCell::new(ShellState {
         apps: registry
             .iter()
