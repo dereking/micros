@@ -94,6 +94,27 @@ static void micro_bsp_update_touch_coordinates(lv_timer_t *timer)
     lv_label_set_text(s_touch_label, coordinates);
 }
 
+bool micro_bsp_touch_read(micro_bsp_display_t *display, int *x, int *y)
+{
+    if (display == NULL || display->touch == NULL || x == NULL || y == NULL) {
+        return false;
+    }
+    esp_lcd_touch_point_data_t point = {0};
+    uint8_t point_count = 0;
+    if (esp_lcd_touch_read_data(display->touch) != ESP_OK) {
+        return false;
+    }
+    if (esp_lcd_touch_get_data(display->touch, &point, &point_count, 1) != ESP_OK) {
+        return false;
+    }
+    if (point_count == 0) {
+        return false;
+    }
+    *x = (int)point.x;
+    *y = (int)point.y;
+    return true;
+}
+
 static bool micro_bsp_profile_is_valid(const micro_bsp_profile_record_t *profile)
 {
     return profile->magic == MICRO_BSP_PROFILE_MAGIC &&

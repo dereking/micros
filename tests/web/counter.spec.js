@@ -1,5 +1,28 @@
 import { expect, test } from "@playwright/test";
 
+test("edge swipe from the right edge returns an app to the shell", async ({ page }) => {
+  await page.goto("/");
+
+  // Boot the Counter app from the launcher.
+  const iconTile = page.locator("#system-screen").getByRole("button", { name: "C", exact: true });
+  await iconTile.click();
+  await expect(page.getByText("Count: 0")).toBeVisible();
+
+  // Swipe inward from the right edge of the device canvas (Android gesture
+  // nav style): down near the right edge, drag left past the threshold, lift.
+  const box = await page.locator("[data-device-screen]").boundingBox();
+  const start = { x: box.x + (770 / 800) * box.width, y: box.y + (100 / 480) * box.height };
+  const end = { x: box.x + (690 / 800) * box.width, y: box.y + (100 / 480) * box.height };
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 6 });
+  await page.mouse.up();
+
+  // The gesture returns to the shell launcher.
+  await expect(page.locator("#system-screen")).toBeVisible();
+  await expect(page.getByText("Counter")).toBeVisible();
+});
+
 test("shell launcher boots the real Counter MBC and returns home", async ({ page }) => {
   await page.goto("/");
 

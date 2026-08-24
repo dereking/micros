@@ -6,6 +6,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* The native window / LVGL display is 480x320, so the edge-swipe zones are
+ * sized against that width (the web/ESP32 hosts use 800x480). */
+#define MICRO_NATIVE_WINDOW_WIDTH 480
+#define MICRO_NATIVE_EDGE_ZONE 40
+#define MICRO_NATIVE_SWIPE_THRESHOLD 60
+
 #define MICRO_MAX_NODES 256U
 #define MICRO_EVENT_CAPACITY 64U
 #define MICRO_NO_PARENT UINT32_MAX
@@ -71,6 +77,12 @@ struct micro_native {
     lv_point_t pointer_position;
     bool pointer_pressed;
     bool quit;
+    /* Edge-swipe back gesture: track a drag that starts near the left/right
+     * edge and moves inward, mirroring the web player and ESP32 hosts. */
+    bool back_gesture;
+    bool gesture_active;
+    int gesture_edge; /* 0 = none, 1 = left, 2 = right */
+    lv_point_t gesture_start;
     lv_obj_t *objects[MICRO_MAX_NODES];
     lv_obj_t *text_targets[MICRO_MAX_NODES];
     lv_obj_t *needles[MICRO_MAX_NODES];
@@ -340,6 +352,15 @@ int micro_native_poll(micro_native_t *native) {
                     native->pointer_position.y = (lv_coord_t)event.button.y;
                     native->pointer_pressed = true;
                     lv_indev_read(native->pointer);
+                    native->gesture_active = true;
+                    native->gesture_start = native->pointer_position;
+                    native->gesture_edge = event.button.x < MICRO_NATIVE_EDGE_ZONE
+                                               ? 1
+                                               : (event.button.x >
+                                                          (MICRO_NATIVE_WINDOW_WIDTH -
+                                                           MICRO_NATIVE_EDGE_ZONE)
+                                                      ? 2
+                                                      : 0);
                 }
                 break;
             case SDL_EVENT_MOUSE_BUTTON_UP:
@@ -348,12 +369,30 @@ int micro_native_poll(micro_native_t *native) {
                     native->pointer_position.y = (lv_coord_t)event.button.y;
                     native->pointer_pressed = false;
                     lv_indev_read(native->pointer);
+                    if (native->gesture_active) {
+                        native->gesture_active = false;
+                        lv_coord_t dx = native->pointer_position.x - native->gesture_start.x;
+                        lv_coord_t dy = native->pointer_position.y - native->gesture_start.y;
+                        lv_coord_t inward = native->gesture_edge == 1 ? dx : -dx;
+                        lv_coord_t adx = dx < 0 ? -dx : dx;
+                        lv_coord_t ady = dy < 0 ? -dy : dy;
+                        if (native->gesture_edge != 0 && inward >= MICRO_NATIVE_SWIPE_THRESHOLD &&
+                            adx >= 2 * ady) {
+                            native->back_gesture = true;
+                        }
+                    }
                 }
                 break;
             default: break;
         }
     }
     return native->quit ? 0 : 1;
+}
+
+int micro_native_take_back_gesture(micro_native_t *native) {
+    int result = native->back_gesture ? 1 : 0;
+    native->back_gesture = false;
+    return result;
 }
 
 uint32_t micro_native_timer(micro_native_t *native) {

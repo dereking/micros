@@ -202,7 +202,7 @@ fn run_os(smoke: bool, shell_path: &PathBuf, app_paths: &[PathBuf]) -> Result<()
         host_iteration(&mut runtime)?;
 
         let launch = nav.borrow_mut().pending_launch.take();
-        let back = nav.borrow_mut().pending_back;
+        let back = nav.borrow_mut().pending_back || bridge.take_back_gesture();
         nav.borrow_mut().pending_back = false;
 
         if is_shell {

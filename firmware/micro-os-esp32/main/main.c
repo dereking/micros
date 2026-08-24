@@ -28,6 +28,10 @@
 #define MICRO_OS_MAX_ACTIONS 16U
 #define MICRO_BOOT_BUTTON_GPIO 0U
 #define MICRO_BOOT_DEBOUNCE_TICKS 4U
+/* Edge-swipe back gesture on the 800x480 display (Android gesture-nav style):
+ * a drag starting within the left/right edge zone that moves inward. */
+#define MICRO_SWIPE_EDGE_ZONE 64
+#define MICRO_SWIPE_THRESHOLD 80
 
 /* MBC1 file layout (little-endian, see crates/micro-ir/src/codec.rs):
  *   offset 0..4   magic "MBC1"
@@ -335,6 +339,57 @@ static void micro_os_drain_host_intents(void)
     }
 }
 
+/* --- edge-swipe back gesture (Android gesture-nav style) --- */
+
+static struct {
+    bool active;
+    int edge; /* 0 = none, 1 = left, 2 = right */
+    int start_x;
+    int start_y;
+    int last_x;
+    int last_y;
+} s_swipe;
+
+static void micro_os_swipe_tick(void)
+{
+    int x = 0;
+    int y = 0;
+    if (micro_bsp_touch_read(&s_display, &x, &y)) {
+        if (!s_swipe.active) {
+            s_swipe.active = true;
+            s_swipe.start_x = x;
+            s_swipe.start_y = y;
+            s_swipe.last_x = x;
+            s_swipe.last_y = y;
+            s_swipe.edge = x < MICRO_SWIPE_EDGE_ZONE
+                               ? 1
+                               : (x >= MICRO_BSP_LCD_WIDTH - MICRO_SWIPE_EDGE_ZONE ? 2 : 0);
+        } else {
+            s_swipe.last_x = x;
+            s_swipe.last_y = y;
+        }
+        return;
+    }
+    if (!s_swipe.active) {
+        return;
+    }
+    /* Finger lifted: was it an inward edge swipe? */
+    s_swipe.active = false;
+    if (s_swipe.edge != 0) {
+        int dx = s_swipe.last_x - s_swipe.start_x;
+        int dy = s_swipe.last_y - s_swipe.start_y;
+        int inward = s_swipe.edge == 1 ? dx : -dx;
+        int adx = dx < 0 ? -dx : dx;
+        int ady = dy < 0 ? -dy : dy;
+        if (inward >= MICRO_SWIPE_THRESHOLD && adx >= 2 * ady) {
+            ESP_LOGI(TAG, "edge swipe back");
+            if (!s_is_shell) {
+                micro_runtime_boot_shell();
+            }
+        }
+    }
+}
+
 /* --- BOOT button (acts as Back) --- */
 
 static void micro_boot_button_init(void)
@@ -368,6 +423,8 @@ static void micro_os_tick_cb(lv_timer_t *timer)
     (void)timer;
 
     micro_os_drain_host_intents();
+
+    micro_os_swipe_tick();
 
     if (micro_boot_button_back_pressed()) {
         if (!s_is_shell) {

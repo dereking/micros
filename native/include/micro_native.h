@@ -21,6 +21,8 @@ MICRO_EXPORT micro_native_t *micro_native_create(
 MICRO_EXPORT void micro_native_destroy(micro_native_t *native);
 MICRO_EXPORT int micro_native_destroy_app_root(micro_native_t *native);
 MICRO_EXPORT int micro_native_poll(micro_native_t *native);
+/* Returns 1 (and clears) when an edge-swipe-back gesture completed. */
+MICRO_EXPORT int micro_native_take_back_gesture(micro_native_t *native);
 MICRO_EXPORT uint32_t micro_native_timer(micro_native_t *native);
 MICRO_EXPORT int micro_native_take_activation(micro_native_t *native, uint32_t *handler_id);
 MICRO_EXPORT void micro_native_inject_activation(micro_native_t *native, uint32_t handler_id);

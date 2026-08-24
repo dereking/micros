@@ -11,6 +11,13 @@ import "./style.css";
 const SHELL_URL = "/apps/shell.mbc";
 const APP_URLS = ["/apps/counter.mbc"];
 
+// Edge-swipe back gesture (Android gesture-nav style): a drag that starts
+// within EDGE_ZONE px of the left/right edge of the 800-wide canvas and moves
+// inward past SWIPE_THRESHOLD returns to the shell while an app is running.
+const EDGE_ZONE = 64;
+const SWIPE_THRESHOLD = 80;
+let swipe = null; // { edge: "left"|"right", startX, startY, dx, dy }
+
 const device = document.querySelector("[data-device-screen]");
 const deviceCanvas = document.querySelector("[data-device-canvas]");
 const systemScreen = document.querySelector("#system-screen");
@@ -105,6 +112,10 @@ async function start() {
   document.querySelector(".app-back").addEventListener("click", goBackToShell);
   device.addEventListener("pointermove", updateTouch);
   device.addEventListener("pointerdown", updateTouch);
+  device.addEventListener("pointerdown", onSwipeStart);
+  device.addEventListener("pointermove", onSwipeMove);
+  device.addEventListener("pointerup", onSwipeEnd);
+  device.addEventListener("pointercancel", onSwipeEnd);
   const resizeObserver = new ResizeObserver(() => fitDeviceCanvas(deviceCanvas, device.getBoundingClientRect()));
   resizeObserver.observe(device);
   fitDeviceCanvas(deviceCanvas, device.getBoundingClientRect());
@@ -129,6 +140,34 @@ function renderMonitorStatic() {
 function updateTouch(event) {
   const touch = mapTouch(event, device.getBoundingClientRect());
   if (touch) document.querySelector('[data-monitor="touch"]').textContent = `GT911 · ${touch.x}, ${touch.y}`;
+}
+
+function onSwipeStart(event) {
+  // The gesture only navigates while an app is on screen.
+  if (appShell.hidden) return;
+  const point = mapTouch(event, device.getBoundingClientRect());
+  if (!point) return;
+  const edge = point.x < EDGE_ZONE ? "left" : point.x > 800 - EDGE_ZONE ? "right" : null;
+  if (!edge) return;
+  swipe = { edge, startX: point.x, startY: point.y, dx: 0, dy: 0 };
+}
+
+function onSwipeMove(event) {
+  if (!swipe) return;
+  const point = mapTouch(event, device.getBoundingClientRect());
+  if (!point) return;
+  swipe.dx = point.x - swipe.startX;
+  swipe.dy = point.y - swipe.startY;
+}
+
+function onSwipeEnd() {
+  if (!swipe) return;
+  const gesture = swipe;
+  swipe = null;
+  const inward = gesture.edge === "left" ? gesture.dx : -gesture.dx;
+  if (inward >= SWIPE_THRESHOLD && Math.abs(gesture.dx) >= 2 * Math.abs(gesture.dy)) {
+    goBackToShell();
+  }
 }
 
 function reportError(error) {

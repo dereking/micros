@@ -15,6 +15,7 @@ unsafe extern "C" {
     ) -> *mut c_void;
     fn micro_native_destroy(native: *mut c_void);
     fn micro_native_poll(native: *mut c_void) -> c_int;
+    fn micro_native_take_back_gesture(native: *mut c_void) -> c_int;
     fn micro_native_timer(native: *mut c_void) -> c_uint;
     fn micro_native_take_activation(native: *mut c_void, handler_id: *mut c_uint) -> c_int;
     fn micro_native_inject_activation(native: *mut c_void, handler_id: c_uint);
@@ -281,6 +282,11 @@ impl NativeBridge {
 
     pub fn poll(&mut self) -> bool {
         unsafe { micro_native_poll(self.inner.raw.as_ptr()) != 0 }
+    }
+
+    /// Returns true (and clears) when an edge-swipe-back gesture completed.
+    pub fn take_back_gesture(&mut self) -> bool {
+        unsafe { micro_native_take_back_gesture(self.inner.raw.as_ptr()) != 0 }
     }
 
     pub fn timer(&mut self) -> u32 {

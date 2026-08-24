@@ -54,6 +54,10 @@ esp_err_t micro_bsp_backlight_set(const micro_bsp_display_t *display, bool enabl
 /** Draw the trusted four-corner smoke screen while the LVGL port is locked. */
 esp_err_t micro_bsp_draw_smoke_screen(const micro_bsp_display_t *display);
 
+/** Latest GT911 touch point, or false when no finger is down. Re-reads the
+ * touch controller (the LVGL indev reads the same buffer, so both agree). */
+bool micro_bsp_touch_read(micro_bsp_display_t *display, int *x, int *y);
+
 /** Promote a validated pending profile only after the health screen is visible. */
 esp_err_t micro_bsp_mark_healthy(void);
 
