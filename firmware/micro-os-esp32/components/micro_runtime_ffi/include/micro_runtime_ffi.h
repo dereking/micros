@@ -268,6 +268,10 @@ micro_runtime_t *micro_runtime_create(const uint8_t *mbc, size_t len,
                                       uint64_t budget, char *error, size_t error_len);
 micro_error_t micro_runtime_activate(micro_runtime_t *runtime, uint32_t handler_id);
 micro_error_t micro_runtime_tick(micro_runtime_t *runtime, char *error, size_t error_len);
+/* Re-evaluate every binding so the UI reflects host values that changed outside
+ * the runtime (e.g. the Wi-Fi radio reaches "connected" after the shell
+ * mounted). No-op when no binding value changed. */
+micro_error_t micro_runtime_reconcile(micro_runtime_t *runtime, char *error, size_t error_len);
 void micro_runtime_destroy(micro_runtime_t *runtime);
 
 micro_os_t *micro_os_create(void);

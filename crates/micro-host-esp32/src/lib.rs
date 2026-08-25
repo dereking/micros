@@ -245,6 +245,19 @@ impl<B: NativeUi> RuntimeHost<B> {
         self.runtime.enqueue_host_results();
     }
 
+    /// Re-evaluate every binding so the UI reflects host values that changed
+    /// outside the runtime (e.g. the Wi-Fi radio reaches "connected" after the
+    /// shell mounted). No-op when no binding value changed.
+    pub fn reconcile(&mut self) -> Result<(), HostError> {
+        if self.stopped {
+            return Err(HostError {
+                code: MicroErrorCode::Stopped,
+                diagnostic: "runtime is stopped".into(),
+            });
+        }
+        self.runtime.reconcile().map_err(Into::into)
+    }
+
     pub fn stop(&mut self) -> Result<(), HostError> {
         if !self.stopped {
             self.runtime

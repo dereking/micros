@@ -787,6 +787,25 @@ pub unsafe extern "C" fn micro_runtime_tick(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn micro_runtime_reconcile(
+    runtime: *mut c_void,
+    error: *mut c_char,
+    error_length: usize,
+) -> c_int {
+    if !valid_optional_byte_region(error, error_length) {
+        return MicroErrorCode::InvalidArgument as c_int;
+    }
+    if runtime.is_null() {
+        write_diagnostic(error, error_length, "runtime handle is null");
+        return MicroErrorCode::InvalidArgument as c_int;
+    }
+    match unsafe { &mut *runtime.cast::<RuntimeHost<EspNativeUi>>() }.reconcile() {
+        Ok(()) => MicroErrorCode::Ok as c_int,
+        Err(runtime_error) => report(runtime_error, error, error_length),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn micro_runtime_destroy(runtime: *mut c_void) {
     if runtime.is_null() {
         return;

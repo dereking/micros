@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use micro_core::{
     Event, EventQueue, MicroUiTree, RenderError, RenderPatch, RenderPort, Runtime, RuntimeError,
 };
@@ -698,6 +701,63 @@ fn async_host_result_round_trips_through_drain_and_tick() {
         [RenderPatch::SetText {
             node: NodeId(0),
             text: "ap1\nap2".into()
+        }]
+    );
+}
+
+/// Host whose `net.wifiState` read reflects an externally-mutated radio state.
+struct WifiHost {
+    state: Rc<RefCell<String>>,
+}
+
+impl HostAccess for WifiHost {
+    fn call(
+        &mut self,
+        request: &HostRequest,
+        _args: &[Value],
+    ) -> Result<Option<Value>, VmError> {
+        match request.kind {
+            HostCallKind::NetWifiState => Ok(Some(Value::String(self.state.borrow().clone()))),
+            _ => Err(VmError::Host("unexpected host call".into())),
+        }
+    }
+}
+
+#[test]
+fn reconcile_re_evaluates_bindings_after_host_value_changes() {
+    let mut image = host_image();
+    image.host_requests[0] =
+        HostRequest::sync(HostCallKind::NetWifiState, vec![], Some(ScalarType::String));
+    image.functions[0].code = vec![Instruction::HostCall(0), Instruction::Return];
+    /* The 0-arg handler no longer matches the now-sync request; consume its
+     * result so the image stays valid. */
+    image.functions[2].code = vec![Instruction::HostCall(0), Instruction::Pop, Instruction::Return];
+
+    let state = Rc::new(RefCell::new("connecting".to_owned()));
+    let mut runtime = Runtime::new_with_host(
+        image,
+        RecordingRenderer::default(),
+        10_000,
+        Box::new(WifiHost {
+            state: state.clone(),
+        }),
+    )
+    .unwrap();
+    assert_eq!(runtime.renderer().created[0].nodes[0].text, "connecting");
+
+    /* The radio transitions outside the VM; a plain tick (no events) never
+     * re-reads the host value, so the rendered text stays stale. */
+    *state.borrow_mut() = "connected".to_owned();
+    runtime.tick().unwrap();
+    assert!(runtime.renderer().patches.is_empty());
+
+    /* reconcile re-runs every binding and patches the text to the new value. */
+    runtime.reconcile().unwrap();
+    assert_eq!(
+        runtime.renderer().patches,
+        [RenderPatch::SetText {
+            node: NodeId(0),
+            text: "connected".into()
         }]
     );
 }

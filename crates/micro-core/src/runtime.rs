@@ -193,8 +193,15 @@ impl<R: RenderPort> Runtime<R> {
                     .then_some(*binding)
             })
             .collect();
+        self.reconcile_bindings(dirty)
+    }
+
+    /// Re-evaluate the given bindings and apply render patches for any whose
+    /// value changed. Bindings whose value is unchanged emit no patch, so this
+    /// is safe to call even when most bindings are unaffected.
+    fn reconcile_bindings(&mut self, bindings: BTreeSet<FunctionId>) -> Result<(), RuntimeError> {
         let mut patches = Vec::new();
-        for binding in dirty {
+        for binding in bindings {
             let previous = self.binding_values.get(&binding).cloned();
             let value = self.evaluate_binding(binding)?;
             if previous.as_ref() == Some(&value) {
@@ -293,6 +300,16 @@ impl<R: RenderPort> Runtime<R> {
             self.renderer.apply(&patches)?;
         }
         Ok(())
+    }
+
+    /// Re-evaluate every binding so the UI reflects host values that changed
+    /// outside the VM — e.g. the ESP32 Wi-Fi radio reaches "connected" after
+    /// the shell mounted. The platform host calls this when it observes a host
+    /// value the App reads has transitioned. Bindings whose value is unchanged
+    /// emit no patches, so a reconcile is a cheap no-op when nothing moved.
+    pub fn reconcile(&mut self) -> Result<(), RuntimeError> {
+        let all: BTreeSet<_> = self.binding_values.keys().copied().collect();
+        self.reconcile_bindings(all)
     }
 
     fn materialize_tree(&self) -> Result<MicroUiTree, RuntimeError> {

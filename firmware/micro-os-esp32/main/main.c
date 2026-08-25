@@ -25,6 +25,8 @@
 #define MICRO_RUNTIME_EVENT_BUDGET 10000U
 #define MICRO_RUNTIME_TICK_PERIOD_MS 30U
 #define MICRO_RUNTIME_ERROR_BUFFER_SIZE 192U
+/* Cap for the mirrored Wi-Fi radio state string ("off"|"connecting"|"connected"|"error"). */
+#define MICRO_WIFI_STATE_CAP 16U
 #define MICRO_OS_MAX_ACTIONS 16U
 #define MICRO_BOOT_BUTTON_GPIO 0U
 #define MICRO_BOOT_DEBOUNCE_TICKS 4U
@@ -57,6 +59,10 @@ static const esp_partition_t *s_partition;
 static micro_runtime_t *s_runtime;
 static bool s_is_shell;
 static char s_runtime_error[MICRO_RUNTIME_ERROR_BUFFER_SIZE];
+/* Last Wi-Fi radio state seen by the tick loop; when it changes, the shell's
+ * signal-bar bindings are re-evaluated (they bind `net.wifiState()` once at
+ * mount and only re-run when a state they read changes). */
+static char s_last_wifi_state[MICRO_WIFI_STATE_CAP];
 
 static micro_action_t s_actions[MICRO_OS_MAX_ACTIONS];
 static micro_action_buffer_t s_action_buffer;
@@ -418,11 +424,36 @@ static bool micro_boot_button_back_pressed(void)
     return false;
 }
 
+/* The Wi-Fi radio reaches its live state asynchronously (the wifi task writes
+ * it in the event handler), so the shell's signal-bar bindings would otherwise
+ * stay frozen at whatever the radio reported at mount. On each transition,
+ * re-evaluate every binding; the runtime only patches the ones that changed. */
+static void micro_os_sync_wifi_state(void)
+{
+    if (s_runtime == NULL) {
+        return;
+    }
+    char state[MICRO_WIFI_STATE_CAP];
+    if (micro_esp_host_wifi_state(state, sizeof state) != 0 ||
+        strcmp(state, s_last_wifi_state) == 0) {
+        return;
+    }
+    strcpy(s_last_wifi_state, state);
+    micro_error_t result = micro_runtime_reconcile(s_runtime, s_runtime_error,
+                                                   sizeof s_runtime_error);
+    if (result != MICRO_OK) {
+        ESP_LOGE(TAG, "runtime reconcile failed: code=%d message=%s",
+                 (int)result, s_runtime_error);
+    }
+}
+
 static void micro_os_tick_cb(lv_timer_t *timer)
 {
     (void)timer;
 
     micro_os_drain_host_intents();
+
+    micro_os_sync_wifi_state();
 
     micro_os_swipe_tick();
 

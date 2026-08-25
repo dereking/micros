@@ -6,7 +6,7 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
     let source = include_str!("../../../apps/counter/app.ts");
     let image = compile_source("app.ts", source).unwrap();
 
-    assert_eq!(image.states.len(), 16);
+    assert_eq!(image.states.len(), 15);
     assert_eq!(
         image
             .states
@@ -21,7 +21,7 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
             .iter()
             .filter(|slot| slot.ty == ScalarType::String)
             .count(),
-        3
+        2
     );
 
     let bindings: Vec<_> = image
@@ -29,14 +29,14 @@ fn lowers_counter_studio_states_ui_bindings_and_handlers() {
         .iter()
         .filter(|function| matches!(function.kind, FunctionKind::Binding(_)))
         .collect();
-    assert_eq!(bindings.len(), 26);
+    assert_eq!(bindings.len(), 25);
 
     let handlers: Vec<_> = image
         .functions
         .iter()
         .filter(|function| matches!(function.kind, FunctionKind::Handler(_)))
         .collect();
-    assert_eq!(handlers.len(), 32);
+    assert_eq!(handlers.len(), 30);
 
     // The Add button's handler increments count (state 0) and presses (state 1).
     let add = image
