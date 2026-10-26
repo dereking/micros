@@ -27,15 +27,52 @@ pub struct MicroUiTree {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RenderPatch {
-    SetText { node: NodeId, text: String },
-    SetProgress { node: NodeId, fraction: f64 },
-    SetChecked { node: NodeId, checked: bool },
-    SetInputText { node: NodeId, text: String },
-    SetSliderValue { node: NodeId, value: f64 },
-    SetSelectionValue { node: NodeId, index: f64 },
-    SetLed { node: NodeId, on: bool },
-    SetSpinner { node: NodeId, active: bool },
-    SetScaleValue { node: NodeId, value: f64 },
+    SetText {
+        node: NodeId,
+        text: String,
+    },
+    /// Re-resolve an icon node from its name (the OS icon registry lives in
+    /// the renderer, so the patch carries the name, not a glyph).
+    SetIcon {
+        node: NodeId,
+        name: String,
+    },
+    SetVisible {
+        node: NodeId,
+        visible: bool,
+    },
+    SetProgress {
+        node: NodeId,
+        fraction: f64,
+    },
+    SetChecked {
+        node: NodeId,
+        checked: bool,
+    },
+    SetInputText {
+        node: NodeId,
+        text: String,
+    },
+    SetSliderValue {
+        node: NodeId,
+        value: f64,
+    },
+    SetSelectionValue {
+        node: NodeId,
+        index: f64,
+    },
+    SetLed {
+        node: NodeId,
+        on: bool,
+    },
+    SetSpinner {
+        node: NodeId,
+        active: bool,
+    },
+    SetScaleValue {
+        node: NodeId,
+        value: f64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

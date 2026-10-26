@@ -30,6 +30,7 @@ pub enum RuntimeError {
     LedIsNotBoolean(NodeId),
     SpinnerIsNotBoolean(NodeId),
     ScaleIsNotNumber(NodeId),
+    VisibilityIsNotBoolean(NodeId),
 }
 
 impl fmt::Display for RuntimeError {
@@ -110,6 +111,7 @@ impl<R: RenderPort> Runtime<R> {
         }
         let tree = runtime.materialize_tree()?;
         runtime.renderer.create_tree(&tree)?;
+        runtime.apply_initial_visibility()?;
         Ok(runtime)
     }
 
@@ -121,6 +123,14 @@ impl<R: RenderPort> Runtime<R> {
         let Some(event) = self.events.pop() else {
             return Ok(false);
         };
+        // The DOM input owns the text while the user types, so the binding value
+        // cached at boot can go stale. Remember what the user actually entered
+        // before running the handler; otherwise a later profile switch back to
+        // the same (empty) value would skip the patch and keep showing the old
+        // user's text.
+        if let Event::InputChanged(handler, text) = &event {
+            self.remember_typed_input(*handler, text);
+        }
         let (function_id, argument) = match event {
             Event::Activate(id) => (id, None),
             Event::InputChanged(id, text) => (id, Some(Value::String(text))),
@@ -139,8 +149,12 @@ impl<R: RenderPort> Runtime<R> {
             return Err(RuntimeError::NotAHandler(function_id));
         }
 
-        let result = Vm::new(&self.image, &mut self.state)
-            .invoke_with_host(function_id, argument, self.event_budget, &mut *self.host);
+        let result = Vm::new(&self.image, &mut self.state).invoke_with_host(
+            function_id,
+            argument,
+            self.event_budget,
+            &mut *self.host,
+        );
         self.flush_changed_bindings()?;
         result.map_err(RuntimeError::Vm)?;
         Ok(true)
@@ -163,8 +177,65 @@ impl<R: RenderPort> Runtime<R> {
         &mut self.renderer
     }
 
+    /// Ask the host to release App-owned resources before the runtime is
+    /// dropped. Process-wide state (such as background music) stays alive.
+    pub fn dispose_host(&mut self) {
+        self.host.dispose();
+    }
+
     pub fn state(&self, id: StateId) -> Option<&Value> {
         self.state.get(id)
+    }
+
+    /// Apply the initial state of `ui.show` bindings after the native/web
+    /// tree exists. Hiding at construction (rather than waiting for the first
+    /// state change) avoids a frame where study-only buttons flash on screen.
+    fn apply_initial_visibility(&mut self) -> Result<(), RuntimeError> {
+        let mut patches = Vec::new();
+        for node in &self.image.nodes {
+            if node.kind != UiKind::Button {
+                continue;
+            }
+            let visible = match node.value {
+                Some(ValueSource::Binding(binding)) => match self.binding_values.get(&binding) {
+                    Some(Value::Bool(visible)) => *visible,
+                    _ => return Err(RuntimeError::VisibilityIsNotBoolean(node.id)),
+                },
+                Some(ValueSource::Constant(index)) => {
+                    match self.image.constants.get(index as usize) {
+                        Some(micro_ir::Constant::Bool(visible)) => *visible,
+                        _ => return Err(RuntimeError::VisibilityIsNotBoolean(node.id)),
+                    }
+                }
+                None => continue,
+            };
+            patches.push(RenderPatch::SetVisible {
+                node: node.id,
+                visible,
+            });
+        }
+        if !patches.is_empty() {
+            self.renderer.apply(&patches)?;
+        }
+        Ok(())
+    }
+
+    /// Keep an input's bound value in sync with the text the user typed. The
+    /// node's `on_click` slot holds the `onChange` handler id.
+    fn remember_typed_input(&mut self, handler: FunctionId, text: &str) {
+        let binding = self
+            .image
+            .nodes
+            .iter()
+            .find(|node| node.kind == UiKind::Input && node.on_click == Some(handler))
+            .and_then(|node| match node.value {
+                Some(ValueSource::Binding(binding)) => Some(binding),
+                _ => None,
+            });
+        if let Some(binding) = binding {
+            self.binding_values
+                .insert(binding, Value::String(text.to_owned()));
+        }
     }
 
     fn evaluate_binding(&mut self, function_id: FunctionId) -> Result<Value, RuntimeError> {
@@ -212,13 +283,29 @@ impl<R: RenderPort> Runtime<R> {
                     let Value::String(text) = &value else {
                         continue;
                     };
-                    patches.push(RenderPatch::SetText {
-                        node: node.id,
-                        text: text.clone(),
-                    });
+                    if node.kind == UiKind::Icon {
+                        patches.push(RenderPatch::SetIcon {
+                            node: node.id,
+                            name: text.clone(),
+                        });
+                    } else {
+                        patches.push(RenderPatch::SetText {
+                            node: node.id,
+                            text: text.clone(),
+                        });
+                    }
                 }
                 if node.value == Some(ValueSource::Binding(binding)) {
                     match node.kind {
+                        UiKind::Button => {
+                            let Value::Bool(visible) = &value else {
+                                return Err(RuntimeError::VisibilityIsNotBoolean(node.id));
+                            };
+                            patches.push(RenderPatch::SetVisible {
+                                node: node.id,
+                                visible: *visible,
+                            });
+                        }
                         UiKind::Progress => {
                             let Value::Number(fraction) = &value else {
                                 return Err(RuntimeError::ProgressIsNotNumber(node.id));
@@ -328,11 +415,9 @@ impl<R: RenderPort> Runtime<R> {
             };
             let value = match node.value {
                 None => None,
-                Some(ValueSource::Constant(id)) => self
-                    .image
-                    .constants
-                    .get(id as usize)
-                    .map(Value::from),
+                Some(ValueSource::Constant(id)) => {
+                    self.image.constants.get(id as usize).map(Value::from)
+                }
                 Some(ValueSource::Binding(id)) => self.binding_values.get(&id).cloned(),
             };
             let value = match node.kind {

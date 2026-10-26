@@ -1,12 +1,26 @@
 //! LVGL renderer adapter behind a platform-neutral native bridge trait.
 
 use micro_core::{MicroUiTree, RenderError, RenderPatch, RenderPort, Value};
-use micro_ir::{FunctionId, LayoutSpec, NodeId, TextStyle, UiKind, sanitize_ui_text};
+use micro_ir::{FunctionId, NodeId, TextStyle, UiKind, sanitize_ui_text};
 
 pub trait NativeUi {
     fn report_diagnostic(&mut self, node: NodeId, message: &str);
     fn create_column(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String>;
     fn create_row(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String>;
+    /// Decorative filled rectangle behind other nodes. Hosts that do not
+    /// implement a palette fall back to an unstyled container.
+    fn create_surface(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        _tone: &str,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        self.create_column(node, parent)
+    }
+    fn set_visible(&mut self, _node: NodeId, _visible: bool) -> Result<(), String> {
+        Ok(())
+    }
     fn create_progress(
         &mut self,
         node: NodeId,
@@ -34,8 +48,30 @@ pub trait NativeUi {
         text: &str,
         handler: FunctionId,
         style: Option<&TextStyle>,
+        variant: Option<&str>,
     ) -> Result<(), String>;
     fn set_label_text(&mut self, node: NodeId, text: &str) -> Result<(), String>;
+    /// A vector icon resolved from the shared OS registry. `glyph` is already
+    /// the LVGL symbol glyph for the icon name, `size_px` the requested glyph
+    /// size, and `tone`/`variant` the appearance tokens (`ink|muted|accent|
+    /// inverse`, `plain|badge`). Hosts without icon support fall back to a
+    /// text label so the tree still renders.
+    #[allow(clippy::too_many_arguments)]
+    fn create_icon(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        glyph: &str,
+        _size_px: u8,
+        _tone: &str,
+        _variant: &str,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        self.create_label(node, parent, glyph, None)
+    }
+    fn set_icon(&mut self, node: NodeId, glyph: &str) -> Result<(), String> {
+        self.set_label_text(node, glyph)
+    }
     fn set_progress_value(&mut self, node: NodeId, fraction: f64) -> Result<(), String>;
     fn set_switch_checked(&mut self, node: NodeId, checked: bool) -> Result<(), String>;
     fn create_input(
@@ -90,12 +126,18 @@ pub trait NativeUi {
         titles: &[String],
     ) -> Result<(), String>;
     fn create_tab_content(&mut self, index: u32) -> Result<(), String>;
-    fn set_layout_spec(&mut self, node: NodeId, layout: micro_ir::LayoutSpec) -> Result<(), String>;
-    fn apply_delphi_layout(&mut self, container: NodeId, children: &[NodeId]) -> Result<(), String>;
+    fn set_layout_spec(&mut self, node: NodeId, layout: micro_ir::LayoutSpec)
+    -> Result<(), String>;
+    fn apply_delphi_layout(&mut self, container: NodeId, children: &[NodeId])
+    -> Result<(), String>;
     fn create_led(&mut self, node: NodeId, parent: Option<NodeId>, on: bool) -> Result<(), String>;
     fn set_led(&mut self, node: NodeId, on: bool) -> Result<(), String>;
-    fn create_spinner(&mut self, node: NodeId, parent: Option<NodeId>, active: bool)
-        -> Result<(), String>;
+    fn create_spinner(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        active: bool,
+    ) -> Result<(), String>;
     fn set_spinner(&mut self, node: NodeId, active: bool) -> Result<(), String>;
     fn create_scale(
         &mut self,
@@ -171,6 +213,35 @@ impl<B: NativeUi> LvglRenderer<B> {
                 self.bridge
                     .create_progress(node.id, parent, fraction.clamp(0.0, 1.0))
             }
+            UiKind::Surface => {
+                let tone = node.options.first().map(String::as_str).unwrap_or("paper");
+                self.bridge
+                    .create_surface(node.id, parent, tone, node.on_click)
+            }
+            UiKind::Icon => {
+                let name = self.checked_text(node.id, &node.text);
+                let glyph = micro_ir::icons::glyph_for(&name)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| {
+                        self.bridge.report_diagnostic(
+                            node.id,
+                            &format!("unknown icon `{name}` rendered as ?"),
+                        );
+                        "?".to_owned()
+                    });
+                let style = node.text_style.unwrap_or(TextStyle::DEFAULT_ICON);
+                let tone = node.options.first().map(String::as_str).unwrap_or("ink");
+                let variant = node.options.get(1).map(String::as_str).unwrap_or("plain");
+                self.bridge.create_icon(
+                    node.id,
+                    parent,
+                    &glyph,
+                    style.size_px,
+                    tone,
+                    variant,
+                    node.on_click,
+                )
+            }
             UiKind::Switch => {
                 let Some(Value::Bool(checked)) = node.value.as_ref() else {
                     return Err(RenderError(format!(
@@ -193,8 +264,9 @@ impl<B: NativeUi> LvglRenderer<B> {
                     .ok_or_else(|| RenderError(format!("button {} has no handler", node.id.0)))?;
                 let text = self.checked_text(node.id, &node.text);
                 let style = node.text_style.unwrap_or(TextStyle::DEFAULT_BUTTON);
+                let variant = node.options.first().map(String::as_str);
                 self.bridge
-                    .create_button(node.id, parent, &text, handler, Some(&style))
+                    .create_button(node.id, parent, &text, handler, Some(&style), variant)
             }
             UiKind::Input => {
                 let Some(Value::String(text)) = node.value.as_ref() else {
@@ -243,13 +315,8 @@ impl<B: NativeUi> LvglRenderer<B> {
                         node.id.0
                     )));
                 };
-                self.bridge.create_dropdown(
-                    node.id,
-                    parent,
-                    &node.options,
-                    *index,
-                    node.on_click,
-                )
+                self.bridge
+                    .create_dropdown(node.id, parent, &node.options, *index, node.on_click)
             }
             UiKind::Roller => {
                 let Some(Value::Number(index)) = node.value.as_ref() else {
@@ -258,19 +325,17 @@ impl<B: NativeUi> LvglRenderer<B> {
                         node.id.0
                     )));
                 };
-                self.bridge.create_roller(
-                    node.id,
-                    parent,
-                    &node.options,
-                    *index,
-                    node.on_click,
-                )
+                self.bridge
+                    .create_roller(node.id, parent, &node.options, *index, node.on_click)
             }
             UiKind::List => self.bridge.create_list(node.id, parent),
             UiKind::Tabview => self.bridge.create_tabview(node.id, parent, &node.options),
             UiKind::Led => {
                 let Some(Value::Bool(on)) = node.value.as_ref() else {
-                    return Err(RenderError(format!("led {} has no boolean value", node.id.0)));
+                    return Err(RenderError(format!(
+                        "led {} has no boolean value",
+                        node.id.0
+                    )));
                 };
                 self.bridge.create_led(node.id, parent, *on)
             }
@@ -290,7 +355,8 @@ impl<B: NativeUi> LvglRenderer<B> {
                         node.id.0
                     )));
                 };
-                self.bridge.create_scale(node.id, parent, *value, node.range)
+                self.bridge
+                    .create_scale(node.id, parent, *value, node.range)
             }
         }
         .map_err(RenderError)?;
@@ -301,6 +367,14 @@ impl<B: NativeUi> LvglRenderer<B> {
          * tear down the first renderer's root. */
         if parent.is_none() {
             self.owns_app_root = true;
+        }
+        /* Install this node's own ui.place spec before its children are laid
+         * out, so a container that anchors all four edges knows it is a fill
+         * container and keeps its stretched height. */
+        if let Some(layout) = node.layout {
+            self.bridge
+                .set_layout_spec(node.id, layout)
+                .map_err(RenderError)?;
         }
         if matches!(node.kind, UiKind::Tabview) {
             /* Tabview mounts its content children itself. */
@@ -318,18 +392,12 @@ impl<B: NativeUi> LvglRenderer<B> {
         /* Delphi layout: after a column/row's children exist, apply any
          * ui.place layout hints to dock them. */
         if matches!(node.kind, UiKind::Column | UiKind::Row)
-            && node
-                .children
-                .iter()
-                .any(|c| tree.nodes.get(c.0 as usize).is_some_and(|n| n.layout.is_some()))
+            && node.children.iter().any(|c| {
+                tree.nodes
+                    .get(c.0 as usize)
+                    .is_some_and(|n| n.layout.is_some())
+            })
         {
-            for child in &node.children {
-                if let Some(layout) = tree.nodes[child.0 as usize].layout {
-                    self.bridge
-                        .set_layout_spec(*child, layout)
-                        .map_err(RenderError)?;
-                }
-            }
             self.bridge
                 .apply_delphi_layout(node.id, &node.children)
                 .map_err(RenderError)?;
@@ -346,11 +414,20 @@ impl<B: NativeUi> RenderPort for LvglRenderer<B> {
     fn apply(&mut self, patches: &[RenderPatch]) -> Result<(), RenderError> {
         for patch in patches {
             match patch {
+                RenderPatch::SetVisible { node, visible } => self
+                    .bridge
+                    .set_visible(*node, *visible)
+                    .map_err(RenderError)?,
                 RenderPatch::SetText { node, text } => {
                     let text = self.checked_text(*node, text);
                     self.bridge
                         .set_label_text(*node, &text)
                         .map_err(RenderError)?;
+                }
+                RenderPatch::SetIcon { node, name } => {
+                    let name = self.checked_text(*node, name);
+                    let glyph = micro_ir::icons::glyph_for(&name).unwrap_or("?");
+                    self.bridge.set_icon(*node, glyph).map_err(RenderError)?;
                 }
                 RenderPatch::SetProgress { node, fraction } => self
                     .bridge
@@ -374,10 +451,9 @@ impl<B: NativeUi> RenderPort for LvglRenderer<B> {
                     .bridge
                     .set_selection_value(*node, *index)
                     .map_err(RenderError)?,
-                RenderPatch::SetLed { node, on } => self
-                    .bridge
-                    .set_led(*node, *on)
-                    .map_err(RenderError)?,
+                RenderPatch::SetLed { node, on } => {
+                    self.bridge.set_led(*node, *on).map_err(RenderError)?
+                }
                 RenderPatch::SetSpinner { node, active } => self
                     .bridge
                     .set_spinner(*node, *active)

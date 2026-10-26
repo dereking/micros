@@ -1,8 +1,6 @@
 use micro_compiler::compile_source;
 use micro_core::{Event, MicroUiTree, RenderError, RenderPatch, RenderPort, Runtime};
-use micro_ir::{
-    FunctionId, HostCallKind, HostRequest, TextStyle, UiKind,
-};
+use micro_ir::{FunctionId, HostCallKind, HostRequest, TextStyle, UiKind};
 use micro_vm::{HostAccess, Value, VmError};
 
 /// A simulated host so the counter's `device.*` / `net.*` reads succeed when
@@ -40,6 +38,7 @@ impl HostAccess for SimHost {
             }
             HostCallKind::OsAppName | HostCallKind::OsAppIcon => Some(Value::String(String::new())),
             HostCallKind::OsLaunchIndex | HostCallKind::OsGoBack | HostCallKind::OsDelay => None,
+            _ => None,
         })
     }
 
@@ -70,9 +69,13 @@ impl RenderPort for RecordingRenderer {
 fn compiles_loads_and_clicks_the_real_counter() {
     let source = include_str!("../../../apps/counter/app.ts");
     let image = compile_source("apps/counter/app.ts", source).unwrap();
-    let mut runtime =
-        Runtime::new_with_host(image, RecordingRenderer::default(), 10_000, Box::new(SimHost::default()))
-            .unwrap();
+    let mut runtime = Runtime::new_with_host(
+        image,
+        RecordingRenderer::default(),
+        10_000,
+        Box::new(SimHost::default()),
+    )
+    .unwrap();
     let (count_id, count_style, add_style, handler) = {
         let tree = &runtime.renderer().created[0];
         let count_text = tree

@@ -8,10 +8,21 @@ use crate::{
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
-/// MBC v17 adds the `metadata` section (app manifest: id/name/icon).
+/// MBC v26 adds the shared OS `Icon` UI kind (vector icons by name).
+/// MBC v25 adds the App-private `storage` file calls (external SD card on
+/// ESP32).
+/// MBC v24 adds URL audio (`audio.playAudio` / `stopAudio` / `stopAllAudio`)
+/// and the single background-music stream.
+/// MBC v23 adds `audio.stop` and `audio.setRate`.
+/// MBC v22 adds the unified `config` host calls (per-App config document).
+/// MBC v21 adds the decorative `Surface` UI kind.
+/// MBC v20 adds the dictionary lookup host call.
+/// MBC v19 adds HTTP headers + JSON query host calls.
+/// MBC v18 added the clock / KV / audio host calls.
+/// MBC v17 added the `metadata` section (app manifest: id/name/icon).
 /// MBC v16 added the `host_requests` section and the `HostCall` instruction
 /// (v15 split the per-node layout into ltwh base geometry + anchor edges).
-const VERSION: u16 = 17;
+const VERSION: u16 = 26;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -304,6 +315,8 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
             UiKind::Scale => 13,
             UiKind::List => 14,
             UiKind::Tabview => 15,
+            UiKind::Surface => 16,
+            UiKind::Icon => 17,
         });
         put_u32(&mut out, node.children.len())?;
         for child in &node.children {
@@ -449,6 +462,8 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             13 => UiKind::Scale,
             14 => UiKind::List,
             15 => UiKind::Tabview,
+            16 => UiKind::Surface,
+            17 => UiKind::Icon,
             tag => {
                 return Err(DecodeError::InvalidTag {
                     section: "ui kind",
@@ -706,6 +721,11 @@ fn host_call_kind_tag(kind: HostCallKind) -> u8 {
         HostCallKind::NetWifiApName => 22,
         HostCallKind::NetHttpGet => 12,
         HostCallKind::NetHttpRequest => 18,
+        HostCallKind::NetHttpRequestWithHeaders => 30,
+        HostCallKind::JsonGetText => 31,
+        HostCallKind::JsonGetNumber => 32,
+        HostCallKind::JsonLength => 33,
+        HostCallKind::NetLookupWords => 34,
         HostCallKind::DeviceGpioSetup => 19,
         HostCallKind::DeviceGpioWrite => 20,
         HostCallKind::DeviceGpioRead => 21,
@@ -714,6 +734,34 @@ fn host_call_kind_tag(kind: HostCallKind) -> u8 {
         HostCallKind::OsLaunchIndex => 15,
         HostCallKind::OsGoBack => 16,
         HostCallKind::OsDelay => 17,
+        HostCallKind::ClockNow => 23,
+        HostCallKind::KvGetNumber => 24,
+        HostCallKind::KvGetText => 25,
+        HostCallKind::KvSetNumber => 26,
+        HostCallKind::KvSetText => 27,
+        HostCallKind::KvRemove => 28,
+        HostCallKind::ConfigGetNumber => 35,
+        HostCallKind::ConfigGetText => 36,
+        HostCallKind::ConfigSetNumber => 37,
+        HostCallKind::ConfigSetText => 38,
+        HostCallKind::ConfigRemove => 39,
+        HostCallKind::AudioSpeak => 29,
+        HostCallKind::AudioStop => 40,
+        HostCallKind::AudioSetRate => 41,
+        HostCallKind::AudioPlayUrl => 42,
+        HostCallKind::AudioStopUrl => 43,
+        HostCallKind::AudioStopAllUrls => 44,
+        HostCallKind::AudioPlayBackground => 45,
+        HostCallKind::AudioStopBackground => 46,
+        HostCallKind::StorageAvailable => 47,
+        HostCallKind::StorageExists => 48,
+        HostCallKind::StorageReadText => 49,
+        HostCallKind::StorageWriteText => 50,
+        HostCallKind::StorageAppendText => 51,
+        HostCallKind::StorageList => 52,
+        HostCallKind::StorageRemove => 53,
+        HostCallKind::StorageMkdir => 54,
+        HostCallKind::StorageSize => 55,
     }
 }
 
@@ -734,6 +782,11 @@ fn decode_host_call_kind(tag: u8) -> Result<HostCallKind, DecodeError> {
         22 => Ok(HostCallKind::NetWifiApName),
         12 => Ok(HostCallKind::NetHttpGet),
         18 => Ok(HostCallKind::NetHttpRequest),
+        30 => Ok(HostCallKind::NetHttpRequestWithHeaders),
+        31 => Ok(HostCallKind::JsonGetText),
+        32 => Ok(HostCallKind::JsonGetNumber),
+        33 => Ok(HostCallKind::JsonLength),
+        34 => Ok(HostCallKind::NetLookupWords),
         19 => Ok(HostCallKind::DeviceGpioSetup),
         20 => Ok(HostCallKind::DeviceGpioWrite),
         21 => Ok(HostCallKind::DeviceGpioRead),
@@ -742,6 +795,34 @@ fn decode_host_call_kind(tag: u8) -> Result<HostCallKind, DecodeError> {
         15 => Ok(HostCallKind::OsLaunchIndex),
         16 => Ok(HostCallKind::OsGoBack),
         17 => Ok(HostCallKind::OsDelay),
+        23 => Ok(HostCallKind::ClockNow),
+        24 => Ok(HostCallKind::KvGetNumber),
+        25 => Ok(HostCallKind::KvGetText),
+        26 => Ok(HostCallKind::KvSetNumber),
+        27 => Ok(HostCallKind::KvSetText),
+        28 => Ok(HostCallKind::KvRemove),
+        35 => Ok(HostCallKind::ConfigGetNumber),
+        36 => Ok(HostCallKind::ConfigGetText),
+        37 => Ok(HostCallKind::ConfigSetNumber),
+        38 => Ok(HostCallKind::ConfigSetText),
+        39 => Ok(HostCallKind::ConfigRemove),
+        29 => Ok(HostCallKind::AudioSpeak),
+        40 => Ok(HostCallKind::AudioStop),
+        41 => Ok(HostCallKind::AudioSetRate),
+        42 => Ok(HostCallKind::AudioPlayUrl),
+        43 => Ok(HostCallKind::AudioStopUrl),
+        44 => Ok(HostCallKind::AudioStopAllUrls),
+        45 => Ok(HostCallKind::AudioPlayBackground),
+        46 => Ok(HostCallKind::AudioStopBackground),
+        47 => Ok(HostCallKind::StorageAvailable),
+        48 => Ok(HostCallKind::StorageExists),
+        49 => Ok(HostCallKind::StorageReadText),
+        50 => Ok(HostCallKind::StorageWriteText),
+        51 => Ok(HostCallKind::StorageAppendText),
+        52 => Ok(HostCallKind::StorageList),
+        53 => Ok(HostCallKind::StorageRemove),
+        54 => Ok(HostCallKind::StorageMkdir),
+        55 => Ok(HostCallKind::StorageSize),
         tag => Err(DecodeError::InvalidTag {
             section: "host call kind",
             tag,
@@ -907,4 +988,53 @@ fn crc32(bytes: &[u8]) -> u32 {
         }
     }
     !crc
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_host_call_kind, host_call_kind_tag};
+    use crate::model::HostCallKind;
+
+    #[test]
+    fn new_host_call_kinds_round_trip() {
+        for kind in [
+            HostCallKind::ClockNow,
+            HostCallKind::KvGetNumber,
+            HostCallKind::KvGetText,
+            HostCallKind::KvSetNumber,
+            HostCallKind::KvSetText,
+            HostCallKind::KvRemove,
+            HostCallKind::ConfigGetNumber,
+            HostCallKind::ConfigGetText,
+            HostCallKind::ConfigSetNumber,
+            HostCallKind::ConfigSetText,
+            HostCallKind::ConfigRemove,
+            HostCallKind::AudioSpeak,
+            HostCallKind::AudioStop,
+            HostCallKind::AudioSetRate,
+            HostCallKind::AudioPlayUrl,
+            HostCallKind::AudioStopUrl,
+            HostCallKind::AudioStopAllUrls,
+            HostCallKind::AudioPlayBackground,
+            HostCallKind::AudioStopBackground,
+            HostCallKind::NetHttpRequestWithHeaders,
+            HostCallKind::JsonGetText,
+            HostCallKind::JsonGetNumber,
+            HostCallKind::JsonLength,
+            HostCallKind::NetLookupWords,
+            HostCallKind::StorageAvailable,
+            HostCallKind::StorageExists,
+            HostCallKind::StorageReadText,
+            HostCallKind::StorageWriteText,
+            HostCallKind::StorageAppendText,
+            HostCallKind::StorageList,
+            HostCallKind::StorageRemove,
+            HostCallKind::StorageMkdir,
+            HostCallKind::StorageSize,
+        ] {
+            let tag = host_call_kind_tag(kind);
+            assert_eq!(decode_host_call_kind(tag), Ok(kind), "tag {tag}");
+            assert!(tag >= 23);
+        }
+    }
 }

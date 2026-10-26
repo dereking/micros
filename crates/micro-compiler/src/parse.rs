@@ -165,7 +165,10 @@ impl Validator<'_> {
             Expr::Ident(identifier) => {
                 let name = identifier.sym.as_ref();
                 if !self.known.contains(name)
-                    && !matches!(name, "state" | "bind" | "ui" | "device" | "net" | "os" | "app")
+                    && !matches!(
+                        name,
+                        "state" | "bind" | "ui" | "device" | "net" | "os" | "app"
+                    )
                 {
                     self.unsupported(identifier.span, format!("global `{name}`"));
                 }
@@ -221,8 +224,11 @@ impl Validator<'_> {
             return;
         };
         let expected = match name.as_str() {
-            "state" | "bind" | "ui.mount" | "ui.column" | "ui.row" | "ui.progress"
-            | "ui.led" | "ui.spinner" | "ui.list" | "ui.tabview" => 1..=1,
+            "state" | "bind" | "ui.mount" | "ui.column" | "ui.row" | "ui.progress" | "ui.led"
+            | "ui.spinner" | "ui.list" | "ui.tabview" => 1..=1,
+            "ui.surface" => 0..=2,
+            "ui.icon" => 1..=2,
+            "ui.show" => 2..=2,
             "ui.place" => 2..=2,
             "ui.text" => 1..=2,
             "ui.switch" => 1..=2,
@@ -237,12 +243,37 @@ impl Validator<'_> {
             "device.name" | "device.chip" | "device.flashBytes" | "device.psramBytes"
             | "device.resetReason" | "device.backlight" | "net.wifiState" | "net.wifiSsid"
             | "net.wifiDisconnect" => 0..=0,
-            "device.setBacklight" | "device.gpioRead" | "net.scanWifi" | "net.wifiApName"
-            | "os.appName" | "os.appIcon" | "os.launchIndex" => 1..=1,
+            "device.setBacklight"
+            | "device.gpioRead"
+            | "net.scanWifi"
+            | "net.wifiApName"
+            | "os.appName"
+            | "os.appIcon"
+            | "os.launchIndex" => 1..=1,
             "device.gpioSetup" | "device.gpioWrite" | "net.wifiConnect" | "net.httpGet" => 2..=2,
+            "kv.getNumber"
+            | "kv.getText"
+            | "kv.remove"
+            | "audio.speak"
+            | "audio.setRate"
+            | "audio.playAudio"
+            | "audio.stopAudio"
+            | "audio.playBackground" => 1..=1,
+            "audio.stop" | "audio.stopAllAudio" | "audio.stopBackground" => 0..=0,
+            "kv.setNumber" | "kv.setText" => 2..=2,
+            "config.getNumber" | "config.getText" | "config.remove" => 1..=1,
+            "config.setNumber" | "config.setText" => 2..=2,
+            "storage.available" => 0..=0,
+            "storage.exists" | "storage.readText" | "storage.list" | "storage.remove"
+            | "storage.mkdir" | "storage.size" => 1..=1,
+            "storage.writeText" | "storage.appendText" => 2..=2,
             "net.httpRequest" => 4..=4,
+            "net.httpRequestWithHeaders" => 5..=5,
+            "net.lookupWords" => 2..=2,
+            "json.getText" | "json.getNumber" | "json.length" => 2..=2,
             "os.goBack" => 0..=0,
             "os.delay" => 2..=2,
+            "clock.now" => 0..=0,
             _ => {
                 self.unsupported(call.span, format!("call `{name}`"));
                 return;
@@ -292,6 +323,32 @@ impl Validator<'_> {
                 self.button_options(&call.args[1].expr);
             }
             "ui.text" => self.expression(&call.args[0].expr),
+            "ui.surface" => {
+                if call.args.len() == 2 {
+                    self.surface_options(&call.args[1].expr);
+                }
+            }
+            "ui.icon" => {
+                self.expression(&call.args[0].expr);
+                if let Expr::Lit(Lit::Str(name)) = &*call.args[0].expr {
+                    let value = name.value.to_string_lossy();
+                    if !micro_ir::icons::is_icon_name(&value) && value.chars().count() != 1 {
+                        self.sdk_error(
+                            call.args[0].expr.span(),
+                            format!(
+                                "unknown icon `{value}`; use a shared OS icon name or a single glyph"
+                            ),
+                        );
+                    }
+                }
+                if call.args.len() == 2 {
+                    self.icon_options(&call.args[1].expr);
+                }
+            }
+            "ui.show" => {
+                self.expression(&call.args[0].expr);
+                self.expression(&call.args[1].expr);
+            }
             "ui.switch" => {
                 self.expression(&call.args[0].expr);
                 if call.args.len() == 2 {
@@ -350,7 +407,15 @@ impl Validator<'_> {
             "app" => {
                 self.app_options(&call.args[0].expr);
             }
-            _ if name.starts_with("device.") || name.starts_with("net.") || name.starts_with("os.") => {
+            _ if name.starts_with("device.")
+                || name.starts_with("net.")
+                || name.starts_with("os.")
+                || name.starts_with("clock.")
+                || name.starts_with("kv.")
+                || name.starts_with("config.")
+                || name.starts_with("audio.")
+                || name.starts_with("json.") =>
+            {
                 self.host_call_args(name.as_str(), &call.args);
             }
             _ => {
@@ -366,8 +431,15 @@ impl Validator<'_> {
     /// arrows and must be validated through `arrow_with_params`, because
     /// `expression()` does not accept arrow expressions.
     fn host_call_args(&mut self, name: &str, args: &[swc_ecma_ast::ExprOrSpread]) {
-        let callback_is_last =
-            matches!(name, "net.scanWifi" | "net.httpGet" | "net.httpRequest" | "os.delay");
+        let callback_is_last = matches!(
+            name,
+            "net.scanWifi"
+                | "net.httpGet"
+                | "net.httpRequest"
+                | "net.httpRequestWithHeaders"
+                | "net.lookupWords"
+                | "os.delay"
+        );
         for (index, argument) in args.iter().enumerate() {
             if callback_is_last && index == args.len() - 1 {
                 match &*argument.expr {
@@ -385,10 +457,7 @@ impl Validator<'_> {
 
     fn tabview_tabs(&mut self, expression: &Expr) {
         let Expr::Array(array) = expression else {
-            self.sdk_error(
-                expression.span(),
-                "ui.tabview expects a tab array".into(),
-            );
+            self.sdk_error(expression.span(), "ui.tabview expects a tab array".into());
             return;
         };
         for element in array.elems.iter().flatten() {
@@ -427,10 +496,7 @@ impl Validator<'_> {
 
     fn list_items(&mut self, expression: &Expr) {
         let Expr::Array(array) = expression else {
-            self.sdk_error(
-                expression.span(),
-                "ui.list expects an item array".into(),
-            );
+            self.sdk_error(expression.span(), "ui.list expects an item array".into());
             return;
         };
         for element in array.elems.iter().flatten() {
@@ -681,7 +747,7 @@ impl Validator<'_> {
                 self.unsupported(property.key.span(), "computed input property");
                 continue;
             };
-            if !matches!(name.sym.as_ref(), "onChange" | "placeholder") {
+            if !matches!(name.sym.as_ref(), "onChange" | "placeholder" | "textStyle") {
                 self.errors.push(diagnostic_at(
                     self.source_map,
                     self.path,
@@ -757,7 +823,7 @@ impl Validator<'_> {
                 self.unsupported(property.key.span(), "computed button property");
                 continue;
             };
-            if !matches!(name.sym.as_ref(), "onClick" | "textStyle") {
+            if !matches!(name.sym.as_ref(), "onClick" | "textStyle" | "variant") {
                 self.errors.push(diagnostic_at(
                     self.source_map,
                     self.path,
@@ -767,6 +833,98 @@ impl Validator<'_> {
                 ));
             }
             if name.sym == *"onClick" {
+                self.expression(&property.value);
+            }
+        }
+    }
+
+    fn surface_options(&mut self, expression: &Expr) {
+        let Expr::Object(object) = expression else {
+            self.sdk_error(
+                expression.span(),
+                "ui.surface options must be an object".into(),
+            );
+            return;
+        };
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                self.unsupported(property.span(), "spread");
+                continue;
+            };
+            let Prop::KeyValue(property) = &**property else {
+                self.unsupported(property.span(), "surface property");
+                continue;
+            };
+            let PropName::Ident(name) = &property.key else {
+                self.unsupported(property.key.span(), "computed surface property");
+                continue;
+            };
+            if !matches!(name.sym.as_ref(), "onClick" | "label") {
+                self.errors.push(diagnostic_at(
+                    self.source_map,
+                    self.path,
+                    name.span,
+                    "MTS002",
+                    format!("unknown ui.surface property `{}`", name.sym),
+                ));
+            } else if name.sym == *"label" {
+                match &*property.value {
+                    Expr::Lit(Lit::Str(_)) => {}
+                    _ => self.sdk_error(
+                        property.value.span(),
+                        "ui.surface label must be a string literal".into(),
+                    ),
+                }
+            } else {
+                self.expression(&property.value);
+            }
+        }
+    }
+
+    fn icon_options(&mut self, expression: &Expr) {
+        let Expr::Object(object) = expression else {
+            self.sdk_error(
+                expression.span(),
+                "ui.icon options must be an object".into(),
+            );
+            return;
+        };
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                self.unsupported(property.span(), "spread");
+                continue;
+            };
+            let Prop::KeyValue(property) = &**property else {
+                self.unsupported(property.span(), "icon property");
+                continue;
+            };
+            let PropName::Ident(name) = &property.key else {
+                self.unsupported(property.key.span(), "computed icon property");
+                continue;
+            };
+            if !matches!(
+                name.sym.as_ref(),
+                "onClick" | "textStyle" | "tone" | "variant"
+            ) {
+                self.errors.push(diagnostic_at(
+                    self.source_map,
+                    self.path,
+                    name.span,
+                    "MTS002",
+                    format!("unknown ui.icon property `{}`", name.sym),
+                ));
+            } else if name.sym == *"textStyle" {
+                /* The style object is lowered separately; walking it as a free
+                 * expression would report every field as unsupported. */
+            } else if matches!(name.sym.as_ref(), "tone" | "variant") {
+                match &*property.value {
+                    Expr::Lit(Lit::Str(_)) => {}
+                    _ => self.sdk_error(
+                        property.value.span(),
+                        format!("ui.icon {} must be a string literal", name.sym),
+                    ),
+                }
+            } else {
                 self.expression(&property.value);
             }
         }
@@ -816,7 +974,10 @@ impl Validator<'_> {
             }
             match &*property.value {
                 Expr::Lit(Lit::Str(_)) => {}
-                _ => self.sdk_error(property.value.span(), "app() fields must be string literals".into()),
+                _ => self.sdk_error(
+                    property.value.span(),
+                    "app() fields must be string literals".into(),
+                ),
             }
         }
         for required in ["id", "name", "icon"] {

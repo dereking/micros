@@ -2,6 +2,7 @@
 
 mod codec;
 mod font_manifest;
+pub mod icons;
 mod model;
 mod opcode;
 

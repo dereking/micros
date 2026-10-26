@@ -49,7 +49,7 @@ fn counter_image() -> AppImage {
         functions: vec![
             Function {
                 kind: FunctionKind::Binding(BindingId(0)),
-            arg_count: 0,
+                arg_count: 0,
                 locals: 0,
                 max_stack: 2,
                 code: vec![
@@ -62,7 +62,7 @@ fn counter_image() -> AppImage {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(0)),
-            arg_count: 0,
+                arg_count: 0,
                 locals: 0,
                 max_stack: 2,
                 code: vec![
@@ -75,7 +75,7 @@ fn counter_image() -> AppImage {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(1)),
-            arg_count: 0,
+                arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -88,7 +88,7 @@ fn counter_image() -> AppImage {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(2)),
-            arg_count: 0,
+                arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -99,7 +99,7 @@ fn counter_image() -> AppImage {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(3)),
-            arg_count: 0,
+                arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -301,7 +301,7 @@ fn replaces_binding_dependencies_after_each_evaluation() {
         functions: vec![
             Function {
                 kind: FunctionKind::Binding(BindingId(0)),
-            arg_count: 0,
+                arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -316,7 +316,7 @@ fn replaces_binding_dependencies_after_each_evaluation() {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(0)),
-            arg_count: 0,
+                arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -327,7 +327,7 @@ fn replaces_binding_dependencies_after_each_evaluation() {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(1)),
-            arg_count: 0,
+                arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -338,7 +338,7 @@ fn replaces_binding_dependencies_after_each_evaluation() {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(2)),
-            arg_count: 0,
+                arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -419,21 +419,21 @@ fn value_image() -> AppImage {
         functions: vec![
             Function {
                 kind: FunctionKind::Binding(BindingId(0)),
-            arg_count: 0,
+                arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![Instruction::LoadState(StateId(0)), Instruction::Return],
             },
             Function {
                 kind: FunctionKind::Binding(BindingId(1)),
-            arg_count: 0,
+                arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![Instruction::LoadState(StateId(1)), Instruction::Return],
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(0)),
-            arg_count: 0,
+                arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -444,7 +444,7 @@ fn value_image() -> AppImage {
             },
             Function {
                 kind: FunctionKind::Handler(HandlerId(1)),
-            arg_count: 0,
+                arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![
@@ -563,12 +563,20 @@ struct SimHost {
     pending: Vec<(FunctionId, Value)>,
 }
 
+struct DisposeHost(Rc<RefCell<bool>>);
+
+impl HostAccess for DisposeHost {
+    fn call(&mut self, _request: &HostRequest, _args: &[Value]) -> Result<Option<Value>, VmError> {
+        Err(VmError::Host("unexpected host call".into()))
+    }
+
+    fn dispose(&mut self) {
+        *self.0.borrow_mut() = true;
+    }
+}
+
 impl HostAccess for SimHost {
-    fn call(
-        &mut self,
-        request: &HostRequest,
-        _args: &[Value],
-    ) -> Result<Option<Value>, VmError> {
+    fn call(&mut self, request: &HostRequest, _args: &[Value]) -> Result<Option<Value>, VmError> {
         match request.kind {
             HostCallKind::DeviceChip => Ok(Some(Value::String("ESP32-S3".into()))),
             HostCallKind::NetScanWifi => {
@@ -649,6 +657,21 @@ fn host_image() -> AppImage {
 }
 
 #[test]
+fn dispose_host_releases_app_owned_resources() {
+    let disposed = Rc::new(RefCell::new(false));
+    let host = DisposeHost(disposed.clone());
+    let mut runtime = Runtime::new_with_host(
+        host_image(),
+        RecordingRenderer::default(),
+        10_000,
+        Box::new(host),
+    )
+    .expect("runtime");
+    runtime.dispose_host();
+    assert!(*disposed.borrow());
+}
+
+#[test]
 fn host_read_in_binding_materializes_the_host_value() {
     let mut image = host_image();
     image.host_requests[0] =
@@ -656,7 +679,11 @@ fn host_read_in_binding_materializes_the_host_value() {
     image.functions[0].code = vec![Instruction::HostCall(0), Instruction::Return];
     /* The 0-arg handler no longer matches the now-sync request; consume its
      * result so the image stays valid. */
-    image.functions[2].code = vec![Instruction::HostCall(0), Instruction::Pop, Instruction::Return];
+    image.functions[2].code = vec![
+        Instruction::HostCall(0),
+        Instruction::Pop,
+        Instruction::Return,
+    ];
     let runtime = Runtime::new_with_host(
         image,
         RecordingRenderer::default(),
@@ -673,12 +700,13 @@ fn null_host_rejects_host_reads_during_creation() {
     image.host_requests[0] =
         HostRequest::sync(HostCallKind::DeviceChip, vec![], Some(ScalarType::String));
     image.functions[0].code = vec![Instruction::HostCall(0), Instruction::Return];
-    image.functions[2].code = vec![Instruction::HostCall(0), Instruction::Pop, Instruction::Return];
+    image.functions[2].code = vec![
+        Instruction::HostCall(0),
+        Instruction::Pop,
+        Instruction::Return,
+    ];
     let result = Runtime::new(image, RecordingRenderer::default(), 10_000);
-    assert!(matches!(
-        result,
-        Err(RuntimeError::Vm(VmError::Host(_)))
-    ));
+    assert!(matches!(result, Err(RuntimeError::Vm(VmError::Host(_)))));
 }
 
 #[test]
@@ -711,11 +739,7 @@ struct WifiHost {
 }
 
 impl HostAccess for WifiHost {
-    fn call(
-        &mut self,
-        request: &HostRequest,
-        _args: &[Value],
-    ) -> Result<Option<Value>, VmError> {
+    fn call(&mut self, request: &HostRequest, _args: &[Value]) -> Result<Option<Value>, VmError> {
         match request.kind {
             HostCallKind::NetWifiState => Ok(Some(Value::String(self.state.borrow().clone()))),
             _ => Err(VmError::Host("unexpected host call".into())),
@@ -731,7 +755,11 @@ fn reconcile_re_evaluates_bindings_after_host_value_changes() {
     image.functions[0].code = vec![Instruction::HostCall(0), Instruction::Return];
     /* The 0-arg handler no longer matches the now-sync request; consume its
      * result so the image stays valid. */
-    image.functions[2].code = vec![Instruction::HostCall(0), Instruction::Pop, Instruction::Return];
+    image.functions[2].code = vec![
+        Instruction::HostCall(0),
+        Instruction::Pop,
+        Instruction::Return,
+    ];
 
     let state = Rc::new(RefCell::new("connecting".to_owned()));
     let mut runtime = Runtime::new_with_host(
@@ -758,6 +786,200 @@ fn reconcile_re_evaluates_bindings_after_host_value_changes() {
         [RenderPatch::SetText {
             node: NodeId(0),
             text: "connected".into()
+        }]
+    );
+}
+
+fn input_image() -> AppImage {
+    AppImage {
+        constants: vec![
+            Constant::String(String::new()),
+            Constant::String("switch".into()),
+            Constant::Number(0.0),
+            Constant::Number(1.0),
+        ],
+        states: vec![
+            StateDecl {
+                ty: ScalarType::String,
+                initial: 0,
+            },
+            StateDecl {
+                ty: ScalarType::Number,
+                initial: 2,
+            },
+        ],
+        functions: vec![
+            // Input value binding: read `gate` (so a profile switch can dirty
+            // it) and then return the bound text state.
+            Function {
+                kind: FunctionKind::Binding(BindingId(0)),
+                arg_count: 0,
+                locals: 0,
+                max_stack: 2,
+                code: vec![
+                    Instruction::LoadState(StateId(1)),
+                    Instruction::Pop,
+                    Instruction::LoadState(StateId(0)),
+                    Instruction::Return,
+                ],
+            },
+            // Switch handler: flip `gate` but keep the text at its boot value.
+            Function {
+                kind: FunctionKind::Handler(HandlerId(0)),
+                arg_count: 0,
+                locals: 0,
+                max_stack: 1,
+                code: vec![
+                    Instruction::Const(3),
+                    Instruction::StoreState(StateId(1)),
+                    Instruction::Const(0),
+                    Instruction::StoreState(StateId(0)),
+                    Instruction::Return,
+                ],
+            },
+            // onChange handler: the App stores the text elsewhere; the input
+            // binding itself is not re-evaluated by this handler.
+            Function {
+                kind: FunctionKind::Handler(HandlerId(1)),
+                arg_count: 1,
+                locals: 0,
+                max_stack: 1,
+                code: vec![Instruction::Return],
+            },
+        ],
+        nodes: vec![
+            UiNodeSpec {
+                id: NodeId(0),
+                kind: UiKind::Column,
+                children: vec![NodeId(1), NodeId(2)],
+                text: None,
+                value: None,
+                on_click: None,
+                text_style: None,
+                range: None,
+                options: vec![],
+                layout: None,
+            },
+            UiNodeSpec {
+                id: NodeId(1),
+                kind: UiKind::Input,
+                children: vec![],
+                text: Some(TextSource::Constant(0)),
+                value: Some(ValueSource::Binding(FunctionId(0))),
+                on_click: Some(FunctionId(2)),
+                text_style: None,
+                range: None,
+                options: vec![],
+                layout: None,
+            },
+            UiNodeSpec {
+                id: NodeId(2),
+                kind: UiKind::Button,
+                children: vec![],
+                text: Some(TextSource::Constant(1)),
+                value: None,
+                on_click: Some(FunctionId(1)),
+                text_style: None,
+                range: None,
+                options: vec![],
+                layout: None,
+            },
+        ],
+        host_requests: vec![],
+        metadata: AppMetadata {
+            id: "input-cache".into(),
+            name: "Input".into(),
+            icon: "I".into(),
+        },
+        root: NodeId(0),
+    }
+}
+
+#[test]
+fn typed_input_text_is_restored_when_the_binding_is_re_evaluated() {
+    let mut runtime = Runtime::new(input_image(), RecordingRenderer::default(), 10_000).unwrap();
+    runtime.enqueue(Event::InputChanged(FunctionId(2), "typed".into()));
+    runtime.tick().unwrap();
+    runtime.renderer_mut().patches.clear();
+
+    // The profile switch re-evaluates the input binding to the same "" it had
+    // at boot. Without remembering the typed text this compares equal and no
+    // patch is emitted, leaving "typed" on screen for the next user.
+    runtime.enqueue(Event::Activate(FunctionId(1)));
+    runtime.tick().unwrap();
+    assert_eq!(
+        runtime.renderer().patches,
+        [RenderPatch::SetInputText {
+            node: NodeId(1),
+            text: String::new(),
+        }]
+    );
+}
+
+/// One icon node whose name comes from a string state; the handler replaces
+/// that state with the second constant. Icon name changes must emit
+/// `RenderPatch::SetIcon` (not `SetText`) so hosts re-resolve the SVG/glyph.
+#[test]
+fn icon_name_binding_patches_set_icon() {
+    let image = AppImage {
+        constants: vec![
+            Constant::String("settings".into()),
+            Constant::String("trash".into()),
+        ],
+        states: vec![StateDecl {
+            ty: ScalarType::String,
+            initial: 0,
+        }],
+        functions: vec![
+            Function {
+                kind: FunctionKind::Binding(BindingId(0)),
+                arg_count: 0,
+                locals: 0,
+                max_stack: 1,
+                code: vec![Instruction::LoadState(StateId(0)), Instruction::Return],
+            },
+            Function {
+                kind: FunctionKind::Handler(HandlerId(0)),
+                arg_count: 0,
+                locals: 0,
+                max_stack: 1,
+                code: vec![
+                    Instruction::Const(1),
+                    Instruction::StoreState(StateId(0)),
+                    Instruction::Return,
+                ],
+            },
+        ],
+        nodes: vec![UiNodeSpec {
+            id: NodeId(0),
+            kind: UiKind::Icon,
+            children: vec![],
+            text: Some(TextSource::Binding(FunctionId(0))),
+            value: None,
+            on_click: None,
+            text_style: None,
+            range: None,
+            options: vec![],
+            layout: None,
+        }],
+        host_requests: vec![],
+        metadata: AppMetadata {
+            id: "icon".into(),
+            name: "Icon".into(),
+            icon: "edit".into(),
+        },
+        root: NodeId(0),
+    };
+    let mut runtime = Runtime::new(image, RecordingRenderer::default(), 10_000).unwrap();
+    assert_eq!(runtime.renderer().created[0].nodes[0].text, "settings");
+
+    runtime.enqueue(Event::Activate(FunctionId(1)));
+    runtime.tick().unwrap();
+    assert_eq!(
+        runtime.renderer().patches,
+        [RenderPatch::SetIcon {
+            node: NodeId(0),
+            name: "trash".to_owned(),
         }]
     );
 }

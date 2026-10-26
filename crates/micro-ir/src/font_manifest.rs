@@ -5,7 +5,11 @@ pub const REPLACEMENT_GLYPH: char = '\u{fffd}';
 const MANIFEST: &str = include_str!("../../../assets/fonts/ui-sans-common.txt");
 
 fn supported(glyph: char) -> bool {
-    matches!(glyph, '\n' | '\r' | '\t') || MANIFEST.lines().skip(3).any(|line| line.contains(glyph))
+    matches!(glyph, '\n' | '\r' | '\t')
+        || MANIFEST
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .any(|line| line.contains(glyph))
 }
 
 /// Replaces glyphs absent from every bundled UI font with U+FFFD.

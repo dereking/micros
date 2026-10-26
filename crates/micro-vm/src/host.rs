@@ -18,6 +18,11 @@ pub trait HostAccess {
     fn drain_results(&mut self) -> Vec<(FunctionId, Value)> {
         Vec::new()
     }
+
+    /// Release host resources owned by this App before its runtime is
+    /// disposed. Default: none. Implementations must not stop process-wide
+    /// resources such as background music.
+    fn dispose(&mut self) {}
 }
 
 /// A host that rejects every host call. Used when an App that calls a host API

@@ -8,6 +8,16 @@ fn replaces_unsupported_glyphs_but_preserves_layout_controls() {
 }
 
 #[test]
+fn keeps_international_phonetic_alphabet_glyphs() {
+    let phonetic = "əˈbændən ʃʒŋθð ɹɫ ˌˈː ˥˦˧˨˩";
+    assert_eq!(sanitize_ui_text(phonetic), (phonetic.into(), false));
+    assert_eq!(
+        sanitize_ui_text("phonetic: /əˈbændən/ 🦄"),
+        ("phonetic: /əˈbændən/ �".into(), true)
+    );
+}
+
+#[test]
 fn checked_in_manifest_contains_the_replacement_glyph() {
     let manifest = include_str!("../../../assets/fonts/ui-sans-common.txt");
     assert!(manifest.contains(REPLACEMENT_GLYPH));

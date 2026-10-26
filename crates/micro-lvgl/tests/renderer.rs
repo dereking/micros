@@ -12,6 +12,16 @@ enum Call {
     Progress(NodeId, Option<NodeId>, f64),
     Switch(NodeId, Option<NodeId>, bool, Option<FunctionId>),
     Label(NodeId, Option<NodeId>, String, Option<TextStyle>),
+    Icon(
+        NodeId,
+        Option<NodeId>,
+        String,
+        u8,
+        String,
+        String,
+        Option<FunctionId>,
+    ),
+    SetIcon(NodeId, String),
     Button(
         NodeId,
         Option<NodeId>,
@@ -70,6 +80,31 @@ impl NativeUi for FakeBridge {
             .push(Call::Label(node, parent, text.into(), style.copied()));
         Ok(())
     }
+    fn create_icon(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        glyph: &str,
+        size_px: u8,
+        tone: &str,
+        variant: &str,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        self.0.push(Call::Icon(
+            node,
+            parent,
+            glyph.into(),
+            size_px,
+            tone.into(),
+            variant.into(),
+            handler,
+        ));
+        Ok(())
+    }
+    fn set_icon(&mut self, node: NodeId, glyph: &str) -> Result<(), String> {
+        self.0.push(Call::SetIcon(node, glyph.into()));
+        Ok(())
+    }
     fn create_button(
         &mut self,
         node: NodeId,
@@ -77,6 +112,7 @@ impl NativeUi for FakeBridge {
         text: &str,
         handler: FunctionId,
         style: Option<&TextStyle>,
+        _variant: Option<&str>,
     ) -> Result<(), String> {
         self.0.push(Call::Button(
             node,
@@ -168,7 +204,12 @@ impl NativeUi for FakeBridge {
         Ok(())
     }
 
-    fn create_led(&mut self, _node: NodeId, _parent: Option<NodeId>, _on: bool) -> Result<(), String> {
+    fn create_led(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _on: bool,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -176,7 +217,12 @@ impl NativeUi for FakeBridge {
         Ok(())
     }
 
-    fn create_spinner(&mut self, _node: NodeId, _parent: Option<NodeId>, _active: bool) -> Result<(), String> {
+    fn create_spinner(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _active: bool,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -215,11 +261,19 @@ impl NativeUi for FakeBridge {
         Ok(())
     }
 
-    fn set_layout_spec(&mut self, _node: NodeId, _layout: micro_ir::LayoutSpec) -> Result<(), String> {
+    fn set_layout_spec(
+        &mut self,
+        _node: NodeId,
+        _layout: micro_ir::LayoutSpec,
+    ) -> Result<(), String> {
         Ok(())
     }
 
-    fn apply_delphi_layout(&mut self, _container: NodeId, _children: &[NodeId]) -> Result<(), String> {
+    fn apply_delphi_layout(
+        &mut self,
+        _container: NodeId,
+        _children: &[NodeId],
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -304,6 +358,66 @@ fn maps_tree_preorder_and_applies_text_only_patch() {
                 Some(button_style),
             ),
             Call::SetText(NodeId(1), "Count: 1".into()),
+        ]
+    );
+}
+
+#[test]
+fn resolves_shared_icon_names_to_symbol_glyphs_and_patches_name_changes() {
+    let style = TextStyle::DEFAULT_ICON;
+    let tree = MicroUiTree {
+        nodes: vec![
+            MicroUiNode {
+                id: NodeId(0),
+                kind: UiKind::Column,
+                children: vec![NodeId(1)],
+                text: String::new(),
+                value: None,
+                on_click: None,
+                text_style: None,
+                range: None,
+                options: vec![],
+                layout: None,
+            },
+            MicroUiNode {
+                id: NodeId(1),
+                kind: UiKind::Icon,
+                children: vec![],
+                text: "settings".into(),
+                value: None,
+                on_click: None,
+                text_style: Some(style),
+                range: None,
+                options: vec!["accent".into(), "badge".into()],
+                layout: None,
+            },
+        ],
+        root: NodeId(0),
+    };
+    let settings = micro_ir::icons::glyph_for("settings").unwrap();
+    let trash = micro_ir::icons::glyph_for("trash").unwrap();
+    let mut renderer = LvglRenderer::new(FakeBridge::default());
+    renderer.create_tree(&tree).unwrap();
+    renderer
+        .apply(&[RenderPatch::SetIcon {
+            node: NodeId(1),
+            name: "trash".into(),
+        }])
+        .unwrap();
+    assert_eq!(
+        renderer.bridge().0,
+        [
+            Call::Column(NodeId(0), None),
+            Call::Icon(
+                NodeId(1),
+                Some(NodeId(0)),
+                settings.into(),
+                24,
+                "accent".into(),
+                "badge".into(),
+                None,
+            ),
+            Call::SetIcon(NodeId(1), trash.into()),
         ]
     );
 }
@@ -485,6 +599,7 @@ impl NativeUi for TrackingBridge {
         _text: &str,
         _handler: FunctionId,
         _style: Option<&TextStyle>,
+        _variant: Option<&str>,
     ) -> Result<(), String> {
         Ok(())
     }
@@ -567,7 +682,12 @@ impl NativeUi for TrackingBridge {
         Ok(())
     }
 
-    fn create_led(&mut self, _node: NodeId, _parent: Option<NodeId>, _on: bool) -> Result<(), String> {
+    fn create_led(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _on: bool,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -575,7 +695,12 @@ impl NativeUi for TrackingBridge {
         Ok(())
     }
 
-    fn create_spinner(&mut self, _node: NodeId, _parent: Option<NodeId>, _active: bool) -> Result<(), String> {
+    fn create_spinner(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _active: bool,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -614,11 +739,19 @@ impl NativeUi for TrackingBridge {
         Ok(())
     }
 
-    fn set_layout_spec(&mut self, _node: NodeId, _layout: micro_ir::LayoutSpec) -> Result<(), String> {
+    fn set_layout_spec(
+        &mut self,
+        _node: NodeId,
+        _layout: micro_ir::LayoutSpec,
+    ) -> Result<(), String> {
         Ok(())
     }
 
-    fn apply_delphi_layout(&mut self, _container: NodeId, _children: &[NodeId]) -> Result<(), String> {
+    fn apply_delphi_layout(
+        &mut self,
+        _container: NodeId,
+        _children: &[NodeId],
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -632,27 +765,23 @@ impl NativeUi for TrackingBridge {
 #[test]
 fn replaces_missing_runtime_glyph_and_reports_it() {
     let mut runtime_tree = tree();
-    runtime_tree.nodes[1].text = "hello 🦄".into();
+    runtime_tree.nodes[1].text = "hello əˈbændən 🦄".into();
     let mut renderer = LvglRenderer::new(FakeBridge::default());
     renderer.create_tree(&runtime_tree).unwrap();
     renderer
         .apply(&[RenderPatch::SetText {
             node: NodeId(1),
-            text: "next 🦄".into(),
+            text: "next ʃʒ 🦄".into(),
         }])
         .unwrap();
+    assert!(renderer.bridge().0.iter().any(
+        |call| matches!(call, Call::Label(NodeId(1), _, text, _) if text == "hello əˈbændən �")
+    ));
     assert!(
         renderer
             .bridge()
             .0
-            .iter()
-            .any(|call| matches!(call, Call::Label(NodeId(1), _, text, _) if text == "hello �"))
-    );
-    assert!(
-        renderer
-            .bridge()
-            .0
-            .contains(&Call::SetText(NodeId(1), "next �".into()))
+            .contains(&Call::SetText(NodeId(1), "next ʃʒ �".into()))
     );
     assert_eq!(
         renderer
@@ -752,6 +881,7 @@ impl NativeUi for SharedRootBridge {
         _text: &str,
         _handler: FunctionId,
         _style: Option<&TextStyle>,
+        _variant: Option<&str>,
     ) -> Result<(), String> {
         Ok(())
     }
@@ -833,7 +963,12 @@ impl NativeUi for SharedRootBridge {
         Ok(())
     }
 
-    fn create_led(&mut self, _node: NodeId, _parent: Option<NodeId>, _on: bool) -> Result<(), String> {
+    fn create_led(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _on: bool,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -841,7 +976,12 @@ impl NativeUi for SharedRootBridge {
         Ok(())
     }
 
-    fn create_spinner(&mut self, _node: NodeId, _parent: Option<NodeId>, _active: bool) -> Result<(), String> {
+    fn create_spinner(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _active: bool,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -880,11 +1020,19 @@ impl NativeUi for SharedRootBridge {
         Ok(())
     }
 
-    fn set_layout_spec(&mut self, _node: NodeId, _layout: micro_ir::LayoutSpec) -> Result<(), String> {
+    fn set_layout_spec(
+        &mut self,
+        _node: NodeId,
+        _layout: micro_ir::LayoutSpec,
+    ) -> Result<(), String> {
         Ok(())
     }
 
-    fn apply_delphi_layout(&mut self, _container: NodeId, _children: &[NodeId]) -> Result<(), String> {
+    fn apply_delphi_layout(
+        &mut self,
+        _container: NodeId,
+        _children: &[NodeId],
+    ) -> Result<(), String> {
         Ok(())
     }
 

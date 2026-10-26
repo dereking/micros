@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::fmt;
 
-use crate::Instruction;
+use crate::{Instruction, icons};
 
 macro_rules! id_type {
     ($name:ident) => {
@@ -113,6 +113,21 @@ pub enum UiKind {
     /// interned strings); children are the tab content nodes, one per tab in
     /// the same order.
     Tabview,
+    /// Decorative filled surface behind other nodes. `options` may hold one
+    /// interned tone name (`paper`, `sage`, `terracotta`, or `line`); the
+    /// renderer maps it to a platform palette. Surfaces have no children.
+    /// `text`, when present, is the accessible name used by tappable surfaces
+    /// (a constant string only); `on_click` makes the whole surface a tap
+    /// target.
+    Surface,
+    /// Vector icon from the shared OS icon registry (`micro_ir::icons`).
+    /// `text` is the icon name (constant or binding, e.g. `os.appIcon(i)`);
+    /// `options` holds the interned tone name followed by the variant:
+    /// `["ink" | "muted" | "accent" | "inverse", "plain" | "badge"]`.
+    /// `text_style.size_px` selects the rendered glyph size. A single-glyph
+    /// name (legacy App manifests) is rendered as that glyph, and an unknown
+    /// name degrades to `?` with a renderer diagnostic.
+    Icon,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -175,6 +190,22 @@ pub enum HostCallKind {
     /// with an explicit HTTP method (GET/POST/PUT/DELETE/HEAD…) and a request
     /// body.
     NetHttpRequest,
+    /// `net.httpRequestWithHeaders(method, url, headers, body, onResult)` —
+    /// async; like httpRequest but with newline-delimited `Name: value`
+    /// headers (needed by bearer-token APIs).
+    NetHttpRequestWithHeaders,
+    /// `net.lookupWords(words, onResult)` — async; look up newline-separated
+    /// English words in the host's dictionary and call back with JSON
+    /// `{"entries":[{"word","phonetic","definition","example","cloze",
+    /// "translation"}]}`. The native host implements this through Youdao's
+    /// public JSON dictionary; Web/ESP32 return a descriptive 501.
+    NetLookupWords,
+    /// `json.getText(text, path)` → scalar at a dot-separated JSON path.
+    JsonGetText,
+    /// `json.getNumber(text, path)` → numeric value at a JSON path.
+    JsonGetNumber,
+    /// `json.length(text, path)` → array/object/string length at a JSON path.
+    JsonLength,
     /// `os.appName(i)` → display name of the installed app at index `i`
     /// (empty when no app is installed at that index).
     OsAppName,
@@ -188,19 +219,92 @@ pub enum HostCallKind {
     /// `os.delay(ms, onResult)` — async; the host calls back after `ms`
     /// milliseconds (drives the shell's polling heartbeat).
     OsDelay,
+    /// `clock.now()` → wall-clock milliseconds since the Unix epoch.
+    ClockNow,
+    /// `kv.getNumber(key)` → the stored number, or 0 when missing/not numeric.
+    KvGetNumber,
+    /// `kv.getText(key)` → the stored string, or "" when missing/not textual.
+    KvGetText,
+    /// `kv.setNumber(key, value)` — persist a number in the App's namespace.
+    KvSetNumber,
+    /// `kv.setText(key, value)` — persist a string in the App's namespace.
+    KvSetText,
+    /// `kv.remove(key)` — delete a key from the App's namespace.
+    KvRemove,
+    /// `config.getNumber(key)` → the value from the App's config document, or
+    /// 0 when missing/not numeric.
+    ConfigGetNumber,
+    /// `config.getText(key)` → the value from the App's config document, or
+    /// "" when missing/not textual.
+    ConfigGetText,
+    /// `config.setNumber(key, value)` — write a number to the App's config
+    /// document (each host persists it to its native config location).
+    ConfigSetNumber,
+    /// `config.setText(key, value)` — write a string to the App's config
+    /// document.
+    ConfigSetText,
+    /// `config.remove(key)` — delete a key from the App's config document.
+    ConfigRemove,
+    /// `storage.available()` → whether the App's external-storage volume is
+    /// mounted (SD card inserted and mounted on ESP32; always true on hosts
+    /// with a local sandbox).
+    StorageAvailable,
+    /// `storage.exists(path)` → whether a file or directory exists inside the
+    /// App's private storage directory.
+    StorageExists,
+    /// `storage.readText(path)` → UTF-8 file contents, or "" when missing.
+    StorageReadText,
+    /// `storage.writeText(path, text)` — create/replace a UTF-8 file; returns
+    /// whether the write succeeded.
+    StorageWriteText,
+    /// `storage.appendText(path, text)` — append to a UTF-8 file.
+    StorageAppendText,
+    /// `storage.list(path)` → newline-separated immediate children (directories
+    /// end with `/`), sorted by name.
+    StorageList,
+    /// `storage.remove(path)` — delete a file or directory tree.
+    StorageRemove,
+    /// `storage.mkdir(path)` — create a directory and missing parents.
+    StorageMkdir,
+    /// `storage.size(path)` → file size in bytes, 0 for a directory, -1 when
+    /// missing.
+    StorageSize,
+    /// `audio.speak(text)` — pronounce English text with the host's system
+    /// speech synthesizer, replacing any utterance already in flight.
+    AudioSpeak,
+    /// `audio.stop()` — stop the current utterance immediately.
+    AudioStop,
+    /// `audio.setRate(rate)` — speech-rate multiplier for later `speak` calls
+    /// (`1.0` is normal). Hosts clamp and map it to their platform scale.
+    AudioSetRate,
+    /// `audio.playAudio(url)` — start a foreground URL audio stream and return
+    /// a positive handle. Multiple handles mix; they stop when the App exits.
+    AudioPlayUrl,
+    /// `audio.stopAudio(handle)` — stop one foreground URL audio stream.
+    AudioStopUrl,
+    /// `audio.stopAllAudio()` — stop every foreground URL audio stream.
+    AudioStopAllUrls,
+    /// `audio.playBackground(url)` — play the single system-wide background
+    /// music stream. It loops and survives leaving the App.
+    AudioPlayBackground,
+    /// `audio.stopBackground()` — stop the background music stream.
+    AudioStopBackground,
 }
 
-/// A single host call referenced by `Instruction::HostCall`. Sync reads carry
-/// a `result_kind`; actions carry none; async requests carry a 1-arg
-/// `callback` handler that the host invokes with the result.
+/// A single host call referenced by `Instruction::HostCall`. Synchronous calls
+/// carry the scalar type the host returns (storage mutations return a success
+/// boolean even though bindings may not call them); void actions and async
+/// requests carry none. Async requests carry a 1-arg `callback` handler that
+/// the host invokes with the result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostRequest {
     pub kind: HostCallKind,
-    /// Argument types in source order (0..=3 for the current SDK surface).
+    /// Argument types in source order (0..=4 for the current SDK surface).
     pub arg_kinds: Vec<ScalarType>,
     /// Async requests: the 1-arg Handler the host invokes with the result.
     pub callback: Option<FunctionId>,
-    /// Sync reads: the scalar type the host returns.
+    /// Synchronous calls: the scalar type the host returns. `None` for a void
+    /// action or an async request.
     pub result_kind: Option<ScalarType>,
 }
 
@@ -218,7 +322,11 @@ impl HostRequest {
         }
     }
 
-    pub fn async_request(kind: HostCallKind, arg_kinds: Vec<ScalarType>, callback: FunctionId) -> Self {
+    pub fn async_request(
+        kind: HostCallKind,
+        arg_kinds: Vec<ScalarType>,
+        callback: FunctionId,
+    ) -> Self {
         Self {
             kind,
             arg_kinds,
@@ -334,6 +442,13 @@ impl TextStyle {
         weight: FontWeight::Regular,
         line_height_px: 18,
     };
+    /// Icons default to the 24 px step so they line up with body text.
+    pub const DEFAULT_ICON: Self = Self {
+        family: FontFamily::UiSans,
+        size_px: 24,
+        weight: FontWeight::Regular,
+        line_height_px: 32,
+    };
 
     pub fn new(
         family: FontFamily,
@@ -385,9 +500,11 @@ impl TextStyle {
             | UiKind::Spinner
             | UiKind::Scale
             | UiKind::List
-            | UiKind::Tabview => None,
+            | UiKind::Tabview
+            | UiKind::Surface => None,
             UiKind::Text | UiKind::Input => Some(Self::DEFAULT_TEXT),
             UiKind::Button => Some(Self::DEFAULT_BUTTON),
+            UiKind::Icon => Some(Self::DEFAULT_ICON),
         }
     }
 
@@ -424,7 +541,8 @@ pub struct AppMetadata {
     pub id: String,
     /// Human-readable display name shown under the launcher icon.
     pub name: String,
-    /// Single glyph rendered as the launcher icon (ASCII/kept in the LVGL font).
+    /// Launcher icon: a shared OS icon name (`"settings"`, `"home"`, …) or a
+    /// single display glyph for Apps that want their own letter mark.
     pub icon: String,
 }
 
@@ -459,8 +577,10 @@ pub fn validate(image: &AppImage) -> Result<(), ValidationError> {
     if image.metadata.id.is_empty() || image.metadata.name.is_empty() {
         return Err(invalid("app metadata requires a non-empty id and name"));
     }
-    if image.metadata.icon.chars().count() != 1 {
-        return Err(invalid("app metadata icon must be a single glyph"));
+    if image.metadata.icon.chars().count() != 1 && !icons::is_icon_name(&image.metadata.icon) {
+        return Err(invalid(
+            "app metadata icon must be a single glyph or a shared OS icon name",
+        ));
     }
     if image.nodes.is_empty() {
         return Err(invalid("UI tree is empty"));
@@ -486,7 +606,7 @@ pub fn validate(image: &AppImage) -> Result<(), ValidationError> {
     }
 
     for (index, request) in image.host_requests.iter().enumerate() {
-        if request.arg_kinds.len() > 3 {
+        if request.arg_kinds.len() > 4 {
             return Err(invalid(format!(
                 "host request {index} has too many arguments"
             )));
@@ -505,10 +625,12 @@ pub fn validate(image: &AppImage) -> Result<(), ValidationError> {
                 }
             }
         }
-        if request
-            .result_kind
-            .is_some_and(|result| !matches!(result, ScalarType::Number | ScalarType::String))
-        {
+        if request.result_kind.is_some_and(|result| {
+            !matches!(
+                result,
+                ScalarType::Number | ScalarType::String | ScalarType::Bool
+            )
+        }) {
             return Err(invalid(format!(
                 "host request {index} has a non-scalar result type"
             )));
@@ -677,12 +799,12 @@ fn validate_operand(
         Instruction::LoadLocal(id) | Instruction::StoreLocal(id) if *id >= function.locals => {
             Err(invalid(format!("function {index} has an invalid local")))
         }
-        Instruction::LoadArg if function.arg_count < 1 => {
-            Err(invalid(format!("function {index} uses LoadArg without an argument")))
-        }
-        Instruction::HostCall(idx) if *idx as usize >= image.host_requests.len() => {
-            Err(invalid(format!("function {index} has an invalid host call")))
-        }
+        Instruction::LoadArg if function.arg_count < 1 => Err(invalid(format!(
+            "function {index} uses LoadArg without an argument"
+        ))),
+        Instruction::HostCall(idx) if *idx as usize >= image.host_requests.len() => Err(invalid(
+            format!("function {index} has an invalid host call"),
+        )),
         _ => Ok(()),
     }
 }

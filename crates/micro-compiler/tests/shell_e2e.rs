@@ -17,7 +17,7 @@ struct SimHost {
 impl SimHost {
     fn new(launches: Rc<RefCell<Vec<u32>>>) -> Self {
         Self {
-            apps: vec![("Counter".into(), "C".into())],
+            apps: vec![("Counter".into(), "plus".into())],
             launches,
             pending: Vec::new(),
         }
@@ -43,8 +43,11 @@ impl HostAccess for SimHost {
                 self.launches.borrow_mut().push(numeric(args, 0) as u32);
                 None
             }
-            HostCallKind::OsGoBack | HostCallKind::NetWifiConnect | HostCallKind::NetWifiDisconnect
-            | HostCallKind::DeviceSetBacklight | HostCallKind::DeviceGpioSetup
+            HostCallKind::OsGoBack
+            | HostCallKind::NetWifiConnect
+            | HostCallKind::NetWifiDisconnect
+            | HostCallKind::DeviceSetBacklight
+            | HostCallKind::DeviceGpioSetup
             | HostCallKind::DeviceGpioWrite => None,
             HostCallKind::DeviceGpioRead => Some(Value::Number(0.0)),
             HostCallKind::OsDelay => {
@@ -53,10 +56,8 @@ impl HostAccess for SimHost {
                 None
             }
             HostCallKind::NetScanWifi => {
-                self.pending.push((
-                    request.callback.unwrap(),
-                    Value::String("ap1\nap2".into()),
-                ));
+                self.pending
+                    .push((request.callback.unwrap(), Value::String("ap1\nap2".into())));
                 None
             }
             HostCallKind::NetWifiState => Some(Value::String("off".into())),
@@ -76,6 +77,7 @@ impl HostAccess for SimHost {
                 ));
                 None
             }
+            _ => None,
         })
     }
 
@@ -124,26 +126,43 @@ fn shell_launcher_renders_installed_app_icons() {
     )
     .unwrap();
 
-    // The launcher renders the installed app's icon (button) + name (text).
-    let (launch_handler, name_text) = {
+    // The launcher renders the installed app's shared icon inside a badge plus
+    // the app name; the whole card is the tappable surface, labelled for
+    // assistive tech. Decorative text/icon nodes carry no click handler.
+    let (launch_handler, icon_name, name_text) = {
         let tree = &runtime.renderer().created[0];
-        let icon_button = tree
+        let icon = tree
             .nodes
             .iter()
-            .find(|node| node.kind == UiKind::Button && node.text == "C")
-            .expect("installed app icon tile");
+            .find(|node| node.kind == UiKind::Icon && node.text == "plus")
+            .expect("installed app icon glyph");
+        assert_eq!(
+            icon.options,
+            vec!["accent".to_owned(), "badge".to_owned()],
+            "app card icon uses the accent badge appearance"
+        );
+        assert!(
+            icon.on_click.is_none(),
+            "decorative icon must let the card surface receive taps"
+        );
+        let card = tree
+            .nodes
+            .iter()
+            .find(|node| node.kind == UiKind::Surface && node.text == "Open Counter")
+            .expect("tappable app card");
         let name = tree
             .nodes
             .iter()
             .find(|node| node.kind == UiKind::Text && node.text == "Counter")
             .expect("installed app name label");
-        (icon_button.on_click.unwrap(), name.text.clone())
+        (card.on_click.unwrap(), icon.text.clone(), name.text.clone())
     };
 
-    // Tapping the icon tile launches installed app index 0.
+    // Tapping the card launches installed app index 0.
     runtime.enqueue(Event::Activate(launch_handler));
     runtime.tick().unwrap();
     assert_eq!(*launches.borrow(), vec![0]);
     assert_eq!(runtime.renderer().created.len(), 1);
+    assert_eq!(icon_name, "plus");
     assert_eq!(name_text, "Counter");
 }

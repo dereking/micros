@@ -148,14 +148,14 @@ fn round_trips_progress_and_switch_values() {
         functions: vec![
             Function {
                 kind: FunctionKind::Binding(BindingId(0)),
-            arg_count: 0,
+                arg_count: 0,
                 locals: 0,
                 max_stack: 2,
                 code: vec![Instruction::Const(0), Instruction::Return],
             },
             Function {
                 kind: FunctionKind::Handler(micro_ir::HandlerId(0)),
-            arg_count: 0,
+                arg_count: 0,
                 locals: 0,
                 max_stack: 1,
                 code: vec![Instruction::Return],
@@ -210,7 +210,10 @@ fn round_trips_progress_and_switch_values() {
     let decoded = decode(&encode(&image).unwrap()).unwrap();
     assert_eq!(decoded, image);
     assert_eq!(decoded.nodes[1].kind, UiKind::Progress);
-    assert_eq!(decoded.nodes[1].value, Some(ValueSource::Binding(FunctionId(0))));
+    assert_eq!(
+        decoded.nodes[1].value,
+        Some(ValueSource::Binding(FunctionId(0)))
+    );
     assert_eq!(decoded.nodes[2].kind, UiKind::Switch);
     assert_eq!(decoded.nodes[2].value, Some(ValueSource::Constant(1)));
 }
@@ -225,11 +228,7 @@ fn round_trips_host_requests_and_host_call_instructions() {
             vec![ScalarType::String, ScalarType::String],
             None,
         ),
-        HostRequest::async_request(
-            HostCallKind::NetScanWifi,
-            vec![],
-            FunctionId(1),
-        ),
+        HostRequest::async_request(HostCallKind::NetScanWifi, vec![], FunctionId(1)),
     ];
     image.functions.push(Function {
         kind: FunctionKind::Handler(micro_ir::HandlerId(1)),
@@ -247,7 +246,11 @@ fn round_trips_host_requests_and_host_call_instructions() {
     assert!(decoded.host_requests[0].result_kind.is_some());
     assert_eq!(decoded.host_requests[1].arg_kinds.len(), 2);
     assert!(decoded.host_requests[2].is_async());
-    assert!(decoded.functions[0].code.contains(&Instruction::HostCall(0)));
+    assert!(
+        decoded.functions[0]
+            .code
+            .contains(&Instruction::HostCall(0))
+    );
     assert_eq!(decoded, image);
 }
 
@@ -404,7 +407,7 @@ fn conditional_jump_consumes_its_condition() {
     image.constants.push(Constant::Bool(true));
     image.functions[0] = Function {
         kind: FunctionKind::Handler(micro_ir::HandlerId(0)),
-            arg_count: 0,
+        arg_count: 0,
         locals: 0,
         max_stack: 1,
         code: vec![
@@ -437,4 +440,59 @@ fn crc32(bytes: &[u8]) -> u32 {
         }
     }
     !crc
+}
+
+#[test]
+fn round_trips_a_shared_icon_node() {
+    let mut image = fixture();
+    image.constants.push(Constant::String("settings".into()));
+    image.constants.push(Constant::String("accent".into()));
+    image.constants.push(Constant::String("badge".into()));
+    image.nodes.push(UiNodeSpec {
+        id: NodeId(1),
+        kind: UiKind::Icon,
+        children: vec![],
+        text: Some(TextSource::Constant(2)),
+        value: None,
+        on_click: None,
+        text_style: Some(TextStyle::DEFAULT_ICON),
+        range: None,
+        options: vec![3, 4],
+        layout: Some(LayoutSpec {
+            left: Some(24.0),
+            top: Some(40.0),
+            width: Some(80.0),
+            height: Some(80.0),
+            anchor: Default::default(),
+        }),
+    });
+    let decoded = decode(&encode(&image).unwrap()).unwrap();
+    assert_eq!(decoded.nodes[1].kind, UiKind::Icon);
+    assert_eq!(decoded, image);
+}
+
+#[test]
+fn round_trips_a_decorative_surface() {
+    let mut image = fixture();
+    image.constants.push(Constant::String("terracotta".into()));
+    image.nodes.push(UiNodeSpec {
+        id: NodeId(1),
+        kind: UiKind::Surface,
+        children: vec![],
+        text: None,
+        value: None,
+        on_click: None,
+        text_style: None,
+        range: None,
+        options: vec![2],
+        layout: Some(LayoutSpec {
+            left: Some(24.0),
+            top: Some(100.0),
+            width: None,
+            height: Some(220.0),
+            anchor: Default::default(),
+        }),
+    });
+    let decoded = decode(&encode(&image).unwrap()).unwrap();
+    assert_eq!(decoded, image);
 }

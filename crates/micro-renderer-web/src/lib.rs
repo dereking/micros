@@ -7,6 +7,24 @@ pub trait WebDom {
     fn report_diagnostic(&mut self, node: NodeId, message: &str);
     fn create_column(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String>;
     fn create_row(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String>;
+    /// Decorative filled rectangle behind other nodes. `label` is the
+    /// accessible name for a tappable surface ("" when decorative). Hosts
+    /// that do not implement a palette fall back to an unstyled container.
+    fn create_surface(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        _tone: &str,
+        _handler: Option<FunctionId>,
+        _label: &str,
+    ) -> Result<(), String> {
+        self.create_column(node, parent)
+    }
+    /// `ui.show` toggles an existing node in place. Hosts that do not support
+    /// conditional visibility may leave the default no-op.
+    fn set_visible(&mut self, _node: NodeId, _visible: bool) -> Result<(), String> {
+        Ok(())
+    }
     fn create_progress(
         &mut self,
         node: NodeId,
@@ -34,8 +52,28 @@ pub trait WebDom {
         text: &str,
         handler: FunctionId,
         style: Option<&TextStyle>,
+        variant: Option<&str>,
     ) -> Result<(), String>;
     fn set_text(&mut self, node: NodeId, text: &str) -> Result<(), String>;
+    /// A shared OS icon resolved from `micro_ir::icons`. `name` is the icon
+    /// name (not a glyph); web hosts render inline SVG. The default renders
+    /// the name as text so a minimal DOM bridge still shows something.
+    #[allow(clippy::too_many_arguments)]
+    fn create_icon(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        name: &str,
+        _size_px: u8,
+        _tone: &str,
+        _variant: &str,
+        _handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        self.create_text(node, parent, name, None)
+    }
+    fn set_icon(&mut self, node: NodeId, name: &str) -> Result<(), String> {
+        self.set_text(node, name)
+    }
     fn set_progress(&mut self, node: NodeId, fraction: f64) -> Result<(), String>;
     fn set_checked(&mut self, node: NodeId, checked: bool) -> Result<(), String>;
     fn create_input(
@@ -91,11 +129,16 @@ pub trait WebDom {
     ) -> Result<(), String>;
     fn create_tab_content(&mut self, index: u32) -> Result<(), String>;
     fn set_layout_spec(&mut self, node: NodeId, layout: LayoutSpec) -> Result<(), String>;
-    fn apply_delphi_layout(&mut self, container: NodeId, children: &[NodeId]) -> Result<(), String>;
+    fn apply_delphi_layout(&mut self, container: NodeId, children: &[NodeId])
+    -> Result<(), String>;
     fn create_led(&mut self, node: NodeId, parent: Option<NodeId>, on: bool) -> Result<(), String>;
     fn set_led(&mut self, node: NodeId, on: bool) -> Result<(), String>;
-    fn create_spinner(&mut self, node: NodeId, parent: Option<NodeId>, active: bool)
-        -> Result<(), String>;
+    fn create_spinner(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        active: bool,
+    ) -> Result<(), String>;
     fn set_spinner(&mut self, node: NodeId, active: bool) -> Result<(), String>;
     fn create_scale(
         &mut self,
@@ -158,6 +201,36 @@ impl<D: WebDom> WebRenderer<D> {
                 self.dom
                     .create_progress(node.id, parent, fraction.clamp(0.0, 1.0))
             }
+            UiKind::Surface => {
+                let tone = node.options.first().map(String::as_str).unwrap_or("paper");
+                let label = self.checked_text(node.id, &node.text);
+                self.dom
+                    .create_surface(node.id, parent, tone, node.on_click, &label)
+            }
+            UiKind::Icon => {
+                let name = self.checked_text(node.id, &node.text);
+                let style = node.text_style.unwrap_or(TextStyle::DEFAULT_ICON);
+                let tone = node.options.first().map(String::as_str).unwrap_or("ink");
+                let variant = node.options.get(1).map(String::as_str).unwrap_or("plain");
+                let name = if micro_ir::icons::icon(&name).is_some() || name.chars().count() == 1 {
+                    name
+                } else {
+                    self.dom.report_diagnostic(
+                        node.id,
+                        &format!("unknown icon `{name}` rendered as ?"),
+                    );
+                    "?".to_owned()
+                };
+                self.dom.create_icon(
+                    node.id,
+                    parent,
+                    &name,
+                    style.size_px,
+                    tone,
+                    variant,
+                    node.on_click,
+                )
+            }
             UiKind::Switch => {
                 let Some(Value::Bool(checked)) = node.value.as_ref() else {
                     return Err(RenderError(format!(
@@ -179,8 +252,9 @@ impl<D: WebDom> WebRenderer<D> {
                     .ok_or_else(|| RenderError(format!("button {} has no handler", node.id.0)))?;
                 let text = self.checked_text(node.id, &node.text);
                 let style = node.text_style.unwrap_or(TextStyle::DEFAULT_BUTTON);
+                let variant = node.options.first().map(String::as_str);
                 self.dom
-                    .create_button(node.id, parent, &text, handler, Some(&style))
+                    .create_button(node.id, parent, &text, handler, Some(&style), variant)
             }
             UiKind::Input => {
                 let Some(Value::String(text)) = node.value.as_ref() else {
@@ -257,7 +331,10 @@ impl<D: WebDom> WebRenderer<D> {
             }
             UiKind::Led => {
                 let Some(Value::Bool(on)) = node.value.as_ref() else {
-                    return Err(RenderError(format!("led {} has no boolean value", node.id.0)));
+                    return Err(RenderError(format!(
+                        "led {} has no boolean value",
+                        node.id.0
+                    )));
                 };
                 self.dom.create_led(node.id, parent, *on)
             }
@@ -289,14 +366,17 @@ impl<D: WebDom> WebRenderer<D> {
             }
         }
         if matches!(node.kind, UiKind::Column | UiKind::Row)
-            && node
-                .children
-                .iter()
-                .any(|c| tree.nodes.get(c.0 as usize).is_some_and(|n| n.layout.is_some()))
+            && node.children.iter().any(|c| {
+                tree.nodes
+                    .get(c.0 as usize)
+                    .is_some_and(|n| n.layout.is_some())
+            })
         {
             for child in &node.children {
                 if let Some(layout) = tree.nodes[child.0 as usize].layout {
-                    self.dom.set_layout_spec(*child, layout).map_err(RenderError)?;
+                    self.dom
+                        .set_layout_spec(*child, layout)
+                        .map_err(RenderError)?;
                 }
             }
             self.dom
@@ -315,23 +395,27 @@ impl<D: WebDom> RenderPort for WebRenderer<D> {
     fn apply(&mut self, patches: &[RenderPatch]) -> Result<(), RenderError> {
         for patch in patches {
             match patch {
+                RenderPatch::SetVisible { node, visible } => {
+                    self.dom.set_visible(*node, *visible).map_err(RenderError)?
+                }
                 RenderPatch::SetText { node, text } => {
                     let text = self.checked_text(*node, text);
                     self.dom.set_text(*node, &text).map_err(RenderError)?;
+                }
+                RenderPatch::SetIcon { node, name } => {
+                    let name = self.checked_text(*node, name);
+                    self.dom.set_icon(*node, &name).map_err(RenderError)?;
                 }
                 RenderPatch::SetProgress { node, fraction } => self
                     .dom
                     .set_progress(*node, fraction.clamp(0.0, 1.0))
                     .map_err(RenderError)?,
-                RenderPatch::SetChecked { node, checked } => self
-                    .dom
-                    .set_checked(*node, *checked)
-                    .map_err(RenderError)?,
+                RenderPatch::SetChecked { node, checked } => {
+                    self.dom.set_checked(*node, *checked).map_err(RenderError)?
+                }
                 RenderPatch::SetInputText { node, text } => {
                     let text = self.checked_text(*node, text);
-                    self.dom
-                        .set_input_text(*node, &text)
-                        .map_err(RenderError)?;
+                    self.dom.set_input_text(*node, &text).map_err(RenderError)?;
                 }
                 RenderPatch::SetSliderValue { node, value } => self
                     .dom
@@ -341,14 +425,12 @@ impl<D: WebDom> RenderPort for WebRenderer<D> {
                     .dom
                     .set_selection_value(*node, *index)
                     .map_err(RenderError)?,
-                RenderPatch::SetLed { node, on } => self
-                    .dom
-                    .set_led(*node, *on)
-                    .map_err(RenderError)?,
-                RenderPatch::SetSpinner { node, active } => self
-                    .dom
-                    .set_spinner(*node, *active)
-                    .map_err(RenderError)?,
+                RenderPatch::SetLed { node, on } => {
+                    self.dom.set_led(*node, *on).map_err(RenderError)?
+                }
+                RenderPatch::SetSpinner { node, active } => {
+                    self.dom.set_spinner(*node, *active).map_err(RenderError)?
+                }
                 RenderPatch::SetScaleValue { node, value } => self
                     .dom
                     .set_scale_value(*node, *value)

@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use micro_ir::{
     AnchorSpec, AppImage, AppMetadata, BindingId, Constant, FontFamily, FontWeight, Function,
     FunctionId, FunctionKind, HandlerId, HostCallKind, HostRequest, Instruction, LayoutSpec,
-    NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind, UiNodeSpec,
-    ValueSource, validate,
+    NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind, UiNodeSpec, ValueSource,
+    validate,
 };
 use swc_common::{SourceMap, Span, Spanned, sync::Lrc};
 use swc_ecma_ast::{
@@ -14,6 +14,9 @@ use swc_ecma_ast::{
 };
 
 use crate::{Diagnostic, ParsedProgram, parse::diagnostic_at, parse_validated};
+
+/// `onClick` handler, `textStyle`, tone, and variant of one `ui.icon` call.
+type IconOptions<'b> = (Option<&'b ArrowExpr>, Option<TextStyle>, String, String);
 
 pub fn compile_source(path: &str, source: &str) -> Result<AppImage, Vec<Diagnostic>> {
     let ParsedProgram {
@@ -196,6 +199,91 @@ impl<'a> Lowerer<'a> {
                     self.lower_child_array(&call.args[0].expr, "ui.row")?;
                 Ok(id)
             }
+            Some("ui.surface") => {
+                let id = self.reserve_node(UiKind::Surface);
+                if let Some(argument) = call.args.first() {
+                    let constant = literal_constant(&argument.expr).ok_or_else(|| {
+                        self.error(
+                            argument.expr.span(),
+                            "MTS012",
+                            "ui.surface tone must be a string literal",
+                        )
+                    })?;
+                    let Constant::String(tone) = constant else {
+                        return Err(self.error(
+                            argument.expr.span(),
+                            "MTS012",
+                            "ui.surface tone must be a string literal",
+                        ));
+                    };
+                    let index = self.intern(Constant::String(tone));
+                    self.nodes[id.0 as usize].options.push(index);
+                }
+                if let Some(options) = call.args.get(1) {
+                    let (handler, label) = self.lower_surface_options(&options.expr)?;
+                    if let Some(handler) = handler {
+                        self.nodes[id.0 as usize].on_click =
+                            Some(self.add_function(handler, false)?);
+                    }
+                    if let Some(label) = label {
+                        let index = self.intern(Constant::String(label));
+                        self.nodes[id.0 as usize].text = Some(TextSource::Constant(index));
+                    }
+                }
+                Ok(id)
+            }
+            Some("ui.icon") => {
+                let id = self.reserve_node(UiKind::Icon);
+                let name = if call_name_expr(&call.args[0].expr).as_deref() == Some("bind") {
+                    let Expr::Call(binding) = &*call.args[0].expr else {
+                        unreachable!()
+                    };
+                    let arrow = as_arrow(&binding.args[0].expr).ok_or_else(|| {
+                        self.error(binding.args[0].span(), "MTS012", "bind expects an arrow")
+                    })?;
+                    TextSource::Binding(self.add_function(arrow, true)?)
+                } else {
+                    let constant = literal_constant(&call.args[0].expr)
+                        .filter(|constant| matches!(constant, Constant::String(_)))
+                        .ok_or_else(|| {
+                            self.error(
+                                call.args[0].span(),
+                                "MTS012",
+                                "ui.icon name must be a string or bind",
+                            )
+                        })?;
+                    if let Constant::String(name) = &constant {
+                        self.validate_icon_name(call.args[0].span(), name)?;
+                    }
+                    TextSource::Constant(self.intern(constant))
+                };
+                self.nodes[id.0 as usize].text = Some(name);
+                let (handler, text_style, tone, variant) = self
+                    .lower_icon_options(call.args.get(1).map(|argument| argument.expr.as_ref()))?;
+                self.nodes[id.0 as usize].on_click = handler
+                    .map(|handler| self.add_function(handler, false))
+                    .transpose()?;
+                self.nodes[id.0 as usize].text_style =
+                    Some(text_style.unwrap_or(TextStyle::DEFAULT_ICON));
+                for option in [tone, variant] {
+                    let index = self.intern(Constant::String(option));
+                    self.nodes[id.0 as usize].options.push(index);
+                }
+                Ok(id)
+            }
+            Some("ui.show") => {
+                let id = self.lower_ui(&call.args[0].expr)?;
+                if self.nodes[id.0 as usize].kind != UiKind::Button {
+                    return Err(self.error(
+                        call.args[0].span(),
+                        "MTS012",
+                        "ui.show currently supports buttons",
+                    ));
+                }
+                self.nodes[id.0 as usize].value =
+                    Some(self.lower_value_source(ScalarType::Bool, &call.args[1].expr)?);
+                Ok(id)
+            }
             Some("ui.progress") => {
                 let id = self.reserve_node(UiKind::Progress);
                 self.nodes[id.0 as usize].value =
@@ -249,10 +337,10 @@ impl<'a> Lowerer<'a> {
                 let id = self.reserve_node(UiKind::Input);
                 self.nodes[id.0 as usize].value =
                     Some(self.lower_value_source(ScalarType::String, &call.args[0].expr)?);
+                self.nodes[id.0 as usize].text_style = Some(TextStyle::DEFAULT_TEXT);
                 if let Some(options) = call.args.get(1) {
                     self.lower_input_options(id, &options.expr)?;
                 }
-                self.nodes[id.0 as usize].text_style = Some(TextStyle::DEFAULT_TEXT);
                 Ok(id)
             }
             Some("ui.button") => {
@@ -281,10 +369,14 @@ impl<'a> Lowerer<'a> {
                     TextSource::Constant(self.intern(constant))
                 };
                 self.nodes[id.0 as usize].text = Some(source);
-                let (arrow, text_style) = self.lower_button_options(&call.args[1].expr)?;
+                let (arrow, text_style, variant) = self.lower_button_options(&call.args[1].expr)?;
                 self.nodes[id.0 as usize].on_click = Some(self.add_function(arrow, false)?);
                 self.nodes[id.0 as usize].text_style =
                     Some(text_style.unwrap_or(TextStyle::DEFAULT_BUTTON));
+                if let Some(variant) = variant {
+                    let index = self.intern(Constant::String(variant));
+                    self.nodes[id.0 as usize].options.push(index);
+                }
                 Ok(id)
             }
             Some("ui.slider") => {
@@ -451,10 +543,7 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    fn lower_switch_options<'b>(
-        &self,
-        expression: &'b Expr,
-    ) -> Result<&'b ArrowExpr, Diagnostic> {
+    fn lower_switch_options<'b>(&self, expression: &'b Expr) -> Result<&'b ArrowExpr, Diagnostic> {
         let Expr::Object(object) = expression else {
             return Err(self.error(
                 expression.span(),
@@ -488,7 +577,11 @@ impl<'a> Lowerer<'a> {
             match name.sym.as_ref() {
                 "onToggle" if handler.is_none() => {
                     handler = Some(as_arrow(&property.value).ok_or_else(|| {
-                        self.error(property.value.span(), "MTS012", "onToggle arrow is required")
+                        self.error(
+                            property.value.span(),
+                            "MTS012",
+                            "onToggle arrow is required",
+                        )
                     })?);
                 }
                 "onToggle" => {
@@ -507,16 +600,10 @@ impl<'a> Lowerer<'a> {
                 }
             }
         }
-        handler.ok_or_else(|| {
-            self.error(expression.span(), "MTS012", "onToggle arrow is required")
-        })
+        handler.ok_or_else(|| self.error(expression.span(), "MTS012", "onToggle arrow is required"))
     }
 
-    fn lower_input_options(
-        &mut self,
-        node: NodeId,
-        expression: &Expr,
-    ) -> Result<(), Diagnostic> {
+    fn lower_input_options(&mut self, node: NodeId, expression: &Expr) -> Result<(), Diagnostic> {
         let Expr::Object(object) = expression else {
             return Err(self.error(
                 expression.span(),
@@ -526,6 +613,7 @@ impl<'a> Lowerer<'a> {
         };
         let mut saw_change = false;
         let mut saw_placeholder = false;
+        let mut saw_style = false;
         for property in &object.props {
             let PropOrSpread::Prop(property) = property else {
                 return Err(self.error(
@@ -552,7 +640,11 @@ impl<'a> Lowerer<'a> {
                 "onChange" if !saw_change => {
                     saw_change = true;
                     let arrow = as_arrow(&property.value).ok_or_else(|| {
-                        self.error(property.value.span(), "MTS012", "onChange arrow is required")
+                        self.error(
+                            property.value.span(),
+                            "MTS012",
+                            "onChange arrow is required",
+                        )
                     })?;
                     self.nodes[node.0 as usize].on_click =
                         Some(self.add_input_function(arrow, ScalarType::String)?);
@@ -585,6 +677,18 @@ impl<'a> Lowerer<'a> {
                         format!("duplicate ui.input property `{}`", name.sym),
                     ));
                 }
+                "textStyle" if !saw_style => {
+                    saw_style = true;
+                    self.nodes[node.0 as usize].text_style =
+                        Some(self.lower_text_style(&property.value)?);
+                }
+                "textStyle" => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS012",
+                        format!("duplicate ui.input property `{}`", name.sym),
+                    ));
+                }
                 _ => {
                     return Err(self.error(
                         property.key.span(),
@@ -597,11 +701,7 @@ impl<'a> Lowerer<'a> {
         Ok(())
     }
 
-    fn lower_slider_options(
-        &mut self,
-        node: NodeId,
-        expression: &Expr,
-    ) -> Result<(), Diagnostic> {
+    fn lower_slider_options(&mut self, node: NodeId, expression: &Expr) -> Result<(), Diagnostic> {
         let Expr::Object(object) = expression else {
             return Err(self.error(
                 expression.span(),
@@ -638,7 +738,11 @@ impl<'a> Lowerer<'a> {
                 "onChange" if !saw_change => {
                     saw_change = true;
                     let arrow = as_arrow(&property.value).ok_or_else(|| {
-                        self.error(property.value.span(), "MTS012", "onChange arrow is required")
+                        self.error(
+                            property.value.span(),
+                            "MTS012",
+                            "onChange arrow is required",
+                        )
                     })?;
                     self.nodes[node.0 as usize].on_click =
                         Some(self.add_input_function(arrow, ScalarType::Number)?);
@@ -730,7 +834,10 @@ impl<'a> Lowerer<'a> {
                             "ui.place align must be a string",
                         ));
                     };
-                    align_name = Some((value.value.as_str().unwrap_or("").to_string(), property.value.span()));
+                    align_name = Some((
+                        value.value.as_str().unwrap_or("").to_string(),
+                        property.value.span(),
+                    ));
                 }
                 "left" => left = Some(self.numeric_option(property.value.span(), &property.value)?),
                 "top" => top = Some(self.numeric_option(property.value.span(), &property.value)?),
@@ -770,7 +877,8 @@ impl<'a> Lowerer<'a> {
                                 "ui.place anchor names must be identifiers",
                             ));
                         };
-                        let value = self.numeric_option(anchor_prop.value.span(), &anchor_prop.value)?;
+                        let value =
+                            self.numeric_option(anchor_prop.value.span(), &anchor_prop.value)?;
                         match anchor_name.sym.as_ref() {
                             "left" => anchor.left = Some(value),
                             "top" => anchor.top = Some(value),
@@ -975,11 +1083,7 @@ impl<'a> Lowerer<'a> {
 
     fn lower_list_items(&mut self, expression: &Expr) -> Result<Vec<NodeId>, Diagnostic> {
         let Expr::Array(array) = expression else {
-            return Err(self.error(
-                expression.span(),
-                "MTS012",
-                "ui.list expects an item array",
-            ));
+            return Err(self.error(expression.span(), "MTS012", "ui.list expects an item array"));
         };
         let mut children = Vec::with_capacity(array.elems.len());
         for element in array.elems.iter().flatten() {
@@ -1068,11 +1172,7 @@ impl<'a> Lowerer<'a> {
         Ok(children)
     }
 
-    fn lower_scale_options(
-        &mut self,
-        node: NodeId,
-        expression: &Expr,
-    ) -> Result<(), Diagnostic> {
+    fn lower_scale_options(&mut self, node: NodeId, expression: &Expr) -> Result<(), Diagnostic> {
         let Expr::Object(object) = expression else {
             return Err(self.error(
                 expression.span(),
@@ -1173,7 +1273,11 @@ impl<'a> Lowerer<'a> {
                 "onChange" if !saw_change => {
                     saw_change = true;
                     let arrow = as_arrow(&property.value).ok_or_else(|| {
-                        self.error(property.value.span(), "MTS012", "onChange arrow is required")
+                        self.error(
+                            property.value.span(),
+                            "MTS012",
+                            "onChange arrow is required",
+                        )
                     })?;
                     self.nodes[node.0 as usize].on_click =
                         Some(self.add_input_function(arrow, ScalarType::Number)?);
@@ -1236,7 +1340,11 @@ impl<'a> Lowerer<'a> {
                 "onChange" if !saw_change => {
                     saw_change = true;
                     let arrow = as_arrow(&property.value).ok_or_else(|| {
-                        self.error(property.value.span(), "MTS012", "onChange arrow is required")
+                        self.error(
+                            property.value.span(),
+                            "MTS012",
+                            "onChange arrow is required",
+                        )
                     })?;
                     self.nodes[node.0 as usize].on_click =
                         Some(self.add_input_function(arrow, ScalarType::Bool)?);
@@ -1383,10 +1491,217 @@ impl<'a> Lowerer<'a> {
             .map_err(|error| self.error(expression.span(), "MTS014", error.to_string()))
     }
 
+    /// Lower `ui.surface(tone, { onClick, label })`. `label` is the accessible
+    /// name for a tappable surface; it must be a literal so a re-render can
+    /// never replace the surface's painted content.
+    fn lower_surface_options<'b>(
+        &self,
+        expression: &'b Expr,
+    ) -> Result<(Option<&'b ArrowExpr>, Option<String>), Diagnostic> {
+        let Expr::Object(object) = expression else {
+            return Err(self.error(
+                expression.span(),
+                "MTS012",
+                "ui.surface options must be an object",
+            ));
+        };
+        let mut handler = None;
+        let mut label = None;
+        for property in &object.props {
+            let PropOrSpread::Prop(property) = property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.surface options cannot use spread",
+                ));
+            };
+            let Prop::KeyValue(property) = &**property else {
+                return Err(self.error(
+                    property.span(),
+                    "MTS012",
+                    "ui.surface options must use key-value pairs",
+                ));
+            };
+            let PropName::Ident(name) = &property.key else {
+                return Err(self.error(
+                    property.key.span(),
+                    "MTS012",
+                    "ui.surface option names must be identifiers",
+                ));
+            };
+            match name.sym.as_ref() {
+                "onClick" if handler.is_none() => {
+                    handler = Some(as_arrow(&property.value).ok_or_else(|| {
+                        self.error(property.value.span(), "MTS012", "onClick arrow is required")
+                    })?);
+                }
+                "label" if label.is_none() => {
+                    let constant = literal_constant(&property.value).ok_or_else(|| {
+                        self.error(
+                            property.value.span(),
+                            "MTS012",
+                            "ui.surface label must be a string literal",
+                        )
+                    })?;
+                    let Constant::String(value) = constant else {
+                        return Err(self.error(
+                            property.value.span(),
+                            "MTS012",
+                            "ui.surface label must be a string literal",
+                        ));
+                    };
+                    self.validate_literal_glyphs(property.value.span(), &value)?;
+                    label = Some(value);
+                }
+                "onClick" | "label" => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS012",
+                        format!("duplicate ui.surface property `{}`", name.sym),
+                    ));
+                }
+                _ => {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS002",
+                        format!("unknown ui.surface property `{}`", name.sym),
+                    ));
+                }
+            }
+        }
+        Ok((handler, label))
+    }
+
+    /// Lower `ui.icon(name, { onClick, textStyle, tone, variant })`.
+    ///
+    /// The tone and variant are interned as two consecutive `options` entries
+    /// (`ink|muted|accent|inverse`, then `plain|badge`) so every renderer can
+    /// read them by position. `textStyle.size_px` picks the glyph size.
+    fn lower_icon_options<'b>(
+        &self,
+        expression: Option<&'b Expr>,
+    ) -> Result<IconOptions<'b>, Diagnostic> {
+        let mut handler = None;
+        let mut text_style = None;
+        let mut tone = None;
+        let mut variant = None;
+        if let Some(expression) = expression {
+            let Expr::Object(object) = expression else {
+                return Err(self.error(
+                    expression.span(),
+                    "MTS012",
+                    "ui.icon options must be an object",
+                ));
+            };
+            for property in &object.props {
+                let PropOrSpread::Prop(property) = property else {
+                    return Err(self.error(
+                        property.span(),
+                        "MTS012",
+                        "ui.icon options cannot use spread",
+                    ));
+                };
+                let Prop::KeyValue(property) = &**property else {
+                    return Err(self.error(
+                        property.span(),
+                        "MTS012",
+                        "ui.icon options must use key-value pairs",
+                    ));
+                };
+                let PropName::Ident(name) = &property.key else {
+                    return Err(self.error(
+                        property.key.span(),
+                        "MTS012",
+                        "ui.icon option names must be identifiers",
+                    ));
+                };
+                match name.sym.as_ref() {
+                    "onClick" if handler.is_none() => {
+                        handler = Some(as_arrow(&property.value).ok_or_else(|| {
+                            self.error(property.value.span(), "MTS012", "onClick arrow is required")
+                        })?);
+                    }
+                    "textStyle" if text_style.is_none() => {
+                        text_style = Some(self.lower_text_style(&property.value)?);
+                    }
+                    "tone" if tone.is_none() => {
+                        tone = Some(self.lower_icon_option_value(
+                            &property.value,
+                            "tone",
+                            &["ink", "muted", "accent", "inverse"],
+                        )?);
+                    }
+                    "variant" if variant.is_none() => {
+                        variant = Some(self.lower_icon_option_value(
+                            &property.value,
+                            "variant",
+                            &["plain", "badge"],
+                        )?);
+                    }
+                    "onClick" | "textStyle" | "tone" | "variant" => {
+                        return Err(self.error(
+                            property.key.span(),
+                            "MTS012",
+                            format!("duplicate ui.icon property `{}`", name.sym),
+                        ));
+                    }
+                    _ => {
+                        return Err(self.error(
+                            property.key.span(),
+                            "MTS002",
+                            format!("unknown ui.icon property `{}`", name.sym),
+                        ));
+                    }
+                }
+            }
+        }
+        Ok((
+            handler,
+            text_style,
+            tone.unwrap_or_else(|| "ink".to_owned()),
+            variant.unwrap_or_else(|| "plain".to_owned()),
+        ))
+    }
+
+    fn lower_icon_option_value(
+        &self,
+        expression: &Expr,
+        name: &str,
+        allowed: &[&str],
+    ) -> Result<String, Diagnostic> {
+        let constant = literal_constant(expression).ok_or_else(|| {
+            self.error(
+                expression.span(),
+                "MTS012",
+                format!("ui.icon {name} must be a string literal"),
+            )
+        })?;
+        let Constant::String(value) = constant else {
+            return Err(self.error(
+                expression.span(),
+                "MTS012",
+                format!("ui.icon {name} must be a string literal"),
+            ));
+        };
+        if !allowed.contains(&value.as_str()) {
+            let options = allowed
+                .iter()
+                .map(|value| format!("\"{value}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(self.error(
+                expression.span(),
+                "MTS012",
+                format!("ui.icon {name} must be one of {options}"),
+            ));
+        }
+        Ok(value)
+    }
+
     fn lower_button_options<'b>(
         &self,
         expression: &'b Expr,
-    ) -> Result<(&'b ArrowExpr, Option<TextStyle>), Diagnostic> {
+    ) -> Result<(&'b ArrowExpr, Option<TextStyle>, Option<String>), Diagnostic> {
         let Expr::Object(object) = expression else {
             return Err(self.error(
                 expression.span(),
@@ -1396,6 +1711,7 @@ impl<'a> Lowerer<'a> {
         };
         let mut handler = None;
         let mut text_style = None;
+        let mut variant = None;
         for property in &object.props {
             let PropOrSpread::Prop(property) = property else {
                 return Err(self.error(
@@ -1427,7 +1743,31 @@ impl<'a> Lowerer<'a> {
                 "textStyle" if text_style.is_none() => {
                     text_style = Some(self.lower_text_style(&property.value)?);
                 }
-                "onClick" | "textStyle" => {
+                "variant" if variant.is_none() => {
+                    let constant = literal_constant(&property.value).ok_or_else(|| {
+                        self.error(
+                            property.value.span(),
+                            "MTS012",
+                            "ui.button variant must be a string literal",
+                        )
+                    })?;
+                    let Constant::String(value) = constant else {
+                        return Err(self.error(
+                            property.value.span(),
+                            "MTS012",
+                            "ui.button variant must be a string literal",
+                        ));
+                    };
+                    if value != "default" && value != "selected" {
+                        return Err(self.error(
+                            property.value.span(),
+                            "MTS012",
+                            "ui.button variant must be \"default\" or \"selected\"",
+                        ));
+                    }
+                    variant = Some(value);
+                }
+                "onClick" | "textStyle" | "variant" => {
                     return Err(self.error(
                         property.key.span(),
                         "MTS012",
@@ -1445,7 +1785,7 @@ impl<'a> Lowerer<'a> {
         }
         let handler = handler
             .ok_or_else(|| self.error(expression.span(), "MTS012", "onClick arrow is required"))?;
-        Ok((handler, text_style))
+        Ok((handler, text_style, variant))
     }
 
     fn validate_literal_glyphs(&self, span: Span, value: &str) -> Result<(), Diagnostic> {
@@ -1459,6 +1799,24 @@ impl<'a> Lowerer<'a> {
             ));
         }
         Ok(())
+    }
+
+    /// A literal icon name is either a shared OS icon (`micro_ir::icons`) or
+    /// a single display glyph for an App's own letter mark.
+    fn validate_icon_name(&self, span: Span, name: &str) -> Result<(), Diagnostic> {
+        if micro_ir::icons::is_icon_name(name) {
+            return Ok(());
+        }
+        if name.chars().count() == 1 {
+            return self.validate_literal_glyphs(span, name);
+        }
+        Err(self.error(
+            span,
+            "MTS012",
+            format!(
+                "unknown icon `{name}`; use a shared OS icon name (e.g. \"settings\") or a single glyph"
+            ),
+        ))
     }
 
     fn add_function(&mut self, arrow: &ArrowExpr, binding: bool) -> Result<FunctionId, Diagnostic> {
@@ -1547,6 +1905,7 @@ struct FunctionLowerer<'lowerer, 'source> {
     kind: FunctionKind,
     argument: Option<(String, ScalarType)>,
     locals: BTreeMap<String, (u16, ScalarType)>,
+    next_local: u16,
     code: Vec<Instruction>,
 }
 
@@ -1557,6 +1916,7 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
             kind,
             argument: None,
             locals: BTreeMap::new(),
+            next_local: 0,
             code: Vec::new(),
         }
     }
@@ -1592,7 +1952,7 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
         Ok(Function {
             kind: self.kind,
             arg_count: u8::from(self.argument.is_some()),
-            locals: self.locals.len() as u16,
+            locals: self.next_local,
             max_stack: 64,
             code: self.code,
         })
@@ -1609,7 +1969,8 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                         self.error(declarator.span, "local initializer is required")
                     })?;
                     let ty = self.expression(initializer)?;
-                    let id = self.locals.len() as u16;
+                    let id = self.next_local;
+                    self.next_local += 1;
                     self.locals.insert(name.id.sym.to_string(), (id, ty));
                     self.code.push(Instruction::StoreLocal(id));
                 }
@@ -1694,7 +2055,13 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                 let first = template
                     .quasis
                     .first()
-                    .map(|quasi| quasi.raw.to_string())
+                    .map(|quasi| {
+                        quasi
+                            .cooked
+                            .as_ref()
+                            .map(|cooked| cooked.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| quasi.raw.to_string())
+                    })
                     .unwrap_or_default();
                 let first_id = self.parent.intern(Constant::String(first));
                 self.code.push(Instruction::Const(first_id));
@@ -1702,7 +2069,11 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                     self.expression(expression)?;
                     self.code.push(Instruction::ToString);
                     self.code.push(Instruction::Concat);
-                    let tail = template.quasis[index + 1].raw.to_string();
+                    let tail = template.quasis[index + 1]
+                        .cooked
+                        .as_ref()
+                        .map(|cooked| cooked.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| template.quasis[index + 1].raw.to_string());
                     if !tail.is_empty() {
                         let id = self.parent.intern(Constant::String(tail));
                         self.code.push(Instruction::Const(id));
@@ -1723,20 +2094,27 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                     BinaryOp::EqEq | BinaryOp::EqEqEq | BinaryOp::NotEq | BinaryOp::NotEqEq => {
                         (Instruction::Eq, ScalarType::Bool)
                     }
-                    BinaryOp::Lt | BinaryOp::LtEq => (Instruction::Lt, ScalarType::Bool),
-                    BinaryOp::Gt | BinaryOp::GtEq => (Instruction::Gt, ScalarType::Bool),
+                    /* `a <= b` is `!(a > b)` and `a >= b` is `!(a < b)`;
+                     * the `negate` pass below applies the Not. */
+                    BinaryOp::Lt => (Instruction::Lt, ScalarType::Bool),
+                    BinaryOp::LtEq => (Instruction::Gt, ScalarType::Bool),
+                    BinaryOp::Gt => (Instruction::Gt, ScalarType::Bool),
+                    BinaryOp::GtEq => (Instruction::Lt, ScalarType::Bool),
                     _ => return Err(self.error(binary.span, "unsupported binary operator")),
                 };
                 /* `!==` / `!=` is the negation of equality; without the Not the
                  * two operators would lower identically. */
-                let negate = matches!(binary.op, BinaryOp::NotEq | BinaryOp::NotEqEq);
+                let negate = matches!(
+                    binary.op,
+                    BinaryOp::NotEq | BinaryOp::NotEqEq | BinaryOp::LtEq | BinaryOp::GtEq
+                );
                 if matches!(
                     instruction,
                     Instruction::Add
-                    | Instruction::Sub
-                    | Instruction::Mul
-                    | Instruction::Div
-                    | Instruction::Mod
+                        | Instruction::Sub
+                        | Instruction::Mul
+                        | Instruction::Div
+                        | Instruction::Mod
                 ) && (left != ScalarType::Number || right != ScalarType::Number)
                 {
                     return Err(self.error(binary.span, "arithmetic operands must be numbers"));
@@ -1758,7 +2136,13 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                 };
                 if !(name.starts_with("device.")
                     || name.starts_with("net.")
-                    || name.starts_with("os."))
+                    || name.starts_with("os.")
+                    || name.starts_with("clock.")
+                    || name.starts_with("kv.")
+                    || name.starts_with("config.")
+                    || name.starts_with("audio.")
+                    || name.starts_with("storage.")
+                    || name.starts_with("json."))
                 {
                     return Err(self.error(expression.span(), "unsupported function call"));
                 }
@@ -1768,10 +2152,14 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
         }
     }
 
-    /// Lower a `device.*` / `net.*` host call. Reads push the host value onto
-    /// the stack; actions and async requests leave a `Null` so an enclosing
+    /// Lower a `device.*` / `net.*` / `storage.*` host call. Calls that return
+    /// a value leave it on the stack; void actions leave `Null` so an enclosing
     /// statement's trailing `Pop` stays balanced.
-    fn host_call(&mut self, name: &str, call: &swc_ecma_ast::CallExpr) -> Result<ScalarType, Diagnostic> {
+    fn host_call(
+        &mut self,
+        name: &str,
+        call: &swc_ecma_ast::CallExpr,
+    ) -> Result<ScalarType, Diagnostic> {
         let Some((kind, arg_kinds, is_async, result_kind)) = host_call_spec(name) else {
             return Err(self.error(call.span, format!("unsupported host call `{name}`")));
         };
@@ -1782,7 +2170,20 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                 format!("`{name}` expects {expected} argument(s)"),
             ));
         }
-        if matches!(self.kind, FunctionKind::Binding(_)) && (is_async || result_kind.is_none()) {
+        // `playAudio` returns a handle but is still an action (it starts a
+        // player), and the storage mutations return a success boolean while
+        // still changing the filesystem. Both belong in the same
+        // binding-forbidden set as writes.
+        let is_action = result_kind.is_none()
+            || matches!(
+                kind,
+                HostCallKind::AudioPlayUrl
+                    | HostCallKind::StorageWriteText
+                    | HostCallKind::StorageAppendText
+                    | HostCallKind::StorageRemove
+                    | HostCallKind::StorageMkdir
+            );
+        if matches!(self.kind, FunctionKind::Binding(_)) && (is_async || is_action) {
             return Err(self.error(
                 call.span,
                 format!("`{name}` is not allowed inside a binding"),
@@ -1794,15 +2195,15 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
         for (index, argument) in call.args.iter().enumerate() {
             if is_async && index == call.args.len() - 1 {
                 let Expr::Arrow(arrow) = &*argument.expr else {
-                    return Err(self.error(
-                        argument.span(),
-                        "net callback must be an arrow function",
-                    ));
+                    return Err(
+                        self.error(argument.span(), "net callback must be an arrow function")
+                    );
                 };
                 callback = Some(self.parent.add_input_function(arrow, ScalarType::String)?);
             } else {
                 let ty = self.expression(&argument.expr)?;
-                if lowered_arg_kinds.len() < arg_kinds.len() && ty != arg_kinds[lowered_arg_kinds.len()]
+                if lowered_arg_kinds.len() < arg_kinds.len()
+                    && ty != arg_kinds[lowered_arg_kinds.len()]
                 {
                     return Err(self.error(argument.span(), "host call argument type mismatch"));
                 }
@@ -1852,10 +2253,7 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                     .as_ref()
                     .is_some_and(|(name, _)| name == identifier.sym.as_ref())
                 {
-                    return Err(self.error(
-                        target.span(),
-                        "cannot update a function argument",
-                    ));
+                    return Err(self.error(target.span(), "cannot update a function argument"));
                 }
                 let (id, ty) = self
                     .locals
@@ -1891,10 +2289,7 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
                     .as_ref()
                     .is_some_and(|(name, _)| name == identifier.sym.as_ref())
                 {
-                    return Err(self.error(
-                        identifier.span,
-                        "cannot assign to a function argument",
-                    ));
+                    return Err(self.error(identifier.span, "cannot assign to a function argument"));
                 }
                 let (id, expected) = self
                     .locals
@@ -1990,17 +2385,50 @@ fn is_bootstrap_glyph(glyph: char) -> bool {
 /// The SDK host-call table: name → (kind, argument types, async?, result type).
 /// Sync reads return a scalar; actions return nothing; async requests carry a
 /// trailing 1-arg callback arrow (not counted in `arg_kinds`).
-fn host_call_spec(
-    name: &str,
-) -> Option<(HostCallKind, Vec<ScalarType>, bool, Option<ScalarType>)> {
+fn host_call_spec(name: &str) -> Option<(HostCallKind, Vec<ScalarType>, bool, Option<ScalarType>)> {
     Some(match name {
-        "device.name" => (HostCallKind::DeviceName, vec![], false, Some(ScalarType::String)),
-        "device.chip" => (HostCallKind::DeviceChip, vec![], false, Some(ScalarType::String)),
-        "device.flashBytes" => (HostCallKind::DeviceFlashBytes, vec![], false, Some(ScalarType::Number)),
-        "device.psramBytes" => (HostCallKind::DevicePsramBytes, vec![], false, Some(ScalarType::Number)),
-        "device.resetReason" => (HostCallKind::DeviceResetReason, vec![], false, Some(ScalarType::String)),
-        "device.backlight" => (HostCallKind::DeviceBacklight, vec![], false, Some(ScalarType::Number)),
-        "device.setBacklight" => (HostCallKind::DeviceSetBacklight, vec![ScalarType::Number], false, None),
+        "device.name" => (
+            HostCallKind::DeviceName,
+            vec![],
+            false,
+            Some(ScalarType::String),
+        ),
+        "device.chip" => (
+            HostCallKind::DeviceChip,
+            vec![],
+            false,
+            Some(ScalarType::String),
+        ),
+        "device.flashBytes" => (
+            HostCallKind::DeviceFlashBytes,
+            vec![],
+            false,
+            Some(ScalarType::Number),
+        ),
+        "device.psramBytes" => (
+            HostCallKind::DevicePsramBytes,
+            vec![],
+            false,
+            Some(ScalarType::Number),
+        ),
+        "device.resetReason" => (
+            HostCallKind::DeviceResetReason,
+            vec![],
+            false,
+            Some(ScalarType::String),
+        ),
+        "device.backlight" => (
+            HostCallKind::DeviceBacklight,
+            vec![],
+            false,
+            Some(ScalarType::Number),
+        ),
+        "device.setBacklight" => (
+            HostCallKind::DeviceSetBacklight,
+            vec![ScalarType::Number],
+            false,
+            None,
+        ),
         "device.gpioSetup" => (
             HostCallKind::DeviceGpioSetup,
             vec![ScalarType::Number, ScalarType::String],
@@ -2013,9 +2441,24 @@ fn host_call_spec(
             false,
             None,
         ),
-        "device.gpioRead" => (HostCallKind::DeviceGpioRead, vec![ScalarType::Number], false, Some(ScalarType::Number)),
-        "net.wifiState" => (HostCallKind::NetWifiState, vec![], false, Some(ScalarType::String)),
-        "net.wifiSsid" => (HostCallKind::NetWifiSsid, vec![], false, Some(ScalarType::String)),
+        "device.gpioRead" => (
+            HostCallKind::DeviceGpioRead,
+            vec![ScalarType::Number],
+            false,
+            Some(ScalarType::Number),
+        ),
+        "net.wifiState" => (
+            HostCallKind::NetWifiState,
+            vec![],
+            false,
+            Some(ScalarType::String),
+        ),
+        "net.wifiSsid" => (
+            HostCallKind::NetWifiSsid,
+            vec![],
+            false,
+            Some(ScalarType::String),
+        ),
         "net.wifiConnect" => (
             HostCallKind::NetWifiConnect,
             vec![ScalarType::String, ScalarType::String],
@@ -2030,18 +2473,226 @@ fn host_call_spec(
             false,
             Some(ScalarType::String),
         ),
-        "net.httpGet" => (HostCallKind::NetHttpGet, vec![ScalarType::String], true, None),
+        "net.httpGet" => (
+            HostCallKind::NetHttpGet,
+            vec![ScalarType::String],
+            true,
+            None,
+        ),
         "net.httpRequest" => (
             HostCallKind::NetHttpRequest,
             vec![ScalarType::String, ScalarType::String, ScalarType::String],
             true,
             None,
         ),
-        "os.appName" => (HostCallKind::OsAppName, vec![ScalarType::Number], false, Some(ScalarType::String)),
-        "os.appIcon" => (HostCallKind::OsAppIcon, vec![ScalarType::Number], false, Some(ScalarType::String)),
-        "os.launchIndex" => (HostCallKind::OsLaunchIndex, vec![ScalarType::Number], false, None),
+        "net.httpRequestWithHeaders" => (
+            HostCallKind::NetHttpRequestWithHeaders,
+            vec![
+                ScalarType::String,
+                ScalarType::String,
+                ScalarType::String,
+                ScalarType::String,
+            ],
+            true,
+            None,
+        ),
+        "net.lookupWords" => (
+            HostCallKind::NetLookupWords,
+            vec![ScalarType::String],
+            true,
+            None,
+        ),
+        "json.getText" => (
+            HostCallKind::JsonGetText,
+            vec![ScalarType::String, ScalarType::String],
+            false,
+            Some(ScalarType::String),
+        ),
+        "json.getNumber" => (
+            HostCallKind::JsonGetNumber,
+            vec![ScalarType::String, ScalarType::String],
+            false,
+            Some(ScalarType::Number),
+        ),
+        "json.length" => (
+            HostCallKind::JsonLength,
+            vec![ScalarType::String, ScalarType::String],
+            false,
+            Some(ScalarType::Number),
+        ),
+        "os.appName" => (
+            HostCallKind::OsAppName,
+            vec![ScalarType::Number],
+            false,
+            Some(ScalarType::String),
+        ),
+        "os.appIcon" => (
+            HostCallKind::OsAppIcon,
+            vec![ScalarType::Number],
+            false,
+            Some(ScalarType::String),
+        ),
+        "os.launchIndex" => (
+            HostCallKind::OsLaunchIndex,
+            vec![ScalarType::Number],
+            false,
+            None,
+        ),
         "os.goBack" => (HostCallKind::OsGoBack, vec![], false, None),
         "os.delay" => (HostCallKind::OsDelay, vec![ScalarType::Number], true, None),
+        "clock.now" => (
+            HostCallKind::ClockNow,
+            vec![],
+            false,
+            Some(ScalarType::Number),
+        ),
+        "kv.getNumber" => (
+            HostCallKind::KvGetNumber,
+            vec![ScalarType::String],
+            false,
+            Some(ScalarType::Number),
+        ),
+        "kv.getText" => (
+            HostCallKind::KvGetText,
+            vec![ScalarType::String],
+            false,
+            Some(ScalarType::String),
+        ),
+        "kv.setNumber" => (
+            HostCallKind::KvSetNumber,
+            vec![ScalarType::String, ScalarType::Number],
+            false,
+            None,
+        ),
+        "kv.setText" => (
+            HostCallKind::KvSetText,
+            vec![ScalarType::String, ScalarType::String],
+            false,
+            None,
+        ),
+        "kv.remove" => (
+            HostCallKind::KvRemove,
+            vec![ScalarType::String],
+            false,
+            None,
+        ),
+        "config.getNumber" => (
+            HostCallKind::ConfigGetNumber,
+            vec![ScalarType::String],
+            false,
+            Some(ScalarType::Number),
+        ),
+        "config.getText" => (
+            HostCallKind::ConfigGetText,
+            vec![ScalarType::String],
+            false,
+            Some(ScalarType::String),
+        ),
+        "config.setNumber" => (
+            HostCallKind::ConfigSetNumber,
+            vec![ScalarType::String, ScalarType::Number],
+            false,
+            None,
+        ),
+        "config.setText" => (
+            HostCallKind::ConfigSetText,
+            vec![ScalarType::String, ScalarType::String],
+            false,
+            None,
+        ),
+        "config.remove" => (
+            HostCallKind::ConfigRemove,
+            vec![ScalarType::String],
+            false,
+            None,
+        ),
+        "audio.speak" => (
+            HostCallKind::AudioSpeak,
+            vec![ScalarType::String],
+            false,
+            None,
+        ),
+        "audio.stop" => (HostCallKind::AudioStop, vec![], false, None),
+        "audio.setRate" => (
+            HostCallKind::AudioSetRate,
+            vec![ScalarType::Number],
+            false,
+            None,
+        ),
+        "audio.playAudio" => (
+            HostCallKind::AudioPlayUrl,
+            vec![ScalarType::String],
+            false,
+            Some(ScalarType::Number),
+        ),
+        "audio.stopAudio" => (
+            HostCallKind::AudioStopUrl,
+            vec![ScalarType::Number],
+            false,
+            None,
+        ),
+        "audio.stopAllAudio" => (HostCallKind::AudioStopAllUrls, vec![], false, None),
+        "audio.playBackground" => (
+            HostCallKind::AudioPlayBackground,
+            vec![ScalarType::String],
+            false,
+            None,
+        ),
+        "audio.stopBackground" => (HostCallKind::AudioStopBackground, vec![], false, None),
+        "storage.available" => (
+            HostCallKind::StorageAvailable,
+            vec![],
+            false,
+            Some(ScalarType::Bool),
+        ),
+        "storage.exists" => (
+            HostCallKind::StorageExists,
+            vec![ScalarType::String],
+            false,
+            Some(ScalarType::Bool),
+        ),
+        "storage.readText" => (
+            HostCallKind::StorageReadText,
+            vec![ScalarType::String],
+            false,
+            Some(ScalarType::String),
+        ),
+        "storage.writeText" => (
+            HostCallKind::StorageWriteText,
+            vec![ScalarType::String, ScalarType::String],
+            false,
+            Some(ScalarType::Bool),
+        ),
+        "storage.appendText" => (
+            HostCallKind::StorageAppendText,
+            vec![ScalarType::String, ScalarType::String],
+            false,
+            Some(ScalarType::Bool),
+        ),
+        "storage.list" => (
+            HostCallKind::StorageList,
+            vec![ScalarType::String],
+            false,
+            Some(ScalarType::String),
+        ),
+        "storage.remove" => (
+            HostCallKind::StorageRemove,
+            vec![ScalarType::String],
+            false,
+            Some(ScalarType::Bool),
+        ),
+        "storage.mkdir" => (
+            HostCallKind::StorageMkdir,
+            vec![ScalarType::String],
+            false,
+            Some(ScalarType::Bool),
+        ),
+        "storage.size" => (
+            HostCallKind::StorageSize,
+            vec![ScalarType::String],
+            false,
+            Some(ScalarType::Number),
+        ),
         _ => return None,
     })
 }

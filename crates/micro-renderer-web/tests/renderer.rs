@@ -14,6 +14,17 @@ enum Call {
     Progress(NodeId, Option<NodeId>, f64),
     Switch(NodeId, Option<NodeId>, bool, Option<FunctionId>),
     Text(NodeId, Option<NodeId>, String, Option<TextStyle>),
+    Icon(
+        NodeId,
+        Option<NodeId>,
+        String,
+        u8,
+        String,
+        String,
+        Option<FunctionId>,
+    ),
+    Surface(NodeId, Option<NodeId>, String, Option<FunctionId>, String),
+    SetIcon(NodeId, String),
     Button(
         NodeId,
         Option<NodeId>,
@@ -75,6 +86,51 @@ impl WebDom for FakeDom {
         Ok(())
     }
 
+    fn create_icon(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        name: &str,
+        size_px: u8,
+        tone: &str,
+        variant: &str,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        self.operations.push(Call::Icon(
+            node,
+            parent,
+            name.into(),
+            size_px,
+            tone.into(),
+            variant.into(),
+            handler,
+        ));
+        Ok(())
+    }
+
+    fn create_surface(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        tone: &str,
+        handler: Option<FunctionId>,
+        label: &str,
+    ) -> Result<(), String> {
+        self.operations.push(Call::Surface(
+            node,
+            parent,
+            tone.into(),
+            handler,
+            label.into(),
+        ));
+        Ok(())
+    }
+
+    fn set_icon(&mut self, node: NodeId, name: &str) -> Result<(), String> {
+        self.operations.push(Call::SetIcon(node, name.into()));
+        Ok(())
+    }
+
     fn create_button(
         &mut self,
         node: NodeId,
@@ -82,6 +138,7 @@ impl WebDom for FakeDom {
         text: &str,
         handler: FunctionId,
         style: Option<&TextStyle>,
+        _variant: Option<&str>,
     ) -> Result<(), String> {
         self.operations.push(Call::Button(
             node,
@@ -161,7 +218,12 @@ impl WebDom for FakeDom {
         Ok(())
     }
 
-    fn create_led(&mut self, _node: NodeId, _parent: Option<NodeId>, _on: bool) -> Result<(), String> {
+    fn create_led(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _on: bool,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -169,7 +231,12 @@ impl WebDom for FakeDom {
         Ok(())
     }
 
-    fn create_spinner(&mut self, _node: NodeId, _parent: Option<NodeId>, _active: bool) -> Result<(), String> {
+    fn create_spinner(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _active: bool,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -208,11 +275,19 @@ impl WebDom for FakeDom {
         Ok(())
     }
 
-    fn set_layout_spec(&mut self, _node: NodeId, _layout: micro_ir::LayoutSpec) -> Result<(), String> {
+    fn set_layout_spec(
+        &mut self,
+        _node: NodeId,
+        _layout: micro_ir::LayoutSpec,
+    ) -> Result<(), String> {
         Ok(())
     }
 
-    fn apply_delphi_layout(&mut self, _container: NodeId, _children: &[NodeId]) -> Result<(), String> {
+    fn apply_delphi_layout(
+        &mut self,
+        _container: NodeId,
+        _children: &[NodeId],
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -235,24 +310,26 @@ impl WebDom for FakeDom {
 #[test]
 fn replaces_missing_runtime_glyph_and_reports_it() {
     let mut renderer = WebRenderer::new(FakeDom::default());
-    renderer.create_tree(&tree_with_text("hello 🦄")).unwrap();
+    renderer
+        .create_tree(&tree_with_text("hello əˈbændən 🦄"))
+        .unwrap();
     renderer
         .apply(&[RenderPatch::SetText {
             node: NodeId(1),
-            text: "next 🦄".into(),
+            text: "next ʃʒ 🦄".into(),
         }])
         .unwrap();
     assert!(renderer.dom().operations.contains(&Call::Text(
         NodeId(1),
         Some(NodeId(0)),
-        "hello �".into(),
+        "hello əˈbændən �".into(),
         Some(TextStyle::ui_sans(24, FontWeight::Regular, 32).unwrap())
     )));
     assert!(
         renderer
             .dom()
             .operations
-            .contains(&Call::SetText(NodeId(1), "next �".into()))
+            .contains(&Call::SetText(NodeId(1), "next ʃʒ �".into()))
     );
     assert_eq!(
         renderer
@@ -374,6 +451,86 @@ fn maps_tree_preorder_and_applies_text_patch() {
     assert_eq!(
         renderer.dom().operations.last(),
         Some(&Call::SetText(NodeId(1), "Count: 1".into()))
+    );
+}
+
+#[test]
+fn passes_icon_names_through_and_patches_set_icon() {
+    let tree = MicroUiTree {
+        root: NodeId(0),
+        nodes: vec![
+            MicroUiNode {
+                id: NodeId(0),
+                kind: UiKind::Column,
+                children: vec![NodeId(1), NodeId(2)],
+                text: String::new(),
+                value: None,
+                on_click: None,
+                text_style: None,
+                range: None,
+                options: vec![],
+                layout: None,
+            },
+            MicroUiNode {
+                id: NodeId(1),
+                kind: UiKind::Surface,
+                children: vec![],
+                text: "Open Counter".into(),
+                value: None,
+                on_click: Some(FunctionId(3)),
+                text_style: None,
+                range: None,
+                options: vec!["paper".into()],
+                layout: None,
+            },
+            MicroUiNode {
+                id: NodeId(2),
+                kind: UiKind::Icon,
+                children: vec![],
+                text: "settings".into(),
+                value: None,
+                on_click: None,
+                text_style: Some(TextStyle::DEFAULT_ICON),
+                range: None,
+                options: vec!["accent".into(), "badge".into()],
+                layout: None,
+            },
+        ],
+    };
+    let mut renderer = WebRenderer::new(FakeDom::default());
+    renderer.create_tree(&tree).unwrap();
+    assert_eq!(
+        renderer.dom().operations,
+        [
+            Call::Column(NodeId(0), None),
+            Call::Surface(
+                NodeId(1),
+                Some(NodeId(0)),
+                "paper".into(),
+                Some(FunctionId(3)),
+                "Open Counter".into(),
+            ),
+            Call::Icon(
+                NodeId(2),
+                Some(NodeId(0)),
+                "settings".into(),
+                24,
+                "accent".into(),
+                "badge".into(),
+                None,
+            ),
+        ]
+    );
+
+    renderer
+        .apply(&[RenderPatch::SetIcon {
+            node: NodeId(2),
+            name: "trash".into(),
+        }])
+        .unwrap();
+    assert_eq!(
+        renderer.dom().operations.last(),
+        Some(&Call::SetIcon(NodeId(2), "trash".into()))
     );
 }
 

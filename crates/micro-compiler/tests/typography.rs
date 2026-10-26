@@ -153,6 +153,18 @@ ui.mount(ui.column([
 }
 
 #[test]
+fn accepts_international_phonetic_alphabet_literals() {
+    compile_source(
+        "ipa.ts",
+        r#"ui.mount(ui.column([
+  ui.text("/əˈbændən/"),
+  ui.text("ʃ ʒ ŋ θ ð ɹ ɫ ˌˈː"),
+]));"#,
+    )
+    .unwrap();
+}
+
+#[test]
 fn rejects_unlisted_literal_glyph_with_stable_diagnostic() {
     let errors = compile_source("glyph.ts", r#"ui.mount(ui.text("龘"));"#).unwrap_err();
 

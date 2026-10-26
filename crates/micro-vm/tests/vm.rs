@@ -82,7 +82,9 @@ fn executes_arithmetic_and_locals() {
         2,
     );
     let mut state = TestState::default();
-    let execution = Vm::new(&app, &mut state).invoke(FunctionId(0), None, 20).unwrap();
+    let execution = Vm::new(&app, &mut state)
+        .invoke(FunctionId(0), None, 20)
+        .unwrap();
     assert_eq!(execution.value, Some(Value::Number(6.0)));
 }
 
@@ -104,7 +106,9 @@ fn branches_and_concatenates_strings() {
         2,
     );
     let mut state = TestState::default();
-    let execution = Vm::new(&app, &mut state).invoke(FunctionId(0), None, 20).unwrap();
+    let execution = Vm::new(&app, &mut state)
+        .invoke(FunctionId(0), None, 20)
+        .unwrap();
     assert_eq!(execution.value, Some(Value::String("value=3".into())));
 }
 
@@ -123,7 +127,9 @@ fn reads_and_writes_state() {
     );
     let mut state = TestState(vec![Value::Number(4.0)]);
     assert_eq!(
-        Vm::new(&app, &mut state).invoke(FunctionId(0), None, 20).unwrap(),
+        Vm::new(&app, &mut state)
+            .invoke(FunctionId(0), None, 20)
+            .unwrap(),
         Execution {
             value: None,
             executed: 5
@@ -220,7 +226,10 @@ fn host_image(
     code: Vec<Instruction>,
 ) -> AppImage {
     AppImage {
-        constants: vec![Constant::String("SSID".into()), Constant::String("pass".into())],
+        constants: vec![
+            Constant::String("SSID".into()),
+            Constant::String("pass".into()),
+        ],
         states: vec![],
         functions: vec![Function {
             kind,
