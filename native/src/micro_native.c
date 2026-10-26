@@ -2110,6 +2110,13 @@ int micro_native_destroy_app_root(micro_native_t *native) {
     return 1;
 }
 
+/* Whether the App content container is on screen. Power-off hides it; the
+ * headless smoke asserts that waking reveals it again. */
+int micro_native_appbar_content_visible(micro_native_t *native) {
+    (void)native;
+    return micro_appbar_content_visible();
+}
+
 /* -------------------------------------------------------------------------
  * Mouse-wheel / trackpad scrolling
  *

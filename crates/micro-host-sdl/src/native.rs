@@ -88,6 +88,7 @@ unsafe extern "C" {
         wifi_ssid: *const c_char,
     );
     fn micro_native_appbar_visible(native: *mut c_void) -> c_int;
+    fn micro_native_appbar_content_visible(native: *mut c_void) -> c_int;
     fn micro_native_power_off(native: *mut c_void);
     fn micro_native_power_off_active(native: *mut c_void) -> c_int;
     fn micro_native_take_power_on(native: *mut c_void) -> c_int;
@@ -520,6 +521,12 @@ impl NativeBridge {
     /// Whether the OS app bar is currently shown (used by the headless smoke).
     pub fn appbar_visible(&self) -> bool {
         unsafe { micro_native_appbar_visible(self.inner.raw.as_ptr()) != 0 }
+    }
+
+    /// Whether the App content container is on screen (used by the headless
+    /// smoke: power-off hides it and power-on must reveal it again).
+    pub fn appbar_content_visible(&self) -> bool {
+        unsafe { micro_native_appbar_content_visible(self.inner.raw.as_ptr()) != 0 }
     }
 
     /// Show the full-screen "Powered off" surface (Home's close button).

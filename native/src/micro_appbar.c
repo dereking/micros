@@ -207,6 +207,12 @@ static void reposition_children(void)
         lv_obj_set_size(s_content, s_width, s_height);
         hide_wifi_tooltip();
     }
+    /* Power-off hides the content too; only the off surface may keep it
+     * hidden. Restoring the bar without this leaves Home running but blank
+     * after a power cycle. */
+    if (!s_off_active) {
+        lv_obj_remove_flag(s_content, LV_OBJ_FLAG_HIDDEN);
+    }
 
     if (s_tip != NULL) {
         lv_obj_set_pos(s_tip, 6, MICRO_APPBAR_HEIGHT + 6);
@@ -377,6 +383,14 @@ void micro_appbar_set_visible(int visible)
 int micro_appbar_visible(void)
 {
     return s_visible;
+}
+
+int micro_appbar_content_visible(void)
+{
+    if (s_content == NULL) {
+        return 0;
+    }
+    return !lv_obj_has_flag(s_content, LV_OBJ_FLAG_HIDDEN);
 }
 
 void micro_appbar_set_viewport(int width, int height)

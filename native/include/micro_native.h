@@ -37,6 +37,8 @@ MICRO_EXPORT void micro_native_set_app_chrome(micro_native_t *native, int visibl
                                               const char *wifi_state,
                                               const char *wifi_ssid);
 MICRO_EXPORT int micro_native_appbar_visible(micro_native_t *native);
+/* Whether the App content container is on screen (power-off hides it). */
+MICRO_EXPORT int micro_native_appbar_content_visible(micro_native_t *native);
 MICRO_EXPORT uint32_t micro_native_timer(micro_native_t *native);
 
 /* System power state. Powering off from the shell hides the app bar/content

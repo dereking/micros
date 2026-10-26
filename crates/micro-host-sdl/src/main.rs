@@ -304,6 +304,9 @@ fn run_os_smoke(
     if !bridge.power_off_active() {
         return Err("smoke OS: closing Home must power the system off".into());
     }
+    if bridge.appbar_content_visible() {
+        return Err("smoke OS: power off must hide the App content".into());
+    }
     bridge.press_power_on();
     if !bridge.take_power_on() {
         return Err("smoke OS: tapping the off surface must queue power on".into());
@@ -318,6 +321,9 @@ fn run_os_smoke(
     )?;
     if !bridge.appbar_visible() {
         return Err("smoke OS: power on must restore the app bar".into());
+    }
+    if !bridge.appbar_content_visible() {
+        return Err("smoke OS: power on must reveal the App content".into());
     }
 
     let _ = &bridge;

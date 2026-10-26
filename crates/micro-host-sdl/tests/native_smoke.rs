@@ -319,3 +319,23 @@ fn host_menu_actions_queue_and_state_snapshot_updates() {
     assert!(!bridge.host_state().expect("landscape").portrait);
     drop(bridge);
 }
+
+#[test]
+fn power_cycle_reveals_the_app_content_again() {
+    let _guard = NATIVE_LOCK.lock().unwrap();
+    let mut bridge = NativeBridge::create(800, 480, true).unwrap();
+    bridge.set_app_chrome(true, "Home", "connected", "micro-demo");
+    assert!(bridge.appbar_content_visible());
+
+    // Home's close control hides bar and content behind the off surface.
+    bridge.power_off();
+    assert!(!bridge.appbar_content_visible());
+
+    // Tapping that surface must bring the content container back, otherwise
+    // the rebooted Home renders into a hidden parent and the window is blank.
+    bridge.press_power_on();
+    assert!(bridge.take_power_on());
+    bridge.wake();
+    assert!(bridge.appbar_content_visible());
+    drop(bridge);
+}

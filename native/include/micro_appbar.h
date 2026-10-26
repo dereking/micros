@@ -36,6 +36,11 @@ void micro_appbar_ensure(void);
 void micro_appbar_set_visible(int visible);
 int micro_appbar_visible(void);
 
+/* Whether the App content container is displayed. Power-off hides it, so
+ * waking must reveal it again; otherwise Home runs but stays invisible behind
+ * the restored bar. The headless smoke asserts this across a power cycle. */
+int micro_appbar_content_visible(void);
+
 /* Resize the system chrome after a device-orientation change. The App root
  * inside the content box is resized and its `ui.place` anchors are laid out
  * again; the App runtime is not restarted. */
