@@ -64,6 +64,15 @@ work/toolchains/
 work/fonts/
 work/tools/
 
+# Local Cargo cache and device introspection output
+work/cargo-home/
+work/metadata.json
+work/metadata.err
+
+# Python bytecode from repository scripts
+__pycache__/
+*.pyc
+
 # ESP-IDF generated and machine-local state
 firmware/micro-os-esp32/build/
 firmware/micro-os-esp32/managed_components/
