@@ -15,7 +15,7 @@ ESP_PORT=/dev/cu.XXX scripts/esp-flash.sh   # 指定串口(默认自动探测 wc
 
 - 固件**不内嵌** App 的 MBC,而是从 raw 的 `micro_app` **数据分区**读取。
 - `firmware/micro-os-esp32/main/CMakeLists.txt` 把 `apps/counter/dist/app.mbc` **copy 成** `build/esp-idf/main/micro_app.bin`(随固件构建自动刷新,`npm run build:app` 改了源码就够)。
-- **`idf.py flash` 不会写 `micro_app` 分区**——必须用 esptool 单独刷到 `partitions_8m.csv` 里 `micro_app` 的 offset(`0x3A0000`)。脚本里用 `awk` 从 csv 动态取 offset,不硬编码。
+- **`idf.py flash` 不会写 `micro_app` 分区**——必须用 esptool 单独刷到 `partitions_8m.csv` 里 `micro_app` 的 offset(`0x3F0000`)。脚本里用 `awk` 从 csv 动态取 offset,不硬编码。
 
 完整刷新链路:改 `apps/counter/app.ts` → `npm run build:app` → `idf.py build` → `idf.py flash`(bootloader + app + 分区表)→ esptool 刷 `micro_app` 分区(MBC)。
 
@@ -37,7 +37,8 @@ Python venv 缺失时用 `IDF_PYTHON_ENV_PATH` 指向 `work/toolchains/espressif
 
 - 串口:`/dev/cu.wchusbserial59591149741`(WCH USB-serial,ESP32-S3 板;`scripts/esp-flash.sh` 自动探测,`ESP_PORT` 覆盖)
 - console:UART0 @ 115200(见 `firmware/micro-os-esp32/sdkconfig` 的 `CONFIG_ESP_CONSOLE_UART_NUM=0`)
-- 芯片:esp32s3,8MB flash / 8MB PSRAM;分区见 `partitions_8m.csv`(`factory` app 0x10000 0x380000、`micro_app` data 0x3A0000 0x440000)
+- 芯片:esp32s3,8MB flash / 8MB PSRAM;分区见 `partitions_8m.csv`(`factory` app 0x10000 0x3D0000、`micro_app` data 0x3F0000 0x3F0000)
+- TF 卡:SPI MOSI=11 / MISO=13 / SCLK=12,CS 由 CH422G EXIO4(低有效)控制;`micro_sd` 在启动时挂载 `/sdcard`,App 只能通过 `storage.*` 访问 `/sdcard/micros/apps/<app-id>/`。启动日志出现 `TF card mounted` 表示卡可用;无卡时 `storage.available()` 为 false,系统继续启动。
 
 ## 串口监视器的坑
 
@@ -46,13 +47,13 @@ Python venv 缺失时用 `IDF_PYTHON_ENV_PATH` 指向 `work/toolchains/espressif
   - 复位+读日志:`python -m esptool --chip esp32s3 --port <PORT> --after hard_reset run`,然后用 pyserial 读 115200;
   - 或 `script -q <file> <idf_monitor.py 参数>` 分配 PTY。
 - 验证 MBC 加载成功的日志特征:`micro_os: MBC header: magic OK, version=<N>` + `micro runtime created`。
-- 现在的启动流程是 **OS shell**:先进入 C/LVGL launcher(状态栏 + Counter/Settings 入口),点 Counter 才创建 Rust runtime 跑 MBC,BOOT 按钮(GPIO0)当 Back。启动日志特征:`OS shell ready` → launcher;点 Counter 后 `loaded MBC` + `micro runtime created; app session <N>`。`device.*`/`net.*` 宿主值由 `micro_esp_host_*` 提供(真机读 IDF;wifi 为模拟状态)。
+- 现在的启动流程是 **OS shell**:先进入 shell MBC(`apps/shell`,启动器图标网格),点 Counter 才创建 Rust runtime 跑 MBC,BOOT 按钮(GPIO0)当 Back。首页和 App 顶部都由 OS 统一绘制 40px appbar(三段式:左 WiFi 图标(悬停/点击显示 SSID),中间标题绝对居中(取自 MBC 清单,首页为 `Home`),右侧时间 + 44px 点击区的圆形关闭按钮),UI 内容(包括 shell 自己的网格)挂在 appbar 下方的 content 容器里(440px);首页不再自绘状态栏。在首页点关闭按钮会进入 `Powered off` 关机画面,点屏幕(真机也可按 BOOT)重新启动 Home;在 App 内点关闭按钮/边缘滑动/BOOT 都返回首页。启动日志特征:`OS shell ready` → shell 图标网格;点 Counter 后 `loaded MBC` + `micro runtime created; app session <N>`。`device.*`/`net.*` 宿主值由 `micro_esp_host_*` 提供(真机读 IDF;wifi 为模拟状态)。
 
 ## 相关 npm / 测试脚本
 
 | 命令 | 作用 |
 |---|---|
-| `npm run build:app` | 编译 `apps/counter/app.ts` → `apps/counter/dist/app.mbc` |
+| `npm run build:app` | 编译 `apps/*/app.ts` → `apps/<app>/dist/<app>.mbc` |
 | `npm run build:web:app` | 同上 → `products/micro-web-player/public/apps/counter.mbc` |
 | `npm test` | 全平台无关 Rust 测试 |
 | `npm run test:native` | 原生(SDL)一键:自检→编译→构建→冒烟→开窗 |
@@ -74,11 +75,13 @@ Python venv 缺失时用 `IDF_PYTHON_ENV_PATH` 指向 `work/toolchains/espressif
   - Web `crates/micro-host-web/src/dom.rs` 的 `apply_delphi_layout`。
 - **C 引擎定位子对象必须用 `lv_obj_move_to`,不能用 `lv_obj_set_pos`**:`set_pos` 只写 style,而 LVGL 对 layout-positioned 子对象跳过 style 定位(`lv_obj_refr_pos` 提前 return),位置不会生效。
 - **单边锚(单独的 `left`/`top`)必须生效**——它钉住该边,不是回落到 base 0(历史上三个引擎都漏掉过这个分支)。
+- **Delphi 容器(column/row)必须 `pad_all = 0`**:显式 `height` 就是子项可用的完整高度。LVGL 主题默认给容器 20px padding,会把子项整体下移并裁掉底部;ESP32 旧代码的 16/6 同理。Web 的 `.micro-column/.micro-row` 没有 padding,三端必须一致。
+- **tabview 高度**:作为根节点(`parent == screen`)时高度 `LV_PCT(100)` 填满屏幕;只有嵌在滚动列里才用 280px。顶部 tab bar 固定 48px(与 Web 对齐);LVGL 按 DPI 推导的 65px 会挤掉页面高度。
 
 ### 布局关键文件
 
 - SDK:`sdk/index.d.ts` 的 `ui.place`
 - 编译器:`crates/micro-compiler/src/lower.rs`(`align`→anchor 展开)
-- IR/编解码:`crates/micro-ir/src/model.rs`(`LayoutSpec`)、`codec.rs`(MBC **v15**)
+- IR/编解码:`crates/micro-ir/src/model.rs`(`LayoutSpec`)、`codec.rs`(MBC **v26**)
 - 引擎:见上
 - FFI 头:`micro_runtime_ffi.h`、`native/include/micro_native.h`(`mask` 位:bit0=left,bit1=top,bit2=width,bit3=height,bit4=anchor_left,bit5=anchor_top,bit6=anchor_right,bit7=anchor_bottom)

@@ -15,7 +15,7 @@ LVGL+SDL3（macOS）或 DOM（浏览器 Wasm）。更详细的架构与命令见
 
 | 目标 | 产物 | 关键 crate / 包 |
 |---|---|---|
-| App（TS → MBC） | `apps/counter/dist/app.mbc` | `micro-compiler` / `micro-ir` |
+| App（TS → MBC） | `apps/*/dist/*.mbc`（counter、settings、shell、momo） | `micro-compiler` / `micro-ir` |
 | 原生宿主（macOS） | `target/debug/micro-host-sdl` | `micro-host-sdl` + `micro-lvgl` |
 | Web 宿主（Wasm） | `products/micro-web-player/src/generated/` | `micro-host-web` + `micro-renderer-web` |
 | Web 播放器页面 | `products/micro-web-player/dist/` | `micro-web-player`（Vite） |
@@ -26,12 +26,12 @@ LVGL+SDL3（macOS）或 DOM（浏览器 Wasm）。更详细的架构与命令见
 |---|---|
 | `npm run setup:dev` | 一键初始化开发环境（幂等，可反复运行） |
 | `npm run check:env` | 环境自检，输出 PASS/WARN/FAIL |
-| `npm run build:app` | 编译 `apps/counter/app.ts` → `apps/counter/dist/app.mbc` |
+| `npm run build:app` | 编译 `apps/*/app.ts` → `apps/*/dist/*.mbc` |
 | `npm run build:web` | 编译 MBC + Wasm + Vite 打包 → `dist/` |
 | `npm run dev:web` | 编译 MBC + Wasm，并启动 Vite 开发服务器（热更新） |
 | `npm run preview:web` | 预览已打包产物（端口 4173） |
-| `npm run demo` | 编译 App 并打开原生 480×320 窗口 |
-| `npm run test:native` | 一键原生测试：自检 → 编译 App → 构建宿主 → 无头冒烟 → 打开窗口；`npm run test:native -- --smoke` 只跑冒烟 |
+| `npm run demo` | 编译全部 App 并打开原生 800×480 桌面（Counter / Settings / momo） |
+| `npm run test:native` | 一键原生测试：自检 → 编译 App → 构建宿主 → Counter 冒烟 → momo 四段流程/输入测试 → OS shell 冒烟 → 打开窗口；`-- --smoke` 只跑无头部分 |
 | `npm test` | 运行全部平台无关 Rust 测试（`cargo test --workspace`） |
 | `npm run test:web` | Web 端：Node 单测 + 构建 + Playwright 浏览器验收 |
 | ESP 固件 build / flash | 一次性安装见 `firmware/micro-os-esp32/TOOLCHAIN.md`；之后 `idf.py -C firmware/micro-os-esp32 build` / `flash` |
@@ -87,14 +87,15 @@ npm run check:env
 
 ```bash
 npm run build:app
-# 等价于： cargo run -p micro-compiler --bin microc -- apps/counter/app.ts apps/counter/dist/app.mbc
+# 等价于：对 apps/*/app.ts 逐个运行
+# cargo run -p micro-compiler --bin microc -- apps/counter/app.ts apps/counter/dist/counter.mbc
 ```
 
 Web 播放器使用另一份 MBC 副本（由 `npm run dev:web` / `build:web` 自动生成）：
 
 ```bash
 cargo run -p micro-compiler --bin microc -- \
-  apps/counter/app.ts products/micro-web-player/public/apps/counter.mbc
+  apps/momo/app.ts products/micro-web-player/public/apps/momo.mbc
 ```
 
 MBC 是生成产物（已被 gitignore），请编辑 `app.ts` 后重新编译，不要手改 `.mbc`。
@@ -125,6 +126,12 @@ cargo build -p micro-host-sdl --features native
 首次构建会经 CMake FetchContent 下载并编译 SDL 3.4.10 与 LVGL 9.5.0（缓存于
 `target/native-deps`），后续构建复用缓存。无需 Homebrew 依赖。
 
+如果 GitHub 不可达，可以先把两个依赖克隆到
+`target/native-deps/sdl3-src` 与 `target/native-deps/lvgl-src`；`scripts/test-native.sh`
+会自动把这两个目录作为本地 source，并设置 `FETCHCONTENT_FULLY_DISCONNECTED=ON`。
+手动构建时对应的环境变量是 `MICRO_NATIVE_SDL3_SOURCE` /
+`MICRO_NATIVE_LVGL_SOURCE` / `MICRO_NATIVE_OFFLINE=1`。
+
 ### 4.4 清理
 
 - 原生依赖缓存异常：只删 `rm -rf target/native-deps` 后重新构建（**不要删仓库**）。
@@ -146,8 +153,10 @@ npm run dev:web
 ```
 
 页面即 ESP32-S3 Touch-LCD-7 模拟器（800×480，RGB565/16 MHz，GT911，CH422G，
-8 MiB Flash / 8 MiB PSRAM）。Launcher 与 Settings 走共享的 `micro-os-core` reducer，
-Counter 仍通过共享 Runtime 执行编译后的 MBC。Vite 对 `main.js` 等源码热更新，改
+8 MiB Flash / 8 MiB PSRAM）。Launcher、Settings、Counter 与 momo 都由同一份编译好的
+MBC 走共享 Runtime 执行。Settings 用根级 `ui.tabview` 分 Network / Display / Sound /
+Security / System / About 六类：亮度、Wi-Fi 扫描与连接、语速、存储卡状态接的是真实宿主
+API，其余条目以 `Coming soon` 占位。Vite 对 `main.js` 等源码热更新，改
 `products/micro-web-player/src/*.js` 保存即生效；改 Rust 侧需重新 `build:web:wasm`
 （重启 `dev:web` 或另跑 `npm run build:web:wasm`）。
 
@@ -170,26 +179,61 @@ npm run test:native -- --smoke
 打开窗口：
 
 ```bash
-npm run demo   # = build:app + cargo run ... apps/counter/dist/app.mbc
+npm run demo   # = build:app + cargo run ... --os shell + counter + settings + momo
 ```
 
 或直接运行（需先 `npm run build:app`）：
 
 ```bash
-cargo run -p micro-host-sdl --features native -- apps/counter/dist/app.mbc
+cargo run -p micro-host-sdl --features native -- --os \
+  apps/shell/dist/shell.mbc apps/counter/dist/counter.mbc \
+  apps/settings/dist/settings.mbc apps/momo/dist/momo.mbc
 ```
 
 无头验收模式（隐藏窗口，两次排队点击后校验状态为 2，成功则退出）：
 
 ```bash
 cargo run -p micro-host-sdl --features native -- \
-  --smoke apps/counter/dist/app.mbc
+  --smoke apps/counter/dist/counter.mbc
+```
+
+原生窗口顶部有宿主图标工具栏（Landscape / Portrait / Rotate，悬停显示名称）；
+macOS 上还有一个齿轮 **Device** 菜单（Power On/Off、Force Restart、方向、缩放、
+模拟器信息）。命令行也支持 `--orientation landscape|portrait`、
+`--zoom 25..400|fit`（参数可放在 launch 目标前后）：
+
+```bash
+cargo run -p micro-host-sdl --features native -- \
+  --orientation portrait --zoom fit --os \
+  apps/shell/dist/shell.mbc apps/counter/dist/counter.mbc \
+  apps/settings/dist/settings.mbc apps/momo/dist/momo.mbc
+```
+
+窗口内快捷键：`Cmd/Ctrl+R` 切换横竖屏、`Cmd/Ctrl+,` 打开 macOS Device 菜单、
+`Cmd/Ctrl+0` 适配显示器、`Cmd/Ctrl+1` 回到 100%、`Cmd/Ctrl+=` / `-` 或
+`Cmd/Ctrl+滚轮` 缩放。切换方向会
+改变 LVGL 逻辑分辨率（800×480 ↔ 480×800），同步调整 app bar/内容容器并让现有
+`ui.place` 锚点原地重排；Runtime 与 App 状态保留。`--rotate 90/270` 仍作为
+竖屏的兼容别名。坐标空间、工具栏和布局重排细节见
+[docs/native-display.md](native-display.md)。
+
+原生输入框支持键盘输入和 `Cmd+V` 粘贴：SDL text input 事件会写入当前
+textarea，宿主循环再把 bridge 里的 `onChange` 变更转成 `Event::InputChanged`。
+momo 的真实同步会把今日未完成词写入队列，读取今日进度和每词学习记录，并通过
+`net.lookupWords` 调用有道 JSON 词典补全释义/例句；可用环境变量跑一次 ignored
+冒烟（token 不写入仓库，测试 KV 在临时目录）：
+
+```bash
+MAIMEMO_TOKEN='...' cargo test -p micro-host-sdl --features native \
+  --test momo_native native_sync_loads_today_items_from_maimemo -- --ignored
 ```
 
 > **EN — Running.** `npm run dev:web` compiles MBC + Wasm then serves the simulator at
 > http://127.0.0.1:5173/; `npm run preview:web` serves the built bundle at :4173.
-> `npm run demo` opens the native 480×320 window; `--smoke` runs the host headlessly
-> and exits after verifying Counter reaches state 2.
+> `npm run demo` opens the native desktop window with a top Landscape/Portrait/Rotate
+> toolbar plus a macOS **Device** menu (power on/off, force restart, orientation,
+> zoom, emulator info; `Cmd/Ctrl+,`). `--smoke` runs the host headlessly and exits
+> after verifying Counter reaches state 2.
 
 ## 6. 调试 / Debugging
 
@@ -217,8 +261,8 @@ rust-lldb target/debug/micro-host-sdl
 ```text
 (lldb) breakpoint set -n host_iteration        # 在循环推进函数处下断点
 (lldb) breakpoint set -f main.rs -l 71         # 或按文件/行号
-(lldb) run -- --smoke apps/counter/dist/app.mbc   # 无头模式，跑完即退出
-(lldb) run -- apps/counter/dist/app.mbc           # 交互窗口模式，断点后手动点击
+(lldb) run -- --smoke apps/counter/dist/counter.mbc   # 无头模式，跑完即退出
+(lldb) run -- apps/counter/dist/counter.mbc           # 交互窗口模式，断点后手动点击
 (lldb) next / step / continue
 ```
 
@@ -283,6 +327,7 @@ npx playwright test --ui          # UI 模式浏览测试
 |---|---|
 | `npm test` | `cargo test --workspace`：MBC 编解码/校验、VM 预算与分支、Core 事件/状态/绑定、编译器诊断与 CLI、LVGL/DOM 桥接、原生 `--smoke`、共享 Wasm 激活队列 |
 | `npm run test:web` | Node 单测（`tests/web/*.test.js`）+ 构建 + Playwright 在 Chromium 中点击两次 **Add** 验证 `Count: 2` 无 Runtime 错误 |
+| `npm run test:native -- --smoke` | 原生 LVGL/SDL 无头冒烟；含 momo 四段流程、键盘输入与真实数据测试（不跑 ignored 联网用例） |
 
 ## 8. 排障 / Troubleshooting
 
