@@ -6,7 +6,10 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{Document, Element, Event};
 
-use crate::{ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SelectionChangeQueue, SliderChangeQueue, inline_text_style};
+use crate::{
+    ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SelectionChangeQueue,
+    SliderChangeQueue, inline_text_style,
+};
 
 pub struct DomBridge {
     document: Document,
@@ -93,7 +96,8 @@ impl DomBridge {
                     .child_nodes()
                     .item(page_index as u32)
                 {
-                    page.dyn_into::<web_sys::Element>().unwrap_or_else(|_| parent.clone())
+                    page.dyn_into::<web_sys::Element>()
+                        .unwrap_or_else(|_| parent.clone())
                 } else {
                     parent.clone()
                 }
@@ -239,6 +243,78 @@ impl WebDom for DomBridge {
         self.append(node, parent, element)
     }
 
+    fn create_surface(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        tone: &str,
+        handler: Option<FunctionId>,
+        label: &str,
+    ) -> Result<(), String> {
+        let element = self.create_element("div", node, "micro-surface")?;
+        element
+            .set_attribute("data-tone", tone)
+            .map_err(|error| format!("set surface tone: {error:?}"))?;
+        if let Some(handler) = handler {
+            element
+                .set_attribute("data-tap", "1")
+                .map_err(|error| format!("mark surface tappable: {error:?}"))?;
+            /* A tappable surface is a real button for assistive tech: the
+             * static tile labels painted above it are decorative siblings.
+             * The accessible name comes from the compiler-validated `label`. */
+            element
+                .set_attribute("role", "button")
+                .map_err(|error| format!("set surface role: {error:?}"))?;
+            element
+                .set_attribute("tabindex", "0")
+                .map_err(|error| format!("set surface tabindex: {error:?}"))?;
+            if !label.is_empty() {
+                element
+                    .set_attribute("aria-label", label)
+                    .map_err(|error| format!("set surface label: {error:?}"))?;
+            }
+            let activations = self.activations.clone();
+            let callback = Closure::wrap(Box::new(move |_event: Event| {
+                activations.push(handler);
+            }) as Box<dyn FnMut(Event)>);
+            element
+                .add_event_listener_with_callback("click", callback.as_ref().unchecked_ref())
+                .map_err(|error| format!("listen for surface click: {error:?}"))?;
+            self.click_handlers.push(callback);
+            let activations = self.activations.clone();
+            let keyboard = Closure::wrap(Box::new(move |event: Event| {
+                let Some(key) = event.dyn_ref::<web_sys::KeyboardEvent>() else {
+                    return;
+                };
+                if key.key() == "Enter" || key.key() == " " {
+                    event.prevent_default();
+                    activations.push(handler);
+                }
+            }) as Box<dyn FnMut(Event)>);
+            element
+                .add_event_listener_with_callback("keydown", keyboard.as_ref().unchecked_ref())
+                .map_err(|error| format!("listen for surface keys: {error:?}"))?;
+            self.click_handlers.push(keyboard);
+        }
+        self.append(node, parent, element)
+    }
+
+    fn set_visible(&mut self, node: NodeId, visible: bool) -> Result<(), String> {
+        let element = self
+            .elements
+            .get(&node.0)
+            .ok_or_else(|| format!("node {} is missing", node.0))?;
+        if visible {
+            element
+                .remove_attribute("hidden")
+                .map_err(|error| format!("show node: {error:?}"))
+        } else {
+            element
+                .set_attribute("hidden", "")
+                .map_err(|error| format!("hide node: {error:?}"))
+        }
+    }
+
     fn create_progress(
         &mut self,
         node: NodeId,
@@ -305,6 +381,7 @@ impl WebDom for DomBridge {
         text: &str,
         handler: FunctionId,
         style: Option<&TextStyle>,
+        variant: Option<&str>,
     ) -> Result<(), String> {
         let element = self.create_element("button", node, "micro-list-row")?;
         let is_row = parent.is_some()
@@ -312,8 +389,15 @@ impl WebDom for DomBridge {
                 .elements
                 .get(&parent.unwrap().0)
                 .is_some_and(|el| el.class_name() == "micro-list");
+        let class = if is_row {
+            "micro-list-row"
+        } else if variant == Some("selected") {
+            "micro-button micro-button-selected"
+        } else {
+            "micro-button"
+        };
         element
-            .set_attribute("class", if is_row { "micro-list-row" } else { "micro-button" })
+            .set_attribute("class", class)
             .map_err(|error| format!("set button class: {error:?}"))?;
         element
             .set_attribute("type", "button")
@@ -339,6 +423,86 @@ impl WebDom for DomBridge {
             .ok_or_else(|| format!("node {} is missing", node.0))?;
         element.set_text_content(Some(text));
         Ok(())
+    }
+
+    fn create_icon(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        name: &str,
+        size_px: u8,
+        tone: &str,
+        variant: &str,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        let element = self.create_element("span", node, "micro-icon")?;
+        element
+            .set_attribute("data-icon", name)
+            .map_err(|error| format!("set icon name: {error:?}"))?;
+        element
+            .set_attribute("data-tone", tone)
+            .map_err(|error| format!("set icon tone: {error:?}"))?;
+        element
+            .set_attribute("data-variant", variant)
+            .map_err(|error| format!("set icon variant: {error:?}"))?;
+        element
+            .set_attribute("data-icon-size", &size_px.to_string())
+            .map_err(|error| format!("set icon size: {error:?}"))?;
+        paint_icon(&element, name, size_px)?;
+        if let Some(handler) = handler {
+            /* A decorative icon is pointer-transparent so the card surface
+             * below it gets the tap; an icon with onClick is the control. */
+            element
+                .set_attribute("data-tap", "1")
+                .map_err(|error| format!("mark icon tappable: {error:?}"))?;
+            element
+                .set_attribute("role", "button")
+                .map_err(|error| format!("set icon role: {error:?}"))?;
+            element
+                .set_attribute("tabindex", "0")
+                .map_err(|error| format!("set icon tabindex: {error:?}"))?;
+            element
+                .set_attribute("aria-label", name)
+                .map_err(|error| format!("set icon label: {error:?}"))?;
+            let activations = self.activations.clone();
+            let callback = Closure::wrap(Box::new(move |_event: Event| {
+                activations.push(handler);
+            }) as Box<dyn FnMut(Event)>);
+            element
+                .add_event_listener_with_callback("click", callback.as_ref().unchecked_ref())
+                .map_err(|error| format!("listen for icon click: {error:?}"))?;
+            self.click_handlers.push(callback);
+            let activations = self.activations.clone();
+            let keyboard = Closure::wrap(Box::new(move |event: Event| {
+                let Some(key) = event.dyn_ref::<web_sys::KeyboardEvent>() else {
+                    return;
+                };
+                if key.key() == "Enter" || key.key() == " " {
+                    event.prevent_default();
+                    activations.push(handler);
+                }
+            }) as Box<dyn FnMut(Event)>);
+            element
+                .add_event_listener_with_callback("keydown", keyboard.as_ref().unchecked_ref())
+                .map_err(|error| format!("listen for icon keys: {error:?}"))?;
+            self.click_handlers.push(keyboard);
+        }
+        self.append(node, parent, element)
+    }
+
+    fn set_icon(&mut self, node: NodeId, name: &str) -> Result<(), String> {
+        let element = self
+            .elements
+            .get(&node.0)
+            .ok_or_else(|| format!("node {} is missing", node.0))?;
+        element
+            .set_attribute("data-icon", name)
+            .map_err(|error| format!("set icon name: {error:?}"))?;
+        let size_px = element
+            .get_attribute("data-icon-size")
+            .and_then(|size| size.parse::<u8>().ok())
+            .unwrap_or(24);
+        paint_icon(element, name, size_px)
     }
 
     fn set_progress(&mut self, node: NodeId, fraction: f64) -> Result<(), String> {
@@ -412,9 +576,20 @@ impl WebDom for DomBridge {
             .elements
             .get(&node.0)
             .ok_or_else(|| format!("node {} is missing", node.0))?;
-        element
-            .set_attribute("value", text)
-            .map_err(|error| format!("set input value: {error:?}"))
+        // The live `value` property, not the attribute: once the user has
+        // typed in the field the attribute no longer reflects (or updates) the
+        // value, so a bound input that switches between profiles must assign
+        // the property to replace the visible text.
+        let input = element
+            .clone()
+            .dyn_into::<web_sys::HtmlInputElement>()
+            .map_err(|_| format!("node {} is not an input element", node.0))?;
+        // Assigning the same value still moves the caret to the end in some
+        // browsers, so only touch the property when the text really changes.
+        if input.value() != text {
+            input.set_value(text);
+        }
+        Ok(())
     }
 
     fn create_slider(
@@ -463,9 +638,15 @@ impl WebDom for DomBridge {
             .elements
             .get(&node.0)
             .ok_or_else(|| format!("node {} is missing", node.0))?;
-        element
-            .set_attribute("value", &value.to_string())
-            .map_err(|error| format!("set slider value: {error:?}"))
+        let input = element
+            .clone()
+            .dyn_into::<web_sys::HtmlInputElement>()
+            .map_err(|_| format!("node {} is not a slider element", node.0))?;
+        let text = value.to_string();
+        if input.value() != text {
+            input.set_value(&text);
+        }
+        Ok(())
     }
 
     fn create_dropdown(
@@ -644,18 +825,31 @@ impl WebDom for DomBridge {
                 }
             }
         }
-        let avail_h = top_extent + bottom_extent;
-        container_el
-            .set_attribute(
-                "style",
-                &format!("position:relative;height:{}px;", avail_h),
-            )
-            .map_err(|error| format!("size delphi container: {error:?}"))?;
+        let mut avail_h = top_extent + bottom_extent;
+        /* A container mounted directly into a tab page fills the page, just
+         * like the native host's tab-page root. Height is the page's height,
+         * not the natural height of the absolutely-positioned children. */
+        let fill_container = container_el.parent_element().is_some_and(|parent| {
+            parent.id() == "app-screen"
+                || parent
+                    .class_name()
+                    .split_whitespace()
+                    .any(|name| name == "micro-tab-page")
+        });
+        if fill_container {
+            container_el
+                .set_attribute("style", "position:relative;height:100%;")
+                .map_err(|error| format!("size fill container: {error:?}"))?;
+            avail_h = container_el.client_height() as f64;
+        } else {
+            container_el
+                .set_attribute("style", &format!("position:relative;height:{}px;", avail_h))
+                .map_err(|error| format!("size delphi container: {error:?}"))?;
+        }
 
         /* Pass 2 — position each placed child absolutely by lt/wh + anchors. */
         for child in children {
-            let Some((mask, l, t, w, h, al, at, ar, ab)) =
-                self.layout_specs.get(&child.0).copied()
+            let Some((mask, l, t, w, h, al, at, ar, ab)) = self.layout_specs.get(&child.0).copied()
             else {
                 continue;
             };
@@ -801,7 +995,10 @@ impl WebDom for DomBridge {
             .filter(|p| !p.trim_start().starts_with("--micro-scale"))
             .map(String::from)
             .collect();
-        parts.push(format!("--micro-scale:{};", scale_fraction(value, min, max)));
+        parts.push(format!(
+            "--micro-scale:{};",
+            scale_fraction(value, min, max)
+        ));
         element
             .set_attribute("style", &parts.join(";"))
             .map_err(|error| format!("set scale value: {error:?}"))
@@ -867,4 +1064,34 @@ impl WebDom for DomBridge {
             .map_err(|error| format!("append checkbox label: {error:?}"))?;
         self.append(node, parent, label_el)
     }
+}
+
+/// Paint an icon from the shared OS registry as inline SVG. A single-glyph
+/// name (legacy App manifests) or an unknown name falls back to text; the
+/// compiler/renderer reject unknown multi-character names first.
+fn paint_icon(element: &Element, name: &str, size_px: u8) -> Result<(), String> {
+    match micro_ir::icons::svg_for_size(name, size_px) {
+        Some(svg) => {
+            element.set_inner_html(&svg);
+            element
+                .remove_attribute("data-glyph")
+                .map_err(|error| format!("clear icon glyph: {error:?}"))?;
+        }
+        None => {
+            element.set_text_content(Some(name));
+            element
+                .set_attribute("data-glyph", "1")
+                .map_err(|error| format!("mark icon glyph: {error:?}"))?;
+            let size = u32::from(size_px.max(12));
+            let mut style = element.get_attribute("style").unwrap_or_default();
+            if !style.is_empty() && !style.ends_with(';') {
+                style.push(';');
+            }
+            style.push_str(&format!("font-size:{size}px;line-height:{size}px;"));
+            element
+                .set_attribute("style", &style)
+                .map_err(|error| format!("size icon glyph: {error:?}"))?;
+        }
+    }
+    Ok(())
 }

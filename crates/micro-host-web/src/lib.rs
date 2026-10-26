@@ -5,7 +5,9 @@ mod system;
 #[cfg(any(target_arch = "wasm32", test))]
 use micro_ir::{FontFamily, FontWeight, TextStyle};
 
-pub use activation::{ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SelectionChangeQueue, SliderChangeQueue};
+pub use activation::{
+    ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SelectionChangeQueue, SliderChangeQueue,
+};
 pub use system::{SystemIntent, SystemShell, SystemSnapshot};
 
 #[cfg(any(target_arch = "wasm32", test))]
@@ -14,7 +16,7 @@ fn inline_text_style(style: Option<&TextStyle>) -> Result<Option<String>, String
         return Err("Web text style must be normalized before DOM rendering".into());
     };
     let family = match style.family {
-        FontFamily::UiSans => "MicroUiSans",
+        FontFamily::UiSans => "MicroUiSans, MicroUiIpa",
     };
     let weight = match style.weight {
         FontWeight::Regular => 400,
@@ -39,7 +41,7 @@ mod text_style_tests {
             assert_eq!(
                 inline_text_style(Some(&style)),
                 Ok(Some(format!(
-                    "font-family: MicroUiSans; font-size: {size_px}px; font-weight: 400; line-height: {line_height_px}px;"
+                    "font-family: MicroUiSans, MicroUiIpa; font-size: {size_px}px; font-weight: 400; line-height: {line_height_px}px;"
                 )))
             );
             let generated = std::fs::read_to_string(
@@ -107,9 +109,12 @@ mod wasm_host {
     use micro_renderer_web::WebRenderer;
     use wasm_bindgen::prelude::*;
 
-    use crate::{ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SelectionChangeQueue, SliderChangeQueue};
     use crate::dom::DomBridge;
     use crate::host::{ShellState, WebHost};
+    use crate::{
+        ActivationQueue, CheckboxChangeQueue, InputChangeQueue, SelectionChangeQueue,
+        SliderChangeQueue,
+    };
 
     /// Decode an app MBC's manifest as a `name|icon` string for the launcher
     /// registry (reads the metadata section without running the app).
@@ -177,7 +182,7 @@ mod wasm_host {
                 .filter_map(|line| line.split_once('|'))
                 .map(|(name, icon)| (name.to_owned(), icon.to_owned()))
                 .collect();
-            let mut host = WebHost::new();
+            let mut host = WebHost::new_for_app(&image.metadata.id);
             host.nav = nav.clone();
             let runtime = Runtime::new_with_host(image, renderer, event_budget, Box::new(host))
                 .map_err(|error| {
@@ -230,10 +235,12 @@ mod wasm_host {
                 self.runtime.enqueue(Event::SliderChanged(handler, value));
             }
             while let Some((handler, checked)) = self.checkbox_changes.pop() {
-                self.runtime.enqueue(Event::CheckedChanged(handler, checked));
+                self.runtime
+                    .enqueue(Event::CheckedChanged(handler, checked));
             }
             while let Some((handler, index)) = self.selection_changes.pop() {
-                self.runtime.enqueue(Event::SelectionChanged(handler, index));
+                self.runtime
+                    .enqueue(Event::SelectionChanged(handler, index));
             }
 
             let mut processed = 0_u32;
@@ -256,6 +263,10 @@ mod wasm_host {
         }
 
         pub fn dispose(&mut self) {
+            /* Releasing the App must stop its speech and foreground sounds even
+             * if JavaScript keeps the wrapper alive for a while; background
+             * music is owned by the page and intentionally survives. */
+            self.runtime.dispose_host();
             self.runtime.renderer_mut().dom_mut().clear();
         }
     }

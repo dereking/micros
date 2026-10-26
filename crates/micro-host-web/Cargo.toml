@@ -9,8 +9,10 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 micro-core.workspace = true
-micro-ir.workspace = true
+micro-ir = { workspace = true, features = ["svg-icons"] }
 micro-vm.workspace = true
+micro-store.workspace = true
+micro-json.workspace = true
 micro-os-core.workspace = true
 micro-renderer-web = { path = "../micro-renderer-web" }
 serde.workspace = true
@@ -26,7 +28,15 @@ web-sys = { version = "0.3", features = [
   "EventTarget",
   "HtmlInputElement",
   "HtmlSelectElement",
+  "HtmlAudioElement",
+  "HtmlMediaElement",
+  "KeyboardEvent",
   "Node",
   "NodeList",
   "Window",
+  "Storage",
+  "SpeechSynthesis",
+  "SpeechSynthesisUtterance",
+  "SpeechSynthesisVoice",
 ] }
+js-sys = "0.3"
