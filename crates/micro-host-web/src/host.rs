@@ -29,6 +29,8 @@ pub struct ShellState {
     pub pending_launch: Option<u32>,
     /// Whether the current app requested `os.goBack`.
     pub pending_back: bool,
+    /// Title requested via `os.setTitle`, applied by the JS main loop.
+    pub pending_title: Option<String>,
     /// Installed-app registry: `(name, icon)` per index (index = `os.appName(i)`).
     pub apps: Vec<(String, String)>,
 }
@@ -1106,6 +1108,10 @@ impl HostAccess for WebHost {
             }
             OsGoBack => {
                 self.nav.borrow_mut().pending_back = true;
+                None
+            }
+            OsSetTitle => {
+                self.nav.borrow_mut().pending_title = Some(string_arg(args, 0));
                 None
             }
             OsDelay => {

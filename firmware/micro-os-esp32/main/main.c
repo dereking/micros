@@ -1,9 +1,11 @@
+#include <ctype.h>
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include "driver/gpio.h"
 #include "esp_err.h"
@@ -50,9 +52,16 @@
 #define MICRO_MBC_SECTION_HEADER_SIZE 5U
 #define MICRO_MBC_SECTION_METADATA 6U
 
-#define MICRO_APPS_MAX 8U
+/* The shell launcher has eight fixed slots (see apps/shell/app.ts), and the
+ * host registry exposes at most that many installable Apps. Slot 0 of the
+ * on-flash registry is the shell itself, so the total MBC cap is slots + 1.
+ * Built-in Apps are scanned first; external `/apps/<app>.mbc` images fill the
+ * remaining slots (built-ins always win an id collision). */
+#define MICRO_APP_SLOTS 8U
+#define MICRO_APPS_MAX (MICRO_APP_SLOTS + 1U)
 #define MICRO_APP_NAME_MAX 32U
-#define MICRO_APP_ICON_MAX 8U
+#define MICRO_APP_ICON_MAX 16U
+#define MICRO_EXTERNAL_APP_NAME_MAX 65U
 
 static const char *TAG = "micro_os";
 
@@ -74,18 +83,23 @@ static uint32_t s_backlight = 3;
 
 static uint32_t s_boot_level_count;
 
-/* --- installed-app registry (from the micro_app partition scan) --- */
+/* --- installed-app registry (micro_app partition + /apps on the SD card) --- */
 
 typedef struct {
-    uint32_t offset; /* partition offset of this MBC */
-    uint32_t len;    /* total MBC length (header + payload) */
+    uint32_t offset; /* partition offset (built-in entries only) */
+    uint32_t len;    /* total MBC length (built-in entries only) */
     char id[MICRO_APP_NAME_MAX];
     char name[MICRO_APP_NAME_MAX];
     char icon[MICRO_APP_ICON_MAX];
+    /* External entries are loaded from `/sdcard/apps/<file>` on demand. */
+    bool external;
+    char file[MICRO_EXTERNAL_APP_NAME_MAX];
 } micro_app_entry_t;
 
 static micro_app_entry_t s_apps[MICRO_APPS_MAX];
 static uint32_t s_app_count;
+/* Number of entries found on the micro_app partition (shell + built-ins). */
+static uint32_t s_builtin_count;
 
 static void micro_os_apply_action(const micro_action_t *action);
 static size_t micro_os_apply_batch(const micro_action_t *actions, size_t count);
@@ -143,6 +157,190 @@ static int micro_app_scan_metadata(const uint8_t *mbc, micro_app_entry_t *out)
     return -1;
 }
 
+/* App ids become the per-App storage namespace, so an external MBC may only
+ * claim a conservative ASCII identifier. Mirrors micro_sd's app-id rules. */
+static bool micro_app_valid_id(const char *id)
+{
+    if (id == NULL) {
+        return false;
+    }
+    size_t len = strlen(id);
+    if (len == 0 || len >= MICRO_APP_NAME_MAX || !isalnum((unsigned char)id[0])) {
+        return false;
+    }
+    for (size_t i = 0; i < len; ++i) {
+        unsigned char ch = (unsigned char)id[i];
+        if (!isalnum(ch) && ch != '_' && ch != '-' && ch != '.') {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* Case-insensitive id comparison: `Counter` and `counter` are the same App. */
+static bool micro_app_id_taken(const char *id)
+{
+    for (uint32_t i = 1; i < s_app_count; ++i) {
+        if (strcasecmp(s_apps[i].id, id) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* The host registry indexes built-in Apps first, then external Apps. The shell
+ * itself is registry slot 0 on flash and never appears in `os.appName`. */
+static void micro_app_refresh_host_registry(void)
+{
+    uint32_t host_count = s_app_count > 0 ? s_app_count - 1 : 0;
+    if (host_count > MICRO_APP_SLOTS) {
+        host_count = MICRO_APP_SLOTS;
+    }
+    uint32_t builtin_count = s_builtin_count > 0 ? s_builtin_count - 1 : 0;
+    uint32_t external_count =
+        host_count > builtin_count ? host_count - builtin_count : 0;
+    micro_esp_host_set_app_count(host_count);
+    for (uint32_t i = 1; i <= host_count; ++i) {
+        micro_esp_host_set_app_entry(i - 1, s_apps[i].name, s_apps[i].icon);
+    }
+    ESP_LOGI(TAG, "launcher registry: %" PRIu32 " app(s) (%" PRIu32
+                  " built-in, %" PRIu32 " external)",
+             host_count, builtin_count, external_count);
+}
+
+/* A missing/corrupt metadata section falls back to the file name so a plain
+ * MBC still appears in the launcher (the runtime validates it on launch). */
+static void micro_app_external_fallback(const char *file, micro_app_entry_t *out)
+{
+    size_t len = strlen(file);
+    const char *dot = strrchr(file, '.');
+    size_t stem = dot != NULL && dot != file ? (size_t)(dot - file) : len;
+    size_t room = stem < sizeof out->id - 1 ? stem : sizeof out->id - 1;
+    memcpy(out->id, file, room);
+    out->id[room] = '\0';
+    memcpy(out->name, file, room);
+    out->name[room] = '\0';
+    out->icon[0] = (char)toupper((unsigned char)out->id[0]);
+    out->icon[1] = '\0';
+}
+
+/* Read and parse one `/apps/<app>.mbc` image into a registry entry.
+ * Returns 0 on success, 1 when the file disappeared, -1 when it is unusable. */
+static int micro_app_read_external(const char *file, micro_app_entry_t *out)
+{
+    char *bytes = NULL;
+    size_t len = 0;
+    if (micro_sd_read_external_app(file, &bytes, &len) != 0) {
+        return -1;
+    }
+    if (bytes == NULL) {
+        return 1;
+    }
+    if (len < MICRO_MBC_HEADER_SIZE || memcmp(bytes, "MBC1", 4U) != 0) {
+        micro_sd_free(bytes);
+        return -1;
+    }
+    uint32_t payload_len = read_u32_le((const uint8_t *)bytes + 6);
+    if ((uint64_t)MICRO_MBC_HEADER_SIZE + payload_len != len) {
+        micro_sd_free(bytes);
+        return -1;
+    }
+
+    memset(out, 0, sizeof *out);
+    if (micro_app_scan_metadata((const uint8_t *)bytes, out) != 0 || out->id[0] == '\0') {
+        micro_app_external_fallback(file, out);
+    }
+    micro_sd_free(bytes);
+
+    if (!micro_app_valid_id(out->id)) {
+        return -1;
+    }
+    if (out->name[0] == '\0') {
+        snprintf(out->name, sizeof out->name, "%s", out->id);
+    }
+    if (out->icon[0] == '\0') {
+        out->icon[0] = (char)toupper((unsigned char)out->id[0]);
+        out->icon[1] = '\0';
+    }
+    snprintf(out->file, sizeof out->file, "%s", file);
+    out->external = true;
+    return 0;
+}
+
+/* Rebuild the external tail of the registry from `/apps`. Called before every
+ * shell boot, so a mounted card's contents are re-read when the user returns
+ * Home. A card that was absent at startup needs a reboot (the FATFS mount is
+ * initialized once); a missing card simply leaves built-ins only. */
+static void micro_app_scan_external(void)
+{
+    s_app_count = s_builtin_count;
+    if (s_builtin_count == 0) {
+        return;
+    }
+    if (!micro_sd_available()) {
+        micro_app_refresh_host_registry();
+        return;
+    }
+
+    char *listing = NULL;
+    size_t listing_len = 0;
+    if (micro_sd_list_external_apps(&listing, &listing_len) != 0) {
+        ESP_LOGW(TAG, "cannot list /sdcard/apps; ignoring external Apps");
+        micro_app_refresh_host_registry();
+        return;
+    }
+    (void)listing_len;
+    if (listing == NULL) {
+        micro_app_refresh_host_registry();
+        return;
+    }
+
+    char *cursor = listing;
+    while (*cursor != '\0' && s_app_count < MICRO_APPS_MAX) {
+        char *line = cursor;
+        char *newline = strchr(cursor, '\n');
+        if (newline != NULL) {
+            *newline = '\0';
+            cursor = newline + 1;
+        } else {
+            cursor += strlen(cursor);
+        }
+        if (line[0] == '\0') {
+            continue;
+        }
+
+        micro_app_entry_t entry;
+        int read = micro_app_read_external(line, &entry);
+        if (read < 0) {
+            ESP_LOGW(TAG, "ignoring SD App %s (not a usable MBC)", line);
+            continue;
+        }
+        if (read > 0) {
+            continue;
+        }
+        if (strcasecmp(entry.id, "shell") == 0) {
+            ESP_LOGW(TAG, "ignoring SD App %s: id '%s' is reserved for the shell",
+                     line, entry.id);
+            continue;
+        }
+        if (micro_app_id_taken(entry.id)) {
+            ESP_LOGW(TAG,
+                     "ignoring SD App %s: id '%s' is already registered",
+                     line, entry.id);
+            continue;
+        }
+        s_apps[s_app_count++] = entry;
+        ESP_LOGI(TAG, "external App %s (%s) from /sdcard/apps/%s",
+                 entry.id, entry.name, entry.file);
+    }
+    micro_sd_free(listing);
+
+    if (s_app_count == MICRO_APPS_MAX) {
+        ESP_LOGI(TAG, "launcher slots are full; remaining /sdcard/apps files ignored");
+    }
+    micro_app_refresh_host_registry();
+}
+
 /* Walk the consecutive MBCs in the micro_app partition (each is self-describing:
  * 14 + payload_len bytes). Index 0 is the shell; the rest are installed apps. */
 static void micro_app_scan(void)
@@ -195,15 +393,13 @@ static void micro_app_scan(void)
         s_app_count += 1;
     }
 
-    /* The host app registry indexes the installable apps (skips the shell at
-     * partition index 0), so os.appName(0) is the first installed app. */
-    uint32_t host_count = s_app_count > 0 ? s_app_count - 1 : 0;
-    micro_esp_host_set_app_count(host_count);
-    for (uint32_t i = 1; i < s_app_count; ++i) {
-        micro_esp_host_set_app_entry(i - 1, s_apps[i].name, s_apps[i].icon);
-    }
-    ESP_LOGI(TAG, "scanned %" PRIu32 " MBC(s); %" PRIu32 " installable app(s)",
-             s_app_count, host_count);
+    /* Remember where built-ins end. `micro_app_scan_external` truncates back to
+     * this count on every shell boot and then appends `/apps` images. */
+    s_builtin_count = s_app_count;
+    micro_app_refresh_host_registry();
+    ESP_LOGI(TAG, "scanned %" PRIu32 " built-in MBC(s); %" PRIu32
+                  " installable app(s) before external Apps",
+             s_app_count, s_app_count > 0 ? s_app_count - 1 : 0);
 }
 
 static int micro_runtime_boot_index(uint32_t registry_index)
@@ -217,17 +413,36 @@ static int micro_runtime_boot_index(uint32_t registry_index)
         s_runtime = NULL;
     }
     const micro_app_entry_t *entry = &s_apps[registry_index];
-    uint8_t *mbc = heap_caps_malloc(entry->len, MALLOC_CAP_SPIRAM);
-    if (mbc == NULL) {
-        ESP_LOGE(TAG, "failed to allocate %" PRIu32 " bytes for %s", entry->len,
-                 entry->id);
-        return -1;
-    }
-    esp_err_t result = esp_partition_read(s_partition, entry->offset, mbc, entry->len);
-    if (result != ESP_OK) {
-        ESP_LOGE(TAG, "failed to read MBC %s: %s", entry->id, esp_err_to_name(result));
-        heap_caps_free(mbc);
-        return -1;
+    uint8_t *mbc = NULL;
+    uint32_t mbc_len = 0;
+    if (entry->external) {
+        char *bytes = NULL;
+        size_t len = 0;
+        if (micro_sd_read_external_app(entry->file, &bytes, &len) != 0 ||
+            bytes == NULL || len == 0) {
+            ESP_LOGE(TAG, "failed to read external MBC %s from /sdcard/apps/%s",
+                     entry->id, entry->file);
+            micro_sd_free(bytes);
+            return -1;
+        }
+        mbc = (uint8_t *)bytes;
+        mbc_len = (uint32_t)len;
+    } else {
+        mbc = heap_caps_malloc(entry->len, MALLOC_CAP_SPIRAM);
+        if (mbc == NULL) {
+            ESP_LOGE(TAG, "failed to allocate %" PRIu32 " bytes for %s", entry->len,
+                     entry->id);
+            return -1;
+        }
+        esp_err_t result =
+            esp_partition_read(s_partition, entry->offset, mbc, entry->len);
+        if (result != ESP_OK) {
+            ESP_LOGE(TAG, "failed to read MBC %s: %s", entry->id,
+                     esp_err_to_name(result));
+            heap_caps_free(mbc);
+            return -1;
+        }
+        mbc_len = entry->len;
     }
     /* Every runtime — the shell home screen included — gets the default OS app
      * bar with the live clock/Wi-Fi and a close control; the App title is the
@@ -235,21 +450,30 @@ static int micro_runtime_boot_index(uint32_t registry_index)
      * Runtime so its root layout uses the inset content height. */
     micro_esp_ui_set_app_chrome(1, entry->name);
     micro_runtime_t *runtime = micro_runtime_create(
-        mbc, entry->len, MICRO_RUNTIME_EVENT_BUDGET, s_runtime_error,
+        mbc, mbc_len, MICRO_RUNTIME_EVENT_BUDGET, s_runtime_error,
         sizeof s_runtime_error);
-    heap_caps_free(mbc);
+    if (entry->external) {
+        micro_sd_free(mbc);
+    } else {
+        heap_caps_free(mbc);
+    }
     if (runtime == NULL) {
         ESP_LOGE(TAG, "micro_runtime_create failed: %s", s_runtime_error);
         return -1;
     }
     s_runtime = runtime;
     s_is_shell = (registry_index == 0);
+    micro_esp_ui_settle_after_switch();
     ESP_LOGI(TAG, "%s runtime created: %s", s_is_shell ? "shell" : "app", entry->id);
     return 0;
 }
 
 static int micro_runtime_boot_shell(void)
 {
+    /* Refresh `/apps` before each Home boot: a mounted card may have changed
+     * while an App was running. The shell MBC binds the updated host registry
+     * when its Runtime is created. */
+    micro_app_scan_external();
     return micro_runtime_boot_index(0);
 }
 
@@ -338,11 +562,20 @@ static void micro_os_drain_host_intents(void)
         ESP_LOGI(TAG, "app requested Wi-Fi disconnect");
         micro_wifi_disconnect();
     }
+    char title[64] = {0};
+    if (micro_esp_host_take_title(title, sizeof title)) {
+        /* Apply before launch/back so booting another runtime's chrome wins in
+         * the same tick. Requires the LVGL port lock, which this timer holds. */
+        micro_esp_ui_set_appbar_title(title);
+    }
     uint32_t launch = 0;
     if (micro_esp_host_take_launch_index(&launch)) {
         ESP_LOGI(TAG, "shell requested launch of app index %" PRIu32, launch);
-        if (s_is_shell) {
-            micro_runtime_boot_app(launch);
+        if (s_is_shell && micro_runtime_boot_app(launch) != 0) {
+            ESP_LOGE(TAG, "app %" PRIu32 " failed to start; returning to Home", launch);
+            if (micro_runtime_boot_shell() != 0) {
+                ESP_LOGE(TAG, "Home failed to restart after app launch failure");
+            }
         }
     }
     if (micro_esp_host_take_back()) {

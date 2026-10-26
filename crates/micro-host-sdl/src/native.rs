@@ -87,6 +87,7 @@ unsafe extern "C" {
         wifi_state: *const c_char,
         wifi_ssid: *const c_char,
     );
+    fn micro_native_set_appbar_title(native: *mut c_void, title: *const c_char);
     fn micro_native_appbar_visible(native: *mut c_void) -> c_int;
     fn micro_native_appbar_content_visible(native: *mut c_void) -> c_int;
     fn micro_native_power_off(native: *mut c_void);
@@ -521,6 +522,13 @@ impl NativeBridge {
                 wifi_ssid.as_ptr(),
             );
         }
+    }
+
+    /// Replace only the centred app-bar title (`os.setTitle`), leaving
+    /// visibility and the Wi-Fi indicator untouched.
+    pub fn set_appbar_title(&self, title: &str) {
+        let title = CString::new(title).unwrap_or_default();
+        unsafe { micro_native_set_appbar_title(self.inner.raw.as_ptr(), title.as_ptr()) }
     }
 
     /// Whether the OS app bar is currently shown (used by the headless smoke).

@@ -338,10 +338,19 @@ void micro_esp_host_set_launch_index(uint32_t index);
 uint32_t micro_esp_host_take_launch_index(uint32_t *out);
 void micro_esp_host_set_back_intent(void);
 uint32_t micro_esp_host_take_back(void);
+/* os.setTitle: queue a new app-bar title; main.c drains it from the OS tick. */
+void micro_esp_host_set_title(const char *title, size_t len);
+uint32_t micro_esp_host_take_title(char *buf, size_t cap);
 uint32_t micro_esp_host_uptime_ms(void);
 
 int micro_esp_ui_create_column(uint32_t node, uint32_t parent);
 int micro_esp_ui_create_row(uint32_t node, uint32_t parent);
+/* Decorative filled rectangle (`ui.surface`). `tone` is the palette token
+ * (paper|canvas|sage|terracotta|line); the surface is only clickable when it
+ * carries a handler, so backdrop tones never swallow taps. */
+int micro_esp_ui_create_surface(uint32_t node, uint32_t parent,
+                                const uint8_t *tone, size_t tone_len,
+                                uint32_t handler);
 int micro_esp_ui_create_list(uint32_t node, uint32_t parent);
 /* Tabbed container. `titles` is the tab titles joined with '\n'. */
 int micro_esp_ui_create_tabview(uint32_t node, uint32_t parent,
@@ -422,14 +431,24 @@ int micro_esp_ui_create_roller(uint32_t node, uint32_t parent,
                                 const uint8_t *options, size_t options_len,
                                 double index, uint32_t handler);
 int micro_esp_ui_set_selection_value(uint32_t node, double index);
+/* Hide/show any widget (`ui.show`). Hidden containers hide their children. */
+int micro_esp_ui_set_visible(uint32_t node, int visible);
 int micro_esp_ui_destroy_app_root(void);
 /* Default OS app bar: set the title and show it (visible != 0). The shell and
  * every installed App use it; only a debug viewport would hide it. Call before
  * creating the Runtime so its root measures the inset content height. */
 void micro_esp_ui_set_app_chrome(int visible, const char *title);
+
+/* Detach the in-flight press from the previous App and repaint the screen so
+ * the first frame of the newly mounted App is complete. Called by the OS after
+ * `micro_runtime_create` succeeds, before the next refresh. */
+void micro_esp_ui_settle_after_switch(void);
 /* Must be called from the LVGL task with the port lock already held (the OS
  * tick is an `lv_timer` callback). */
 void micro_esp_ui_set_app_wifi(const char *state, const char *ssid);
+/* Replace the app-bar title for the running App (`os.setTitle`). Same LVGL
+ * task/lock contract as `micro_esp_ui_set_app_wifi`. */
+void micro_esp_ui_set_appbar_title(const char *title);
 /* 1 when the app bar close button was pressed since the last read. */
 int micro_esp_ui_take_appbar_back(void);
 /* System power state, called from the OS tick with the port lock held. Closing

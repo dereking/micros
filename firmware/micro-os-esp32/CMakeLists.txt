@@ -8,6 +8,13 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # the C-lib backend so LVGL allocates via malloc()/PSRAM instead.
 idf_build_set_property(COMPILE_DEFINITIONS "-DLV_USE_STDLIB_MALLOC=1" APPEND)
 
+# lv_font_conv writes `#ifdef LV_LVGL_H_INCLUDE_SIMPLE / #include "lvgl.h" /
+# #else / #include "lvgl/lvgl.h"` into every generated font. The ESP-IDF LVGL
+# component is installed as managed_components/lvgl__lvgl, so the nested
+# "lvgl/lvgl.h" path cannot resolve; the simple form is what LVGL puts on the
+# include path (both the component root and src/ are added).
+idf_build_set_property(COMPILE_DEFINITIONS "-DLV_LVGL_H_INCLUDE_SIMPLE=1" APPEND)
+
 project(micro_os_esp32)
 
 # The Rust host's native text-style table references the C font objects. After

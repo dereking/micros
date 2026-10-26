@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { expect, test } from "@playwright/test";
 
 test("edge swipe from the right edge returns an app to the shell", async ({ page }) => {
@@ -191,6 +193,45 @@ test("shell launcher is an icon grid; Settings boots as a separate tabbed app", 
   await page.locator(".app-back").click();
   await expect(page.locator("#system-screen").getByText("Counter")).toBeVisible();
   await expect(page.locator("#system-screen").getByText("Settings")).toBeVisible();
+});
+
+test("simulated SD App is listed after the built-ins and boots from /sdcard/apps", async ({ page }) => {
+  const bytes = await readFile(new URL("../../apps/sd-demo/dist/sd-demo.mbc", import.meta.url));
+  await page.route("**/sdcard/apps/index.json", (route) =>
+    route.fulfill({ json: { apps: ["sd-demo.mbc"] } }),
+  );
+  await page.route("**/sdcard/apps/sd-demo.mbc", (route) =>
+    route.fulfill({ body: bytes, contentType: "application/octet-stream" }),
+  );
+  await page.goto("/");
+
+  const screen = page.locator("#system-screen");
+  await expect(screen.getByText("SD Demo", { exact: true })).toBeVisible();
+  const externalCard = screen.getByRole("button", { name: "Open app 4", exact: true });
+  await expect(externalCard).toBeVisible();
+
+  await externalCard.click();
+  await expect(page.locator("#app-shell")).toBeVisible();
+  await expect(page.getByText("Loaded from SD", { exact: true })).toBeVisible();
+});
+
+test("built-in App wins an id collision with the simulated SD card", async ({ page }) => {
+  const bytes = await readFile(
+    new URL("../../products/micro-web-player/public/apps/counter.mbc", import.meta.url),
+  );
+  await page.route("**/sdcard/apps/index.json", (route) =>
+    route.fulfill({ json: { apps: ["counter.mbc"] } }),
+  );
+  await page.route("**/sdcard/apps/counter.mbc", (route) =>
+    route.fulfill({ body: bytes, contentType: "application/octet-stream" }),
+  );
+  await page.goto("/");
+
+  const screen = page.locator("#system-screen");
+  await expect(screen.getByRole("button", { name: "Open Counter", exact: true })).toHaveCount(1);
+  await expect(screen.getByText("Counter", { exact: true })).toHaveCount(1);
+  // The colliding external entry did not take the first external slot.
+  await expect(screen.getByRole("button", { name: "Open app 4", exact: true })).toBeHidden();
 });
 
 test("Settings Network page scans, lists APs, and a tap fills the SSID field", async ({ page }) => {

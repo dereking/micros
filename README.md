@@ -2,6 +2,8 @@
 
 A runnable multi-platform Micro App platform slice. Apps use a deliberately restricted TypeScript syntax, compile to versioned Micro Bytecode (MBC), execute in a budgeted Rust runtime, and render through LVGL 9 + SDL3 on macOS or WebAssembly + DOM in a browser.
 
+**Micro OS** is the product name for this slice: a portable application OS made of an app runtime, a Home shell, and host-provided system services. It is not a kernel. On the ESP32 the kernel is still ESP-IDF/FreeRTOS, and on macOS and the Web the process and event loop belong to the host. See [docs/architecture.md](docs/architecture.md) for the layer map, the isolation model, and the current-versus-target boundaries.
+
 The Counter App is real end to end:
 
 ```ts
@@ -42,13 +44,14 @@ ui.mount(
 ```
 
 The launcher also ships **momo**, a 墨墨-style vocabulary trainer written in
-the same restricted TypeScript. It compiles to MBC v26, keeps a per-word
+the same restricted TypeScript. It compiles to MBC v28, keeps a per-word
 Ebbinghaus schedule in `kv`, and runs the four-step listen → spell → cloze →
 definition flow through the same Runtime. Up to five local users can share one
 install: momo prefixes every KV/config key with the active user's namespace
-(`""` for the migrated default user, `u2:`–`u5:` for the others), manages each
-user's display name and Maimemo API key together on the 用户 tab, highlights the
-active user row, and restores the last active user on launch. Its sync tab
+(`""` for the migrated default user, `u2:`–`u5:` for the others), shows the
+active user's name read-only on the 用户 tab until 编辑 reveals the name and
+Maimemo API key fields, names the active profile in the OS app-bar title, and
+restores the last active user on launch. Its sync tab
 imports the active account's real `today_items` into that queue on macOS and
 enriches them through the native dictionary bridge. See
 [apps/momo/README.md](apps/momo/README.md); the new host capabilities are
@@ -91,7 +94,7 @@ SDL3 and LVGL do **not** need Homebrew packages. CMake fetches the pinned source
 | --- | --- |
 | macOS native (`micro-host-sdl`) | Supported; Apple Silicon is the tested target. |
 | Web browser | Supported; desktop and mobile browsers, with a responsive Device dialog. |
-| Windows / Linux native | Not built, packaged, or tested in this slice. The SDL/LVGL C layer is nominally portable, but there is no supported launcher. |
+| Windows / Linux native | The SDL/LVGL C layer includes the portable SDL-drawn Device menu, a no-rpath/DLL-staging build path, and POSIX/Windows shims. There is still no packaged launcher and the build has not been verified on real Windows/Linux desktops, so this remains source-level groundwork, not supported output. |
 | Native iOS / Android | Not supported yet; no host or packaging layer. Mobile browser access works through the Web Player. |
 
 ## Quick start
@@ -119,6 +122,15 @@ npm run bundle:macos          # → dist/Micro OS.app
 npm run start:macos           # package and open it
 ```
 
+Only one visible copy runs at a time. The first launch takes an advisory lock at
+`<MICROS_HOME>/instance.lock` (default `~/.micros/instance.lock`) and writes its
+PID there. A second copy — `open -n "dist/Micro OS.app"`, another double click
+of the raw binary, or `cargo run` while the bundle is open — shows a native
+**Micro OS is already running** notice instead of opening a window. Dismissing
+the notice raises the running window (restoring it when minimized), then the
+duplicate exits. The lock is a kernel `flock`, so a crash never leaves a stale
+guard behind; headless `--smoke` / `--os-smoke` runs skip it.
+
 The bundle's `Resources/apps` carries the shell and the installed Apps, so a
 Finder launch boots the home screen with no arguments. Regenerate the artwork
 with `npm run icon:generate` (source: `scripts/generate-app-icon.swift`); see
@@ -135,14 +147,26 @@ button is a 28 px circle with a 44 px touch target; on an App it returns to the
 shell. Home is therefore just another App under the bar: its MBC draws only the
 launcher grid and keeps no status bar of its own.
 
-The Home launcher is a card grid built from shared OS icons: a masthead with
-the `apps` glyph, a hairline rule, three tappable cards whose app glyphs come
-from the OS icon registry, and a 12 px footer hint. Each card is one
-`ui.surface` (with an accessible `label`) with decorative icon/text siblings
-above it, so the whole card is the tap target on every host. App manifests name
-their icon (`"plus"`, `"settings"`, `"edit"`), but a legacy single letter still
-renders. See [docs/ui-icons.md](docs/ui-icons.md) for the 42-icon catalog, the
-`ui.icon` widget and the per-host rendering contract.
+The Home launcher is a compact list of installed Apps built from shared OS
+icons: a masthead with the `apps` glyph, a hairline rule, and eight fixed slots.
+Each visible slot is one `ui.surface` (with an accessible `label`) with
+decorative icon/text siblings above it, so the whole row is the tap target on
+every host. Rows bind `os.appName/Icon` and hide themselves when the host
+registry has no app at that index. App manifests name their icon (`"plus"`,
+`"settings"`, `"edit"`), but a legacy single letter still renders. A manifest
+also declares the host API categories it uses (`capabilities: ["net", "kv"]`);
+the compiler rejects an undeclared host call and the runtime enforces the same
+allow-list. Every shipped App declares only what it needs. See
+[docs/ui-icons.md](docs/ui-icons.md) for the 42-icon catalog, the `ui.icon`
+widget and the per-host rendering contract, and
+[docs/host-api.md](docs/host-api.md#manifest-capabilities) for the capability
+model.
+
+Apps can also be installed without re-flashing: drop compiled `*.mbc` files in
+the card's `/apps` directory (or the native/Web simulated card). They appear
+after the built-in Apps, and a built-in App always wins an id collision. See
+[docs/external-apps.md](docs/external-apps.md) for the directory layout,
+eight-slot limit and failure policy.
 
 The bar is host chrome, not App code: apps never draw it and future apps get it
 for free. On macOS and ESP32 it is the shared LVGL module
@@ -159,9 +183,10 @@ On an App the close button behaves like the edge-swipe/BOOT back gesture:
 
 The macOS host has a **top icon toolbar** above the device canvas with
 **Landscape**, **Portrait** and **Rotate** controls (hover an icon to see its
-name). A fourth **Device** gear opens a native VM-style menu: Power On / Power
-Off, Force Restart (with confirmation), orientation, zoom presets and read-only
-emulator information. Switching direction changes the logical device resolution
+name). A fourth **Device** gear opens a VM-style menu: Power On / Power Off,
+Force Restart (with confirmation), orientation, zoom presets and read-only
+emulator information. macOS uses a native `NSMenu`; the portable SDL fallback
+draws the same menu inside the window for other desktop builds. Switching direction changes the logical device resolution
 (`800×480` ↔ `480×800`), resizes the OS app bar/content container, and re-runs
 the existing `ui.place` anchors; the App runtime and its state are preserved. It
 is a real layout change, not a bitmap rotation of a fixed canvas. The toolbar and
@@ -176,7 +201,7 @@ npm run demo -- --orientation portrait --zoom fit
 In a running window: a plain mouse wheel or two-finger trackpad swipe scrolls the
 scrollable widget under the cursor (the active tab page, including its
 scrollbar); `Cmd/Ctrl+R` toggles portrait/landscape, `Cmd/Ctrl+,` opens the
-macOS Device menu, `Cmd/Ctrl+0` fits, `Cmd/Ctrl+1` resets to 100%, and
+Device menu, `Cmd/Ctrl+0` fits, `Cmd/Ctrl+1` resets to 100%, and
 `Cmd/Ctrl+=` / `-` (or `Cmd/Ctrl+wheel`) zooms.
 `--rotate 90/270` remains a compatibility alias for `--orientation portrait`.
 The full design — toolbar drawing/hit-testing, OS/app reflow, app layout changes,
@@ -239,7 +264,7 @@ Run the real-browser acceptance test with:
 npm run test:web
 ```
 
-The test builds TypeScript → MBC and Rust → Wasm, opens Chromium, exercises the shell, Counter, Settings, and momo, and verifies the KV-backed momo schedule survives a page reload. Generated Wasm, MBC, Vite output, Playwright reports, and dependencies stay untracked.
+The test builds TypeScript → MBC and Rust → Wasm, opens Chromium, exercises the shell, Counter, Settings, and momo, checks the simulated SD launcher (including the built-in-wins id collision), and verifies the KV-backed momo schedule survives a page reload. Generated Wasm, MBC, Vite output, Playwright reports, and dependencies stay untracked.
 
 ## Commands
 
@@ -284,6 +309,7 @@ npm run test:web
 | `micro-ir` | MBC model, little-endian codec, CRC-32 and structural validation | None |
 | `micro-vm` | Typed stack machine and per-handler instruction budgets | None |
 | `micro-core` | FIFO events, state slots, reactive dependencies, UI tree and patches | None |
+| `micro-os-core` | Host-independent OS lifecycle reducer: boot chain, setup, launcher, app sessions, Wi-Fi state | None |
 | `micro-compiler` | SWC parsing, subset diagnostics, lowering and `microc` CLI | None |
 | `micro-store` | Per-App `ScopedKv`/`ScopedFiles` contracts, path sandbox and native JSON store | None |
 | `micro-json` | Path-based JSON query used by the HTTP host calls | None |
@@ -294,10 +320,13 @@ npm run test:web
 | `micro-renderer-web` | Maps the same tree and patches to a narrow DOM trait | None at test time |
 | `micro-host-web` | WebAssembly boundary, browser DOM bridge and activation queue | `web-sys` on `wasm32` |
 | `micro-web-player` | Minimal browser product consuming MBC and the generated Wasm package | Browser DOM |
+| `micro-board-profile` | Board profile schema, compiled reference-board preset and validation | None |
 | `native` | CMake FetchContent and the C ABI bridge | LVGL 9.5.0 + SDL 3.4.10 |
 
 The Core never imports LVGL, SDL3, ESP-IDF, macOS, or browser types. SDL,
 ESP32-S3, and Web hosts load the same MBC through renderer-specific bridges.
+For the full layer map, isolation model and target boundaries, see
+[docs/architecture.md](docs/architecture.md).
 
 ## Runtime flow
 
@@ -313,7 +342,7 @@ If a handler exhausts its budget, that handler stops and later events remain pro
 
 ## Supported TypeScript subset
 
-The MVP supports:
+The compiler supports:
 
 - `const` and `let` identifier declarations
 - number, string, Boolean and `null` values
@@ -321,7 +350,8 @@ The MVP supports:
 - assignment and `++`/`--` on locals and `state.value`
 - template literals
 - blocks, `if`/`else`, `while`, and arrow handlers/bindings
-- `state`, `bind`, `ui.mount`, `ui.column`, `ui.row`, `ui.surface`, `ui.show`, `ui.text`, `ui.button`, `ui.progress`, `ui.switch`, and `ui.input`
+- `state`, `bind`, `ui.mount`, `ui.place`, `ui.column`, `ui.row`, `ui.surface`, `ui.icon`, `ui.show`, `ui.text`, `ui.button`, `ui.progress`, `ui.switch`, `ui.input`, `ui.slider`, `ui.checkbox`, `ui.dropdown`, `ui.roller`, `ui.led`, `ui.spinner`, `ui.scale`, `ui.list` and `ui.tabview`
+- host calls `app`, `os.*`, `clock`, `kv`, `config`, `storage`, `json`, `audio`, `net` and `device.*` as declared in `sdk/index.d.ts`
 - App-private `storage` files (`available`, `exists`, `readText`, `writeText`, `appendText`, `list`, `remove`, `mkdir`, `size`) with relative, sandboxed paths
 - `{ onClick: () => ..., textStyle?: ..., variant?: "default" | "selected" }` button options, `ui.surface` options `{ onClick?: () => void }`, `{ onToggle?: () => ... }` switch options, and `ui.input` options `{ placeholder?: string, textStyle?: ..., onChange?: (text: string) => void }`
 
@@ -340,11 +370,16 @@ buttons stacked above it keep their own handlers. Web and macOS implement the
 tap; ESP32 falls back to a plain container with no hit testing. On hosts without
 a palette it degrades to a plain container.
 
-`ui.show(button, visible)` conditionally shows a button. `visible` can be a
-Boolean or a `bind` expression; hidden buttons keep their layout slot but stop
-painting and receiving clicks. This is used by momo to hide “开始今日学习” once
-a study round is running and to hide the grade row while an answer is being
-reviewed.
+`ui.show(widget, visible)` conditionally shows any widget. `visible` can be a
+Boolean or a `bind` expression; hidden widgets keep their layout slot but stop
+painting and receiving clicks, and hiding a container hides its children. This
+is used by momo to hide “开始今日学习” once a study round is running, to hide the
+grade row while an answer is being reviewed, and to keep the selected profile
+read-only until 编辑 reveals its name and Token fields.
+
+`os.setTitle(title)` replaces the OS app-bar title for the running App (it is
+ignored by the single-App debug viewport, which has no bar). momo uses it to show
+`momo · <current user>` and refreshes it after every switch or save.
 
 `ui.text` accepts an optional style argument; `ui.button` accepts optional
 `textStyle` and `variant` options, and `ui.input` accepts an optional
@@ -371,15 +406,9 @@ a `MicroUiIpa` Web face. Unsupported literal glyphs are rejected by the
 compiler. Unsupported glyphs produced by a runtime binding are replaced with
 U+FFFD and emit a host diagnostic.
 
-## MBC v4
+## MBC format
 
-MBC begins with `MBC1`, a version, payload length and CRC-32. Version 4 stores
-the optional immutable text style and the per-node value source (a constant or
-a binding) for every UI node, the `ui.input` widget kind, and a per-function
-argument count for 1-arg handlers such as `ui.input` `onChange`, in addition to
-constants, state declarations, bytecode functions, and the static UI
-specification. The codec is deterministic, rejects v1–v3 and unknown versions
-explicitly, and rejects truncated or malformed data without panicking.
+MBC starts with `MBC1`, a version, payload length and CRC-32, followed by constants, state declarations, bytecode functions, the static UI specification, host-request descriptors and the App manifest. The current version is **28**. The codec is deterministic; it rejects every other version, truncated payloads, bad CRCs, and invalid references, jumps or stack depth before execution, without panicking. Any format change bumps the version, so an older MBC must be rebuilt rather than patched in place.
 
 MBC is generated output. Edit the TypeScript source and rebuild rather than editing `app.mbc`.
 
@@ -412,8 +441,18 @@ The workspace tests cover:
 - **Web build tool missing:** install `wasm32-unknown-unknown` and `wasm-pack`, then rerun `npm run build:web`.
 - **Browser test executable missing:** run `npx playwright install chromium`.
 
-## MVP limitations
+## Current limitations
 
-The UI tree is static after initialization. The available widgets are Column, Row, Text, Button, Progress and Switch, with reactive text and value patches and minimal built-in styling. The desktop host opens a resizable macOS window with a top Landscape/Portrait/Rotate toolbar plus a Device menu (power, force restart, orientation, zoom, emulator info); switching orientation changes the logical device size and reflows the same tree through `ui.place` anchors. The Web Player exposes the same host controls in a responsive Device dialog, but orientation cold-boots the guest. Windows/Linux native packaging and native iOS/Android hosts are not part of this slice. Async App effects, App network APIs, App persistence, packages, dynamic lists, source-level debugging, signing, and production distribution are deferred.
+This slice is an application OS, not a kernel. The boundaries are deliberate:
 
-The approved architecture and step-by-step implementation record are under `docs/superpowers/`.
+- **UI**: the tree is static after `ui.mount`. There is no runtime widget creation, no dynamic list, and no source-level debugging. Widgets are the `ui` catalog in `sdk/index.d.ts`.
+- **Execution**: one App is in the foreground; there are no background Apps, services, timers or IPC. Each handler runs with a 10,000-instruction budget, and all App work runs on the host's UI thread or task.
+- **Isolation**: Apps execute in one address space as bytecode, sandboxed by the VM and the host API rather than by an MMU. There is no hardware process isolation on the ESP32-S3.
+- **Security**: MBC carries a CRC, not a signature. Host access is default-deny: a manifest must declare `capabilities`, and the runtime rejects calls outside that allow-list at the host-call boundary. But the manifest is unauthenticated, there is no installer UI that reviews or grants capabilities, and cross-App isolation is still key/path namespacing rather than a security boundary.
+- **Update**: the ESP32 image uses a single `factory` App partition. There is no OTA, A/B slot, rollback, marketplace or package format.
+- **Recovery**: Home is an MBC App too, so an unreadable `shell.mbc` aborts at boot instead of falling back to native UI.
+- **Hosts**: macOS and Web are supported. Windows/Linux native builds are source-level groundwork; native iOS/Android are out of scope.
+
+See [docs/architecture.md](docs/architecture.md) for the supervisor model (signed capabilities, OTA, shell fallback) and the gap list.
+
+The approved design records and step-by-step implementation plans remain under `docs/superpowers/`; they are historical documents, so current code and [docs/architecture.md](docs/architecture.md) win on any conflict.

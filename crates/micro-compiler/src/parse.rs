@@ -7,6 +7,8 @@ use swc_ecma_ast::{
 };
 use swc_ecma_parser::{Parser, StringInput, Syntax, TsSyntax, lexer::Lexer};
 
+use micro_ir::Capability;
+
 use crate::Diagnostic;
 
 pub struct ParsedProgram {
@@ -249,7 +251,8 @@ impl Validator<'_> {
             | "net.wifiApName"
             | "os.appName"
             | "os.appIcon"
-            | "os.launchIndex" => 1..=1,
+            | "os.launchIndex"
+            | "os.setTitle" => 1..=1,
             "device.gpioSetup" | "device.gpioWrite" | "net.wifiConnect" | "net.httpGet" => 2..=2,
             "kv.getNumber"
             | "kv.getText"
@@ -954,7 +957,7 @@ impl Validator<'_> {
                 continue;
             };
             let field = name.sym.as_ref();
-            if !matches!(field, "id" | "name" | "icon") {
+            if !matches!(field, "id" | "name" | "icon" | "capabilities") {
                 self.errors.push(diagnostic_at(
                     self.source_map,
                     self.path,
@@ -972,12 +975,16 @@ impl Validator<'_> {
                     format!("duplicate app() field `{field}`"),
                 ));
             }
-            match &*property.value {
-                Expr::Lit(Lit::Str(_)) => {}
-                _ => self.sdk_error(
-                    property.value.span(),
-                    "app() fields must be string literals".into(),
-                ),
+            if field == "capabilities" {
+                self.app_capabilities(&property.value);
+            } else {
+                match &*property.value {
+                    Expr::Lit(Lit::Str(_)) => {}
+                    _ => self.sdk_error(
+                        property.value.span(),
+                        "app() fields must be string literals".into(),
+                    ),
+                }
             }
         }
         for required in ["id", "name", "icon"] {
@@ -988,6 +995,50 @@ impl Validator<'_> {
                     expression.span(),
                     "MTS002",
                     format!("app() is missing required field `{required}`"),
+                ));
+            }
+        }
+    }
+
+    /// Validate the `capabilities` array of an `app()` manifest.
+    fn app_capabilities(&mut self, expression: &Expr) {
+        let Expr::Array(array) = expression else {
+            self.sdk_error(
+                expression.span(),
+                "app() capabilities must be an array of capability names".into(),
+            );
+            return;
+        };
+        let mut seen = BTreeSet::new();
+        for element in &array.elems {
+            let Some(element) = element else {
+                self.unsupported(expression.span(), "spread");
+                continue;
+            };
+            let Expr::Lit(Lit::Str(value)) = &*element.expr else {
+                self.sdk_error(
+                    element.expr.span(),
+                    "capability names must be string literals".into(),
+                );
+                continue;
+            };
+            let name = value.value.to_string_lossy();
+            if Capability::parse(&name).is_none() {
+                self.errors.push(diagnostic_at(
+                    self.source_map,
+                    self.path,
+                    element.expr.span(),
+                    "MTS002",
+                    format!("unknown capability `{name}`"),
+                ));
+            }
+            if !seen.insert(name.to_string()) {
+                self.errors.push(diagnostic_at(
+                    self.source_map,
+                    self.path,
+                    element.expr.span(),
+                    "MTS002",
+                    format!("duplicate capability `{name}`"),
                 ));
             }
         }

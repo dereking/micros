@@ -84,13 +84,20 @@ impl<R: RenderPort> Runtime<R> {
         host: Box<dyn HostAccess>,
     ) -> Result<Self, RuntimeError> {
         validate(&image)?;
+        let granted = image
+            .metadata
+            .capabilities
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<BTreeSet<_>>();
         let state = StateStore::from_image(&image);
         let mut runtime = Self {
             image,
             state,
             events: EventQueue::default(),
             renderer,
-            host,
+            host: Box::new(crate::capability::CapabilityGate::new(host, granted)),
             event_budget,
             dependencies: BTreeMap::new(),
             binding_values: BTreeMap::new(),
@@ -189,14 +196,12 @@ impl<R: RenderPort> Runtime<R> {
 
     /// Apply the initial state of `ui.show` bindings after the native/web
     /// tree exists. Hiding at construction (rather than waiting for the first
-    /// state change) avoids a frame where study-only buttons flash on screen.
+    /// state change) avoids a frame where study-only controls flash on screen.
+    /// Every widget kind honours `visible`, so a whole form can start hidden.
     fn apply_initial_visibility(&mut self) -> Result<(), RuntimeError> {
         let mut patches = Vec::new();
         for node in &self.image.nodes {
-            if node.kind != UiKind::Button {
-                continue;
-            }
-            let visible = match node.value {
+            let visible = match node.visible {
                 Some(ValueSource::Binding(binding)) => match self.binding_values.get(&binding) {
                     Some(Value::Bool(visible)) => *visible,
                     _ => return Err(RuntimeError::VisibilityIsNotBoolean(node.id)),
@@ -295,17 +300,17 @@ impl<R: RenderPort> Runtime<R> {
                         });
                     }
                 }
+                if node.visible == Some(ValueSource::Binding(binding)) {
+                    let Value::Bool(visible) = &value else {
+                        return Err(RuntimeError::VisibilityIsNotBoolean(node.id));
+                    };
+                    patches.push(RenderPatch::SetVisible {
+                        node: node.id,
+                        visible: *visible,
+                    });
+                }
                 if node.value == Some(ValueSource::Binding(binding)) {
                     match node.kind {
-                        UiKind::Button => {
-                            let Value::Bool(visible) = &value else {
-                                return Err(RuntimeError::VisibilityIsNotBoolean(node.id));
-                            };
-                            patches.push(RenderPatch::SetVisible {
-                                node: node.id,
-                                visible: *visible,
-                            });
-                        }
                         UiKind::Progress => {
                             let Value::Number(fraction) = &value else {
                                 return Err(RuntimeError::ProgressIsNotNumber(node.id));

@@ -2,8 +2,9 @@
 #define MICRO_HOST_MENU_H
 
 /* Platform host menu. macOS implements a native NSMenu; other desktop
- * platforms return 0 until their native menu lands, so the toolbar can hide
- * the gear instead of showing a dead control. */
+ * platforms install the portable SDL menu in micro_native.c. The gear is
+ * hidden only when neither backend is available (for example hidden test
+ * windows). */
 int micro_host_menu_install(void);
 int micro_host_menu_available(void);
 /* 1 when the installed backend draws a real native menu (macOS NSMenu).

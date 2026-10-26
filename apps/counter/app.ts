@@ -3,7 +3,12 @@
 // screen without scrolling a giant column (a very tall scrollable column
 // overwhelms the LVGL refresh on the ESP32-S3 display).
 
-app({ id: "counter", name: "Counter", icon: "plus" });
+app({
+  id: "counter",
+  name: "Counter",
+  icon: "plus",
+  capabilities: ["device", "net"],
+});
 
 const count = state(0);
 const presses = state(0);

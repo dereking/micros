@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
 use micro_ir::{
-    AnchorSpec, AppImage, AppMetadata, BindingId, Constant, FontFamily, FontWeight, Function,
-    FunctionId, FunctionKind, HandlerId, HostCallKind, HostRequest, Instruction, LayoutSpec,
-    NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind, UiNodeSpec, ValueSource,
-    validate,
+    AnchorSpec, AppImage, AppMetadata, BindingId, Capability, Constant, FontFamily, FontWeight,
+    Function, FunctionId, FunctionKind, HandlerId, HostCallKind, HostRequest, Instruction,
+    LayoutSpec, NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind, UiNodeSpec,
+    ValueSource, validate,
 };
 use swc_common::{SourceMap, Span, Spanned, sync::Lrc};
 use swc_ecma_ast::{
@@ -90,14 +90,17 @@ impl<'a> Lowerer<'a> {
                 (call_name(call).as_deref() == Some("ui.mount")).then(|| &*call.args[0].expr)
             })
             .ok_or_else(|| self.error(module.span, "MTS010", "ui.mount call is missing"))?;
-        let root = self.lower_ui(mount_argument)?;
+        // Parse the manifest before lowering so every host call can be checked
+        // against the declared capabilities with its own source span.
         self.metadata = self
             .metadata_from_module(module)
             .unwrap_or_else(|| AppMetadata {
                 id: "app".to_owned(),
                 name: "App".to_owned(),
                 icon: "A".to_owned(),
+                capabilities: None,
             });
+        let root = self.lower_ui(mount_argument)?;
         let source_map = self.source_map;
         let path = self.path;
         let image = AppImage {
@@ -133,7 +136,10 @@ impl<'a> Lowerer<'a> {
                 _ => None,
             }
         })?;
-        let mut metadata = AppMetadata::default();
+        let mut metadata = AppMetadata {
+            capabilities: Some(Vec::new()),
+            ..AppMetadata::default()
+        };
         for property in &object.props {
             let PropOrSpread::Prop(property) = property else {
                 continue;
@@ -144,13 +150,37 @@ impl<'a> Lowerer<'a> {
             let PropName::Ident(name) = &property.key else {
                 continue;
             };
-            let Expr::Lit(Lit::Str(value)) = &*property.value else {
-                continue;
-            };
             match name.sym.as_ref() {
-                "id" => metadata.id = value.value.to_string_lossy().into_owned(),
-                "name" => metadata.name = value.value.to_string_lossy().into_owned(),
-                "icon" => metadata.icon = value.value.to_string_lossy().into_owned(),
+                "id" | "name" | "icon" => {
+                    let Expr::Lit(Lit::Str(value)) = &*property.value else {
+                        continue;
+                    };
+                    match name.sym.as_ref() {
+                        "id" => metadata.id = value.value.to_string_lossy().into_owned(),
+                        "name" => metadata.name = value.value.to_string_lossy().into_owned(),
+                        "icon" => metadata.icon = value.value.to_string_lossy().into_owned(),
+                        _ => unreachable!(),
+                    }
+                }
+                "capabilities" => {
+                    let Expr::Array(array) = &*property.value else {
+                        continue;
+                    };
+                    let mut capabilities = Vec::new();
+                    for element in &array.elems {
+                        let Some(element) = element else {
+                            continue;
+                        };
+                        let Expr::Lit(Lit::Str(value)) = &*element.expr else {
+                            continue;
+                        };
+                        if let Some(capability) = Capability::parse(&value.value.to_string_lossy())
+                        {
+                            capabilities.push(capability);
+                        }
+                    }
+                    metadata.capabilities = Some(capabilities);
+                }
                 _ => {}
             }
         }
@@ -273,14 +303,7 @@ impl<'a> Lowerer<'a> {
             }
             Some("ui.show") => {
                 let id = self.lower_ui(&call.args[0].expr)?;
-                if self.nodes[id.0 as usize].kind != UiKind::Button {
-                    return Err(self.error(
-                        call.args[0].span(),
-                        "MTS012",
-                        "ui.show currently supports buttons",
-                    ));
-                }
-                self.nodes[id.0 as usize].value =
+                self.nodes[id.0 as usize].visible =
                     Some(self.lower_value_source(ScalarType::Bool, &call.args[1].expr)?);
                 Ok(id)
             }
@@ -483,6 +506,7 @@ impl<'a> Lowerer<'a> {
             range: None,
             options: vec![],
             layout: None,
+            visible: None,
         });
         id
     }
@@ -2163,6 +2187,16 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
         let Some((kind, arg_kinds, is_async, result_kind)) = host_call_spec(name) else {
             return Err(self.error(call.span, format!("unsupported host call `{name}`")));
         };
+        if let Some(capabilities) = &self.parent.metadata.capabilities {
+            let capability = kind.capability();
+            if !capabilities.contains(&capability) {
+                return Err(self.parent.error(
+                    call.span,
+                    "MTS002",
+                    format!("`{name}` requires the `{capability}` capability; add it to app()"),
+                ));
+            }
+        }
         let expected = arg_kinds.len() + usize::from(is_async);
         if call.args.len() != expected {
             return Err(self.error(
@@ -2173,8 +2207,10 @@ impl<'lowerer, 'source> FunctionLowerer<'lowerer, 'source> {
         // `playAudio` returns a handle but is still an action (it starts a
         // player), and the storage mutations return a success boolean while
         // still changing the filesystem. Both belong in the same
-        // binding-forbidden set as writes.
-        let is_action = result_kind.is_none()
+        // binding-forbidden set as writes. `os.setTitle` is the exception: it
+        // only repaints OS chrome and never touches App state, so the launch
+        // binding pass may use it to restore the App's title (MBC v28).
+        let is_action = (result_kind.is_none() && kind != HostCallKind::OsSetTitle)
             || matches!(
                 kind,
                 HostCallKind::AudioPlayUrl
@@ -2540,6 +2576,12 @@ fn host_call_spec(name: &str) -> Option<(HostCallKind, Vec<ScalarType>, bool, Op
         ),
         "os.goBack" => (HostCallKind::OsGoBack, vec![], false, None),
         "os.delay" => (HostCallKind::OsDelay, vec![ScalarType::Number], true, None),
+        "os.setTitle" => (
+            HostCallKind::OsSetTitle,
+            vec![ScalarType::String],
+            false,
+            None,
+        ),
         "clock.now" => (
             HostCallKind::ClockNow,
             vec![],

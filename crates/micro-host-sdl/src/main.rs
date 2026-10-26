@@ -10,7 +10,10 @@ use std::time::Duration;
 #[cfg(feature = "native")]
 use micro_core::{Event, Runtime};
 #[cfg(feature = "native")]
-use micro_host_sdl::{HostAction, NativeBridge, host::NativeHost, host::ShellState};
+use micro_host_sdl::{
+    HostAction, NativeBridge, external_apps::installed_registry, host::NativeHost,
+    host::ShellState, single_instance,
+};
 #[cfg(feature = "native")]
 use micro_ir::{StateId, decode};
 #[cfg(feature = "native")]
@@ -77,6 +80,11 @@ host window:
   Cmd/Ctrl+= / -      zoom in / out
   Cmd/Ctrl+wheel      zoom in / out
 
+single instance:
+  the first visible launch owns the window; a second launch shows a notice,
+  activates the running instance and exits without opening a window
+  (headless --smoke / --os-smoke harnesses are exempt)
+
 Orientation switches the LVGL device resolution (800x480 in OS mode) and
 reflows the OS app bar and App layout in place; App state is preserved.
 --rotate 90/270 remains as a compatibility alias for --orientation portrait.
@@ -92,6 +100,27 @@ fn run() -> Result<(), String> {
         println!("{USAGE}");
         return Ok(());
     }
+    /* Only one visible host may own the window. Check before parsing so
+     * LaunchServices arguments or a typo cannot slip past the guard; headless
+     * smoke harnesses are exempt because they never create a desktop window. */
+    let headless = arguments
+        .iter()
+        .any(|argument| argument == "--smoke" || argument == "--os-smoke");
+    let _instance_guard = if headless {
+        None
+    } else {
+        match single_instance::claim() {
+            Ok(single_instance::Claim::Primary(guard)) => Some(guard),
+            Ok(single_instance::Claim::Duplicate { owner_pid }) => {
+                single_instance::notify_and_activate(owner_pid);
+                return Ok(());
+            }
+            Err(error) => {
+                eprintln!("micro-host-sdl: single-instance guard unavailable: {error}");
+                None
+            }
+        }
+    };
     let (smoke, launch, presentation) = parse_arguments(arguments)?;
     match launch {
         Launch::App(path) => run_single(smoke, &path, presentation),
@@ -278,26 +307,16 @@ fn run_os_smoke(
     app_paths: &[PathBuf],
     presentation: Presentation,
 ) -> Result<(), String> {
-    if app_paths.is_empty() {
-        return Err("smoke OS mode needs at least one app MBC".into());
+    let registry = installed_registry(app_paths);
+    if registry.is_empty() {
+        return Err("smoke OS mode needs at least one usable app MBC".into());
     }
-    let registry = app_paths
-        .iter()
-        .map(|path| {
-            let image = decode_mbc(path)?;
-            Ok((
-                path.clone(),
-                image.metadata.name.clone(),
-                image.metadata.icon.clone(),
-            ))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
 
     let mut bridge = create_bridge(800, 480, true, presentation)?;
     let nav = Rc::new(RefCell::new(ShellState {
         apps: registry
             .iter()
-            .map(|(_, name, icon)| (name.clone(), icon.clone()))
+            .map(|app| (app.name.clone(), app.icon.clone()))
             .collect(),
         silent: true,
         ..Default::default()
@@ -313,13 +332,20 @@ fn run_os_smoke(
 
     // Launcher tap: the shell's os.launchIndex(0).
     nav.borrow_mut().pending_launch = Some(0);
-    host_iteration(&mut runtime)?;
+    host_iteration(&mut runtime, &nav)?;
     let launch = nav.borrow_mut().pending_launch.take();
     if launch == Some(0) {
-        let (path, name, _) = &registry[0];
+        let app = &registry[0];
         drop(runtime);
-        runtime = boot_runtime(&bridge, decode_mbc(path)?, nav.clone(), Some(name))?;
+        runtime = boot_runtime(
+            &bridge,
+            decode_mbc(&app.path)?,
+            nav.clone(),
+            Some(&app.name),
+        )?;
         is_shell = false;
+        /* `os.setTitle` from the launch binding should beat the first frame. */
+        apply_nav_title(&bridge, &nav);
     }
     if is_shell {
         return Err("smoke OS: launcher tap did not switch to the app".into());
@@ -330,7 +356,7 @@ fn run_os_smoke(
 
     // App back: os.goBack returns to the shell.
     nav.borrow_mut().pending_back = true;
-    host_iteration(&mut runtime)?;
+    host_iteration(&mut runtime, &nav)?;
     nav.borrow_mut().pending_back = false;
     drop(runtime);
     runtime = boot_runtime(
@@ -405,7 +431,7 @@ fn run_single(smoke: bool, path: &PathBuf, presentation: Presentation) -> Result
         if !runtime.renderer_mut().bridge_mut().poll() {
             return Err("smoke native host quit while processing clicks".into());
         }
-        host_iteration(&mut runtime)?;
+        host_iteration(&mut runtime, &nav)?;
         if runtime.state(StateId(0)) != Some(&Value::Number(2.0)) {
             return Err("smoke Counter did not reach state 2".into());
         }
@@ -452,12 +478,17 @@ fn run_single(smoke: bool, path: &PathBuf, presentation: Presentation) -> Result
                 drop(runtime);
                 runtime = boot_single_runtime(&bridge, &bytes, nav.clone())?;
             } else {
+                /* Host-menu Power Off hides the LVGL bar/content; pump one
+                 * frame so the off surface is actually presented before we
+                 * idle. Appbar-initiated power off already renders from the
+                 * event that set the flag. */
+                let _ = bridge.timer();
                 std::thread::sleep(Duration::from_millis(10));
             }
             continue;
         }
 
-        host_iteration(&mut runtime)?;
+        host_iteration(&mut runtime, &nav)?;
         let delay = runtime.renderer_mut().bridge_mut().timer().clamp(1, 16);
         std::thread::sleep(Duration::from_millis(u64::from(delay)));
     }
@@ -488,23 +519,16 @@ fn run_os(
     app_paths: &[PathBuf],
     presentation: Presentation,
 ) -> Result<(), String> {
-    let registry = app_paths
-        .iter()
-        .map(|path| {
-            let image = decode_mbc(path)?;
-            Ok((
-                path.clone(),
-                image.metadata.name.clone(),
-                image.metadata.icon.clone(),
-            ))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
+    let registry = installed_registry(app_paths);
+    if registry.is_empty() {
+        return Err("OS mode needs at least one usable app MBC".into());
+    }
 
     let mut bridge = create_bridge(800, 480, smoke, presentation)?;
     let nav = Rc::new(RefCell::new(ShellState {
         apps: registry
             .iter()
-            .map(|(_, name, icon)| (name.clone(), icon.clone()))
+            .map(|app| (app.name.clone(), app.icon.clone()))
             .collect(),
         silent: smoke,
         ..Default::default()
@@ -514,8 +538,6 @@ fn run_os(
     let shell_name = shell_image.metadata.name.clone();
     let mut runtime = boot_runtime(&bridge, shell_image, nav.clone(), Some(&shell_name))?;
     let mut is_shell = true;
-    let mut preview_menu = std::env::var_os("MICRO_HOST_MENU_PREVIEW").is_some();
-
     while bridge.poll() {
         // Actions from the platform device menu are host commands, not App
         // input. Handle them before the normal runtime tick so power and
@@ -575,16 +597,17 @@ fn run_os(
                 )?;
                 is_shell = true;
             } else {
+                /* Host-menu Power Off hides the LVGL bar/content; pump one
+                 * frame so the off surface is actually presented before we
+                 * idle. Appbar-initiated power off already renders from the
+                 * event that set the flag. */
+                let _ = bridge.timer();
                 std::thread::sleep(Duration::from_millis(10));
             }
             continue;
         }
 
-        host_iteration(&mut runtime)?;
-        if preview_menu {
-            preview_menu = false;
-            eprintln!("preview open menu: {}", bridge.open_host_menu());
-        }
+        host_iteration(&mut runtime, &nav)?;
 
         let launch = nav.borrow_mut().pending_launch.take();
         let close = bridge.take_appbar_close();
@@ -599,12 +622,48 @@ fn run_os(
                 bridge.power_off();
             } else if let Some(index) = launch {
                 let index = index as usize;
-                if let Some((path, name, _)) = registry.get(index) {
-                    // Drop the shell renderer (clears its LVGL tree) before the
-                    // app runtime builds its tree into the same display.
-                    drop(runtime);
-                    runtime = boot_runtime(&bridge, decode_mbc(path)?, nav.clone(), Some(name))?;
-                    is_shell = false;
+                if let Some(app) = registry.get(index) {
+                    let image = match decode_mbc(&app.path) {
+                        Ok(image) => Some(image),
+                        Err(error) if app.external => {
+                            // The card may have been removed after the scan.
+                            // Keep Home alive instead of terminating the host.
+                            eprintln!(
+                                "[apps] cannot launch external App {}: {error}",
+                                app.path.display()
+                            );
+                            None
+                        }
+                        Err(error) => return Err(error),
+                    };
+                    if let Some(image) = image {
+                        // Drop the shell renderer (clears its LVGL tree) before
+                        // the app runtime builds its tree into the same display.
+                        drop(runtime);
+                        match boot_runtime(&bridge, image, nav.clone(), Some(&app.name)) {
+                            Ok(next) => {
+                                runtime = next;
+                                is_shell = false;
+                                /* Apply the launch binding's title before the
+                                 * first frame. */
+                                apply_nav_title(&bridge, &nav);
+                            }
+                            Err(error) if app.external => {
+                                eprintln!(
+                                    "[apps] external App {} failed to start: {error}",
+                                    app.path.display()
+                                );
+                                runtime = boot_runtime(
+                                    &bridge,
+                                    decode_mbc(shell_path)?,
+                                    nav.clone(),
+                                    Some(&shell_name),
+                                )?;
+                                is_shell = true;
+                            }
+                            Err(error) => return Err(error),
+                        }
+                    }
                 }
             }
         } else if back || close {
@@ -661,7 +720,10 @@ fn boot_runtime(
 }
 
 #[cfg(feature = "native")]
-fn host_iteration(runtime: &mut Runtime<LvglRenderer<NativeBridge>>) -> Result<(), String> {
+fn host_iteration(
+    runtime: &mut Runtime<LvglRenderer<NativeBridge>>,
+    nav: &Rc<RefCell<ShellState>>,
+) -> Result<(), String> {
     while let Some(handler) = runtime.renderer_mut().bridge_mut().take_activation() {
         runtime.enqueue(Event::Activate(handler));
     }
@@ -691,6 +753,19 @@ fn host_iteration(runtime: &mut Runtime<LvglRenderer<NativeBridge>>) -> Result<(
     /* Async host requests (net.scanWifi / net.httpGet / os.delay) complete one
      * tick later with the simulated result. */
     runtime.enqueue_host_results();
+    /* `os.setTitle` only queues chrome: repaint the shared app-bar title after
+     * the runtime tick, so a launch binding can restore it in the first frame. */
+    apply_nav_title(runtime.renderer_mut().bridge_mut(), nav);
     let _ = runtime.renderer_mut().bridge_mut().timer();
     Ok(())
+}
+
+/// Apply a title requested with `os.setTitle`, if any. Called after each tick
+/// and right after booting a Runtime so its launch binding reaches the bar
+/// before the first frame is presented.
+#[cfg(feature = "native")]
+fn apply_nav_title(bridge: &NativeBridge, nav: &Rc<RefCell<ShellState>>) {
+    if let Some(title) = nav.borrow_mut().pending_title.take() {
+        bridge.set_appbar_title(&title);
+    }
 }

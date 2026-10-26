@@ -69,6 +69,7 @@ unsafe extern "C" {
     fn micro_esp_host_app_icon(index: u32, buf: *mut u8, cap: usize) -> c_int;
     fn micro_esp_host_set_launch_index(index: u32);
     fn micro_esp_host_set_back_intent();
+    fn micro_esp_host_set_title(title: *const u8, len: usize);
     fn micro_esp_host_uptime_ms() -> u32;
     fn micro_clock_wall_ms() -> u64;
 }
@@ -681,6 +682,11 @@ impl HostAccess for EspHost {
             }
             OsGoBack => {
                 unsafe { micro_esp_host_set_back_intent() };
+                None
+            }
+            OsSetTitle => {
+                let title = string_arg(args, 0);
+                unsafe { micro_esp_host_set_title(title.as_ptr(), title.len()) };
                 None
             }
             OsDelay => {

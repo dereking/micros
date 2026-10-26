@@ -36,6 +36,10 @@ MICRO_EXPORT void micro_native_set_app_chrome(micro_native_t *native, int visibl
                                               const char *title,
                                               const char *wifi_state,
                                               const char *wifi_ssid);
+/* Replace the centred app-bar title without touching visibility or Wi-Fi
+ * (backs `os.setTitle`). No-op before the bar exists. */
+MICRO_EXPORT void micro_native_set_appbar_title(micro_native_t *native,
+                                                const char *title);
 MICRO_EXPORT int micro_native_appbar_visible(micro_native_t *native);
 /* Whether the App content container is on screen (power-off hides it). */
 MICRO_EXPORT int micro_native_appbar_content_visible(micro_native_t *native);

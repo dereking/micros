@@ -21,6 +21,26 @@ esp_err_t micro_sd_init(void);
 /** 1 while the card is mounted, 0 otherwise. */
 int micro_sd_available(void);
 
+/** List installable external Apps in the card's `/apps` directory.
+ *
+ * Returns NUL-terminated `*.mbc` file names joined by `\n`, sorted by name
+ * (NULL/0 when the card is absent, `/apps` does not exist, or it is empty).
+ * Only immediate regular files with a `.mbc` extension are listed; the caller
+ * reads each with `micro_sd_read_external_app` and validates the MBC. Free the
+ * result with `micro_sd_free`.
+ */
+int micro_sd_list_external_apps(char **out, size_t *out_len);
+
+/** Read one external App image from `/apps/<name>`.
+ *
+ * `name` must be a bare `.mbc` file name returned by
+ * `micro_sd_list_external_apps`; paths and traversal are rejected. On success
+ * `*out` is a malloc buffer of exactly `*out_len` bytes (plus a NUL terminator
+ * for convenience) and the caller frees it with `micro_sd_free`. Returns 0 on
+ * success, -1 on any error, and 0 with `*out == NULL` when the file vanished.
+ */
+int micro_sd_read_external_app(const char *name, char **out, size_t *out_len);
+
 /** Read one App-private UTF-8 file.
  *
  * `path` is relative to `/sdcard/micros/apps/<app_id>`. On success `*out` is a

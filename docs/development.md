@@ -201,8 +201,8 @@ cargo run -p micro-host-sdl --features native -- \
 ```
 
 原生窗口顶部有宿主图标工具栏（Landscape / Portrait / Rotate，悬停显示名称）；
-macOS 上还有一个齿轮 **Device** 菜单（Power On/Off、Force Restart、方向、缩放、
-模拟器信息）。命令行也支持 `--orientation landscape|portrait`、
+还有一个齿轮 **Device** 菜单（Power On/Off、Force Restart、方向、缩放、模拟器
+信息）。macOS 用原生 `NSMenu`，非 Apple 桌面构建用 SDL 绘制的弹出层。命令行也支持 `--orientation landscape|portrait`、
 `--zoom 25..400|fit`（参数可放在 launch 目标前后）：
 
 ```bash
@@ -212,13 +212,18 @@ cargo run -p micro-host-sdl --features native -- \
   apps/settings/dist/settings.mbc apps/momo/dist/momo.mbc
 ```
 
-窗口内快捷键：`Cmd/Ctrl+R` 切换横竖屏、`Cmd/Ctrl+,` 打开 macOS Device 菜单、
+窗口内快捷键：`Cmd/Ctrl+R` 切换横竖屏、`Cmd/Ctrl+,` 打开 Device 菜单、
 `Cmd/Ctrl+0` 适配显示器、`Cmd/Ctrl+1` 回到 100%、`Cmd/Ctrl+=` / `-` 或
 `Cmd/Ctrl+滚轮` 缩放。切换方向会
 改变 LVGL 逻辑分辨率（800×480 ↔ 480×800），同步调整 app bar/内容容器并让现有
 `ui.place` 锚点原地重排；Runtime 与 App 状态保留。`--rotate 90/270` 仍作为
 竖屏的兼容别名。坐标空间、工具栏和布局重排细节见
 [docs/native-display.md](native-display.md)。
+
+宿主是单实例应用：第一个可见窗口持有 `$MICROS_HOME/instance.lock`，再次启动
+（`cargo run`、`open -n "dist/Micro OS.app"` 等）会弹出 **Micro OS is already
+running** 提示，确认后激活已有窗口并退出第二个进程。`--smoke` / `--os-smoke`
+不占锁，测试可与桌面实例并行。
 
 原生输入框支持键盘输入和 `Cmd+V` 粘贴：SDL text input 事件会写入当前
 textarea，宿主循环再把 bridge 里的 `onChange` 变更转成 `Event::InputChanged`。
@@ -234,8 +239,9 @@ MAIMEMO_TOKEN='...' cargo test -p micro-host-sdl --features native \
 > **EN — Running.** `npm run dev:web` compiles MBC + Wasm then serves the simulator at
 > http://127.0.0.1:5173/; `npm run preview:web` serves the built bundle at :4173.
 > `npm run demo` opens the native desktop window with a top Landscape/Portrait/Rotate
-> toolbar plus a macOS **Device** menu (power on/off, force restart, orientation,
-> zoom, emulator info; `Cmd/Ctrl+,`). `--smoke` runs the host headlessly and exits
+> toolbar plus a **Device** menu (power on/off, force restart, orientation, zoom,
+> emulator info; `Cmd/Ctrl+,`). macOS uses a native `NSMenu`; other desktop builds
+> use the SDL-drawn fallback. `--smoke` runs the host headlessly and exits
 > after verifying Counter reaches state 2.
 
 ## 6. 调试 / Debugging

@@ -12,6 +12,13 @@ use crate::{HostError, MicroAction, MicroErrorCode, MicroEvent, MicroState, OsHo
 unsafe extern "C" {
     fn micro_esp_ui_create_column(node: u32, parent: u32) -> c_int;
     fn micro_esp_ui_create_row(node: u32, parent: u32) -> c_int;
+    fn micro_esp_ui_create_surface(
+        node: u32,
+        parent: u32,
+        tone: *const u8,
+        tone_len: usize,
+        handler: u32,
+    ) -> c_int;
     fn micro_esp_ui_create_list(node: u32, parent: u32) -> c_int;
     fn micro_esp_ui_create_tabview(
         node: u32,
@@ -112,6 +119,7 @@ unsafe extern "C" {
     ) -> c_int;
     fn micro_esp_ui_create_led(node: u32, parent: u32, on: c_int) -> c_int;
     fn micro_esp_ui_set_led(node: u32, on: c_int) -> c_int;
+    fn micro_esp_ui_set_visible(node: u32, visible: c_int) -> c_int;
     fn micro_esp_ui_create_spinner(node: u32, parent: u32, active: c_int) -> c_int;
     fn micro_esp_ui_set_spinner(node: u32, active: c_int) -> c_int;
     fn micro_esp_ui_create_scale(node: u32, parent: u32, value: f64, min: f64, max: f64) -> c_int;
@@ -153,6 +161,24 @@ impl NativeUi for EspNativeUi {
 
     fn create_row(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
         native_result(unsafe { micro_esp_ui_create_row(node.0, parent_id(parent)) })
+    }
+
+    fn create_surface(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        tone: &str,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        native_result(unsafe {
+            micro_esp_ui_create_surface(
+                node.0,
+                parent_id(parent),
+                tone.as_ptr(),
+                tone.len(),
+                handler.map_or(u32::MAX, |id| id.0),
+            )
+        })
     }
 
     fn create_list(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
@@ -445,6 +471,10 @@ impl NativeUi for EspNativeUi {
         native_result(unsafe {
             micro_esp_ui_create_spinner(node.0, parent_id(parent), c_int::from(active))
         })
+    }
+
+    fn set_visible(&mut self, node: NodeId, visible: bool) -> Result<(), String> {
+        native_result(unsafe { micro_esp_ui_set_visible(node.0, c_int::from(visible)) })
     }
 
     fn set_spinner(&mut self, node: NodeId, active: bool) -> Result<(), String> {

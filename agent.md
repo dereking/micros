@@ -38,7 +38,7 @@ Python venv 缺失时用 `IDF_PYTHON_ENV_PATH` 指向 `work/toolchains/espressif
 - 串口:`/dev/cu.wchusbserial59591149741`(WCH USB-serial,ESP32-S3 板;`scripts/esp-flash.sh` 自动探测,`ESP_PORT` 覆盖)
 - console:UART0 @ 115200(见 `firmware/micro-os-esp32/sdkconfig` 的 `CONFIG_ESP_CONSOLE_UART_NUM=0`)
 - 芯片:esp32s3,8MB flash / 8MB PSRAM;分区见 `partitions_8m.csv`(`factory` app 0x10000 0x3D0000、`micro_app` data 0x3F0000 0x3F0000)
-- TF 卡:SPI MOSI=11 / MISO=13 / SCLK=12,CS 由 CH422G EXIO4(低有效)控制;`micro_sd` 在启动时挂载 `/sdcard`,App 只能通过 `storage.*` 访问 `/sdcard/micros/apps/<app-id>/`。启动日志出现 `TF card mounted` 表示卡可用;无卡时 `storage.available()` 为 false,系统继续启动。
+- TF 卡:SPI MOSI=11 / MISO=13 / SCLK=12,CS 由 CH422G EXIO4(低有效)控制;`micro_sd` 在启动时挂载 `/sdcard`,App 只能通过 `storage.*` 访问 `/sdcard/micros/apps/<app-id>/`;外部程序放在卡根目录 `/apps/*.mbc`,每次回 Home 前重新扫描并追加到 shell 列表(内置 id 优先,同名 SD App 跳过,最多 8 个槽位;启动时未插卡则需重启才能识别)。启动日志出现 `TF card mounted` 表示卡可用;无卡时 `storage.available()` 为 false、`/apps` 被忽略,系统继续启动。
 
 ## 串口监视器的坑
 
@@ -47,7 +47,7 @@ Python venv 缺失时用 `IDF_PYTHON_ENV_PATH` 指向 `work/toolchains/espressif
   - 复位+读日志:`python -m esptool --chip esp32s3 --port <PORT> --after hard_reset run`,然后用 pyserial 读 115200;
   - 或 `script -q <file> <idf_monitor.py 参数>` 分配 PTY。
 - 验证 MBC 加载成功的日志特征:`micro_os: MBC header: magic OK, version=<N>` + `micro runtime created`。
-- 现在的启动流程是 **OS shell**:先进入 shell MBC(`apps/shell`,启动器图标网格),点 Counter 才创建 Rust runtime 跑 MBC,BOOT 按钮(GPIO0)当 Back。首页和 App 顶部都由 OS 统一绘制 40px appbar(三段式:左 WiFi 图标(悬停/点击显示 SSID),中间标题绝对居中(取自 MBC 清单,首页为 `Home`),右侧时间 + 44px 点击区的圆形关闭按钮),UI 内容(包括 shell 自己的网格)挂在 appbar 下方的 content 容器里(440px);首页不再自绘状态栏。在首页点关闭按钮会进入 `Powered off` 关机画面,点屏幕(真机也可按 BOOT)重新启动 Home;在 App 内点关闭按钮/边缘滑动/BOOT 都返回首页。启动日志特征:`OS shell ready` → shell 图标网格;点 Counter 后 `loaded MBC` + `micro runtime created; app session <N>`。`device.*`/`net.*` 宿主值由 `micro_esp_host_*` 提供(真机读 IDF;wifi 为模拟状态)。
+- 现在的启动流程是 **OS shell**:先进入 shell MBC(`apps/shell`,启动器图标网格),点 Counter 才创建 Rust runtime 跑 MBC,BOOT 按钮(GPIO0)当 Back。首页和 App 顶部都由 OS 统一绘制 40px appbar(三段式:左 WiFi 图标(悬停/点击显示 SSID),中间标题绝对居中(取自 MBC 清单,首页为 `Home`),右侧时间 + 44px 点击区的圆形关闭按钮),UI 内容(包括 shell 自己的网格)挂在 appbar 下方的 content 容器里(440px);首页不再自绘状态栏。在首页点关闭按钮会进入 `Powered off` 关机画面,点屏幕(真机也可按 BOOT)重新启动 Home;在 App 内点关闭按钮/边缘滑动/BOOT 都返回首页。启动日志特征:`OS shell ready` → shell 图标网格;点 Counter 后 `loaded MBC` + `micro runtime created; app session <N>`。`device.*`/`net.*` 宿主值由 `micro_esp_host_*` 提供(真机读 IDF;Wi-Fi 状态、SSID、扫描结果和连接动作都由 IDF 实现)。
 
 ## 相关 npm / 测试脚本
 
@@ -82,6 +82,6 @@ Python venv 缺失时用 `IDF_PYTHON_ENV_PATH` 指向 `work/toolchains/espressif
 
 - SDK:`sdk/index.d.ts` 的 `ui.place`
 - 编译器:`crates/micro-compiler/src/lower.rs`(`align`→anchor 展开)
-- IR/编解码:`crates/micro-ir/src/model.rs`(`LayoutSpec`)、`codec.rs`(MBC **v26**)
+- IR/编解码:`crates/micro-ir/src/model.rs`(`LayoutSpec`)、`codec.rs`(MBC **v28**)
 - 引擎:见上
 - FFI 头:`micro_runtime_ffi.h`、`native/include/micro_native.h`(`mask` 位:bit0=left,bit1=top,bit2=width,bit3=height,bit4=anchor_left,bit5=anchor_top,bit6=anchor_right,bit7=anchor_bottom)

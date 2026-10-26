@@ -23,12 +23,33 @@ declare function state<T extends Scalar>(initial: T): State<T>;
 declare function bind<T extends Scalar>(read: () => T): Binding<T>;
 
 /**
+ * Host API categories the app may call. The runtime is default-deny: only the
+ * listed categories are callable. Omitting the field, or passing `[]`, denies
+ * every host call.
+ */
+type Capability =
+  | "clock"
+  | "kv"
+  | "config"
+  | "storage"
+  | "net"
+  | "audio"
+  | "json"
+  | "device"
+  | "os";
+
+/**
  * Declare the app manifest. `id` is a stable identifier used to launch the
  * app, `name` is shown under its launcher icon, and `icon` is either a shared
  * OS icon name from the `ui.icon` catalog (e.g. "settings", "edit", "plus") or
  * a single legacy display glyph rendered in the platform font.
  */
-declare function app(options: { id: string; name: string; icon: string }): void;
+declare function app(options: {
+  id: string;
+  name: string;
+  icon: string;
+  capabilities?: Capability[];
+}): void;
 
 /** ESP32 hardware capabilities. Sync reads are sampled when the binding runs. */
 declare const device: {
@@ -50,7 +71,10 @@ declare const device: {
 /**
  * Operating-system (shell) capabilities. The launcher reads the installed app
  * list by index; `launchIndex` boots an app (tearing down the shell) and
- * `goBack` returns from an app to the shell. `delay` is a polling heartbeat.
+ * `goBack` returns from an app to the shell. The registry holds built-in Apps
+ * first, then external Apps discovered on the SD card, and is capped at the
+ * shell's eight slots. A duplicate manifest id never replaces a built-in App.
+ * `setTitle` updates the OS app-bar label, and `delay` is a polling heartbeat.
  */
 declare const os: {
   /** Display name of the installed app at index `i`, or "" when none. */
@@ -62,6 +86,13 @@ declare const os: {
   launchIndex(i: number): void;
   /** Exit the current app and return to the shell. */
   goBack(): void;
+  /**
+   * Replace the OS app-bar title for the running app (for example
+   * `momo · 小墨` to show the active profile). Chrome only — it does not
+   * touch app state — so a launch binding may call it to restore the title
+   * on the first frame.
+   */
+  setTitle(title: string): void;
   /** Calls back with "" after `ms` milliseconds. */
   delay(ms: number, onResult: (result: string) => void): void;
 };
@@ -283,10 +314,12 @@ declare const ui: {
     },
   ): UiNode;
   /**
-   * Conditionally show a button. Hidden buttons keep their layout slot but do
-   * not paint or receive clicks. Currently limited to buttons.
+   * Conditionally show a widget. Hidden nodes keep their layout slot but do
+   * not paint or receive clicks. Works for every widget kind; hiding a
+   * container hides its children, so a read-only view and an edit form can
+   * share one layout position.
    */
-  show(button: UiNode, visible: boolean | Binding<boolean>): UiNode;
+  show(widget: UiNode, visible: boolean | Binding<boolean>): UiNode;
   text(value: string | Binding<string>, style?: UiTextStyle): UiNode;
   /**
    * A labelled button. `variant: "selected"` paints the active/selected row

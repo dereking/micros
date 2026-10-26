@@ -193,6 +193,8 @@ fn native_input_accepts_typed_text_and_persists_it() {
         .expect("momo profile name input");
     let save = button(&image, "保存");
     let save_handler = image.nodes[save.0 as usize].on_click.expect("save handler");
+    let edit = button(&image, "编辑");
+    let edit_handler = image.nodes[edit.0 as usize].on_click.expect("edit handler");
 
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -205,6 +207,13 @@ fn native_input_accepts_typed_text_and_persists_it() {
     let host = NativeHost::new_for_app_at(&root, "momo").silent();
     let mut runtime =
         Runtime::new_with_host(image, renderer, 10_000, Box::new(host)).expect("boot momo");
+    pump(&mut runtime);
+    // The profile starts read-only; entering edit mode materializes the name
+    // and Token fields before typing.
+    runtime
+        .renderer_mut()
+        .bridge_mut()
+        .inject_activation(edit_handler);
     pump(&mut runtime);
     runtime
         .renderer_mut()
@@ -259,6 +268,9 @@ fn native_sync_loads_today_items_from_maimemo() {
         .map(|node| node.id)
         .expect("momo profile token input");
     let save = button(&image, "保存");
+    let save_handler = image.nodes[save.0 as usize].on_click.expect("save handler");
+    let edit = button(&image, "编辑");
+    let edit_handler = image.nodes[edit.0 as usize].on_click.expect("edit handler");
     let sync = button(&image, "同步墨墨");
     let sync_handler = image.nodes[sync.0 as usize].on_click.expect("sync handler");
     let start = button(&image, "开始今日学习");
@@ -282,6 +294,11 @@ fn native_sync_loads_today_items_from_maimemo() {
     runtime
         .renderer_mut()
         .bridge_mut()
+        .inject_activation(edit_handler);
+    pump(&mut runtime);
+    runtime
+        .renderer_mut()
+        .bridge_mut()
         .focus_textarea(input)
         .expect("focus token input");
     runtime
@@ -293,8 +310,7 @@ fn native_sync_loads_today_items_from_maimemo() {
     runtime
         .renderer_mut()
         .bridge_mut()
-        .queue_click(save)
-        .expect("click save");
+        .inject_activation(save_handler);
     pump(&mut runtime);
     assert_eq!(
         runtime.state(StateId(9)),
@@ -318,6 +334,7 @@ fn native_sync_loads_today_items_from_maimemo() {
         }
         if status.starts_with("同步失败")
             || status == "今日没有未完成单词。"
+            || status == "墨墨今日列表为空：先在墨墨 App 打开今日学习并开启自动同步后重试。"
             || status == "词表已导入，但释义暂不可用。"
         {
             break;
@@ -325,7 +342,9 @@ fn native_sync_loads_today_items_from_maimemo() {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     assert!(
-        status.starts_with("已导入") || status == "今日没有未完成单词。",
+        status.starts_with("已导入")
+            || status == "今日没有未完成单词。"
+            || status == "墨墨今日列表为空：先在墨墨 App 打开今日学习并开启自动同步后重试。",
         "unexpected sync status: {status}"
     );
     if status.starts_with("已导入") {

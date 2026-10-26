@@ -1,13 +1,16 @@
 use std::fmt;
 
 use crate::{
-    AnchorSpec, AppImage, AppMetadata, BindingId, Constant, FontFamily, FontWeight, Function,
-    FunctionId, FunctionKind, HandlerId, HostCallKind, HostRequest, Instruction, LayoutSpec,
-    NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind, UiNodeSpec,
+    AnchorSpec, AppImage, AppMetadata, BindingId, Capability, Constant, FontFamily, FontWeight,
+    Function, FunctionId, FunctionKind, HandlerId, HostCallKind, HostRequest, Instruction,
+    LayoutSpec, NodeId, ScalarType, StateDecl, StateId, TextSource, TextStyle, UiKind, UiNodeSpec,
     ValidationError, ValueSource, validate,
 };
 
 const MAGIC: &[u8; 4] = b"MBC1";
+/// MBC v28 adds per-node `ui.show` visibility for any widget and the
+/// `os.setTitle` chrome call.
+/// MBC v27 adds the optional manifest capability allow-list.
 /// MBC v26 adds the shared OS `Icon` UI kind (vector icons by name).
 /// MBC v25 adds the App-private `storage` file calls (external SD card on
 /// ESP32).
@@ -22,7 +25,7 @@ const MAGIC: &[u8; 4] = b"MBC1";
 /// MBC v17 added the `metadata` section (app manifest: id/name/icon).
 /// MBC v16 added the `host_requests` section and the `HostCall` instruction
 /// (v15 split the per-node layout into ltwh base geometry + anchor edges).
-const VERSION: u16 = 26;
+const VERSION: u16 = 28;
 const HEADER_LEN: usize = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -435,6 +438,20 @@ fn encode_ui(nodes: &[UiNodeSpec], root: NodeId) -> Result<Vec<u8>, EncodeError>
                 }
             }
         }
+        match node.visible {
+            None => {
+                out.push(0);
+                out.extend_from_slice(&0_u32.to_le_bytes());
+            }
+            Some(ValueSource::Constant(id)) => {
+                out.push(1);
+                out.extend_from_slice(&id.to_le_bytes());
+            }
+            Some(ValueSource::Binding(id)) => {
+                out.push(2);
+                out.extend_from_slice(&id.0.to_le_bytes());
+            }
+        }
     }
     out.extend_from_slice(&root.0.to_le_bytes());
     Ok(out)
@@ -596,6 +613,19 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
                 });
             }
         };
+        let visible_tag = reader.u8()?;
+        let visible_id = reader.u32()?;
+        let visible = match visible_tag {
+            0 => None,
+            1 => Some(ValueSource::Constant(visible_id)),
+            2 => Some(ValueSource::Binding(FunctionId(visible_id))),
+            tag => {
+                return Err(DecodeError::InvalidTag {
+                    section: "visibility source",
+                    tag,
+                });
+            }
+        };
         nodes.push(UiNodeSpec {
             id,
             kind,
@@ -607,6 +637,7 @@ fn decode_ui(reader: &mut Reader<'_>) -> Result<(Vec<UiNodeSpec>, NodeId), Decod
             range,
             options,
             layout,
+            visible,
         });
     }
     let root = NodeId(reader.u32()?);
@@ -687,6 +718,16 @@ fn encode_metadata(metadata: &AppMetadata) -> Result<Vec<u8>, EncodeError> {
     put_bytes(&mut out, metadata.id.as_bytes())?;
     put_bytes(&mut out, metadata.name.as_bytes())?;
     put_bytes(&mut out, metadata.icon.as_bytes())?;
+    match &metadata.capabilities {
+        None => out.push(0),
+        Some(capabilities) => {
+            out.push(1);
+            put_u32(&mut out, capabilities.len())?;
+            for capability in capabilities {
+                put_bytes(&mut out, capability.as_str().as_bytes())?;
+            }
+        }
+    }
     Ok(out)
 }
 
@@ -700,8 +741,34 @@ fn decode_metadata(reader: &mut Reader<'_>) -> Result<AppMetadata, DecodeError> 
     let icon = std::str::from_utf8(reader.bytes()?)
         .map_err(|_| DecodeError::InvalidUtf8)?
         .to_owned();
+    let capabilities = match reader.u8()? {
+        0 => None,
+        1 => {
+            let count = reader.u32()? as usize;
+            let mut capabilities = Vec::with_capacity(count.min(16));
+            for _ in 0..count {
+                let name =
+                    std::str::from_utf8(reader.bytes()?).map_err(|_| DecodeError::InvalidUtf8)?;
+                let capability = Capability::parse(name).ok_or_else(|| {
+                    DecodeError::InvalidImage(format!("unknown app capability `{name}`"))
+                })?;
+                capabilities.push(capability);
+            }
+            Some(capabilities)
+        }
+        flag => {
+            return Err(DecodeError::InvalidImage(format!(
+                "invalid capability flag {flag}"
+            )));
+        }
+    };
     reader.finish()?;
-    Ok(AppMetadata { id, name, icon })
+    Ok(AppMetadata {
+        id,
+        name,
+        icon,
+        capabilities,
+    })
 }
 
 fn host_call_kind_tag(kind: HostCallKind) -> u8 {
@@ -762,6 +829,7 @@ fn host_call_kind_tag(kind: HostCallKind) -> u8 {
         HostCallKind::StorageRemove => 53,
         HostCallKind::StorageMkdir => 54,
         HostCallKind::StorageSize => 55,
+        HostCallKind::OsSetTitle => 56,
     }
 }
 
@@ -823,6 +891,7 @@ fn decode_host_call_kind(tag: u8) -> Result<HostCallKind, DecodeError> {
         53 => Ok(HostCallKind::StorageRemove),
         54 => Ok(HostCallKind::StorageMkdir),
         55 => Ok(HostCallKind::StorageSize),
+        56 => Ok(HostCallKind::OsSetTitle),
         tag => Err(DecodeError::InvalidTag {
             section: "host call kind",
             tag,

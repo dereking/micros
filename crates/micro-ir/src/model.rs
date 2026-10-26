@@ -219,6 +219,11 @@ pub enum HostCallKind {
     /// `os.delay(ms, onResult)` — async; the host calls back after `ms`
     /// milliseconds (drives the shell's polling heartbeat).
     OsDelay,
+    /// `os.setTitle(title)` — replace the OS app-bar title for the running
+    /// App (`""` falls back to the manifest name). Chrome only: it never
+    /// touches App state, so it is also allowed inside bindings, letting an
+    /// App restore its title during the launch binding pass.
+    OsSetTitle,
     /// `clock.now()` → wall-clock milliseconds since the Unix epoch.
     ClockNow,
     /// `kv.getNumber(key)` → the stored number, or 0 when missing/not numeric.
@@ -289,6 +294,134 @@ pub enum HostCallKind {
     AudioPlayBackground,
     /// `audio.stopBackground()` — stop the background music stream.
     AudioStopBackground,
+}
+
+/// A host API category an App may request in its manifest.
+///
+/// Capabilities group the `HostCallKind` surface so a manifest declares intent
+/// (`net`, `storage`) instead of individual functions. The runtime is
+/// default-deny: only the categories listed in `AppMetadata::capabilities` are
+/// callable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Capability {
+    Clock,
+    Kv,
+    Config,
+    Storage,
+    Net,
+    Audio,
+    Json,
+    Device,
+    Os,
+}
+
+impl Capability {
+    /// Every capability, in manifest documentation order.
+    pub const ALL: [Self; 9] = [
+        Self::Clock,
+        Self::Kv,
+        Self::Config,
+        Self::Storage,
+        Self::Net,
+        Self::Audio,
+        Self::Json,
+        Self::Device,
+        Self::Os,
+    ];
+
+    /// Stable manifest name, e.g. `"net"`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Clock => "clock",
+            Self::Kv => "kv",
+            Self::Config => "config",
+            Self::Storage => "storage",
+            Self::Net => "net",
+            Self::Audio => "audio",
+            Self::Json => "json",
+            Self::Device => "device",
+            Self::Os => "os",
+        }
+    }
+
+    /// Parse a manifest capability name; unknown names are rejected.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|capability| capability.as_str() == name)
+    }
+}
+
+impl fmt::Display for Capability {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl HostCallKind {
+    /// The capability that gates this host call.
+    #[must_use]
+    pub const fn capability(self) -> Capability {
+        match self {
+            Self::DeviceName
+            | Self::DeviceChip
+            | Self::DeviceFlashBytes
+            | Self::DevicePsramBytes
+            | Self::DeviceResetReason
+            | Self::DeviceBacklight
+            | Self::DeviceSetBacklight
+            | Self::DeviceGpioSetup
+            | Self::DeviceGpioWrite
+            | Self::DeviceGpioRead => Capability::Device,
+            Self::NetWifiState
+            | Self::NetWifiSsid
+            | Self::NetWifiConnect
+            | Self::NetWifiDisconnect
+            | Self::NetScanWifi
+            | Self::NetWifiApName
+            | Self::NetHttpGet
+            | Self::NetHttpRequest
+            | Self::NetHttpRequestWithHeaders
+            | Self::NetLookupWords => Capability::Net,
+            Self::JsonGetText | Self::JsonGetNumber | Self::JsonLength => Capability::Json,
+            Self::OsAppName
+            | Self::OsAppIcon
+            | Self::OsLaunchIndex
+            | Self::OsGoBack
+            | Self::OsDelay
+            | Self::OsSetTitle => Capability::Os,
+            Self::ClockNow => Capability::Clock,
+            Self::KvGetNumber
+            | Self::KvGetText
+            | Self::KvSetNumber
+            | Self::KvSetText
+            | Self::KvRemove => Capability::Kv,
+            Self::ConfigGetNumber
+            | Self::ConfigGetText
+            | Self::ConfigSetNumber
+            | Self::ConfigSetText
+            | Self::ConfigRemove => Capability::Config,
+            Self::StorageAvailable
+            | Self::StorageExists
+            | Self::StorageReadText
+            | Self::StorageWriteText
+            | Self::StorageAppendText
+            | Self::StorageList
+            | Self::StorageRemove
+            | Self::StorageMkdir
+            | Self::StorageSize => Capability::Storage,
+            Self::AudioSpeak
+            | Self::AudioStop
+            | Self::AudioSetRate
+            | Self::AudioPlayUrl
+            | Self::AudioStopUrl
+            | Self::AudioStopAllUrls
+            | Self::AudioPlayBackground
+            | Self::AudioStopBackground => Capability::Audio,
+        }
+    }
 }
 
 /// A single host call referenced by `Instruction::HostCall`. Synchronous calls
@@ -529,12 +662,18 @@ pub struct UiNodeSpec {
     pub options: Vec<u32>,
     /// Optional Delphi-style layout hint from `ui.place`.
     pub layout: Option<LayoutSpec>,
+    /// Optional visibility source from `ui.show`. A boolean constant or
+    /// binding; `None` keeps the node visible. Hidden nodes keep their layout
+    /// slot (the static tree does not reflow) and do not paint or receive
+    /// input. Works for every widget, including transparent containers, so a
+    /// form can swap between a read-only and an editable view.
+    pub visible: Option<ValueSource>,
 }
 
 /// App manifest metadata, declared in the app source as
-/// `app({ id, name, icon })` and serialized into the MBC's metadata section.
-/// The OS launcher reads `id` (to launch), `name` (to display) and `icon`
-/// (a single display glyph) without decoding the whole app.
+/// `app({ id, name, icon, capabilities? })` and serialized into the MBC's
+/// metadata section. The OS launcher reads `id` (to launch), `name` (to
+/// display) and `icon` (a single display glyph) without decoding the whole app.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AppMetadata {
     /// Stable ASCII identifier used to launch the app (e.g. `"counter"`).
@@ -544,6 +683,13 @@ pub struct AppMetadata {
     /// Launcher icon: a shared OS icon name (`"settings"`, `"home"`, …) or a
     /// single display glyph for Apps that want their own letter mark.
     pub icon: String,
+    /// Host API categories the App may call.
+    ///
+    /// The runtime is default-deny: `None` (the field was omitted) grants no
+    /// host calls, and `Some(list)` grants exactly the listed categories.
+    /// `Some(vec![])` is the same as `None`; an unknown name is rejected at
+    /// decode time.
+    pub capabilities: Option<Vec<Capability>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -581,6 +727,13 @@ pub fn validate(image: &AppImage) -> Result<(), ValidationError> {
         return Err(invalid(
             "app metadata icon must be a single glyph or a shared OS icon name",
         ));
+    }
+    if let Some(capabilities) = &image.metadata.capabilities {
+        for (index, capability) in capabilities.iter().enumerate() {
+            if capabilities[..index].contains(capability) {
+                return Err(invalid(&format!("duplicate app capability `{capability}`")));
+            }
+        }
     }
     if image.nodes.is_empty() {
         return Err(invalid("UI tree is empty"));
@@ -678,6 +831,29 @@ pub fn validate(image: &AppImage) -> Result<(), ValidationError> {
                     _ => return Err(invalid(format!("node {index} has an invalid binding"))),
                 },
                 ValueSource::Constant(_) => {}
+            }
+        }
+        if let Some(visible) = node.visible {
+            match visible {
+                ValueSource::Constant(id) => match image.constants.get(id as usize) {
+                    Some(Constant::Bool(_)) => {}
+                    _ => {
+                        return Err(invalid(format!(
+                            "node {index} has an invalid visibility constant"
+                        )));
+                    }
+                },
+                ValueSource::Binding(id) => match image.functions.get(id.0 as usize) {
+                    Some(Function {
+                        kind: FunctionKind::Binding(_),
+                        ..
+                    }) => {}
+                    _ => {
+                        return Err(invalid(format!(
+                            "node {index} has an invalid visibility binding"
+                        )));
+                    }
+                },
             }
         }
         if let Some(id) = node.on_click {

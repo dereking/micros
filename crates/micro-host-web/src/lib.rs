@@ -125,6 +125,18 @@ mod wasm_host {
         Ok(format!("{}|{}", image.metadata.name, image.metadata.icon))
     }
 
+    /// Decode an app MBC's full launcher identity as `id|name|icon`. The id is
+    /// needed to apply the built-in-wins collision policy for simulated SD Apps.
+    #[wasm_bindgen]
+    pub fn decode_app_manifest(mbc: &[u8]) -> Result<String, JsValue> {
+        let image = decode(mbc)
+            .map_err(|error| js_error("WEB_MBC", &format!("cannot decode MBC: {error}")))?;
+        Ok(format!(
+            "{}|{}|{}",
+            image.metadata.id, image.metadata.name, image.metadata.icon
+        ))
+    }
+
     #[wasm_bindgen]
     pub struct MicroWebRuntime {
         runtime: Runtime<WebRenderer<DomBridge>>,
@@ -222,6 +234,11 @@ mod wasm_host {
             let pending = nav.pending_back;
             nav.pending_back = false;
             pending
+        }
+
+        /// Drain the pending `os.setTitle` request, or `undefined` when none.
+        pub fn take_nav_title(&mut self) -> Option<String> {
+            self.nav.borrow_mut().pending_title.take()
         }
 
         pub fn tick(&mut self) -> Result<u32, JsValue> {

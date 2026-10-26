@@ -7,17 +7,19 @@ project(micro_native C)
 set(MICRO_OBJC_SOURCES)
 set(MICRO_MENU_SOURCES src/micro_host_menu_stub.c)
 set(MICRO_ICON_SOURCES src/micro_host_icon_stub.c)
+set(MICRO_SINGLE_INSTANCE_SOURCES src/micro_host_single_instance_stub.c)
 if(APPLE)
   enable_language(OBJC)
   list(APPEND MICRO_OBJC_SOURCES src/micro_speech.m src/micro_audio.m
        src/micro_host_icon.m)
   set_source_files_properties(
     src/micro_speech.m src/micro_audio.m src/micro_host_menu.m
-    src/micro_host_icon.m
+    src/micro_host_icon.m src/micro_host_single_instance.m
     PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
   )
   set(MICRO_MENU_SOURCES src/micro_host_menu.m)
   set(MICRO_ICON_SOURCES "")
+  set(MICRO_SINGLE_INSTANCE_SOURCES src/micro_host_single_instance.m)
 endif()
 
 include(FetchContent)
@@ -70,6 +72,7 @@ add_library(micro_native SHARED
   src/micro_appbar.c
   ${MICRO_MENU_SOURCES}
   ${MICRO_ICON_SOURCES}
+  ${MICRO_SINGLE_INSTANCE_SOURCES}
   ${MICRO_OBJC_SOURCES}
   ${MICRO_UI_FONT_SOURCES}
 )
@@ -84,7 +87,16 @@ endif()
 set_target_properties(micro_native PROPERTIES
   C_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN YES
-  INSTALL_RPATH "@loader_path"
+  WINDOWS_EXPORT_ALL_SYMBOLS ON
 )
+if(APPLE)
+  set_target_properties(micro_native PROPERTIES INSTALL_RPATH "@loader_path")
+elseif(UNIX)
+  set_target_properties(micro_native PROPERTIES INSTALL_RPATH "$ORIGIN")
+endif()
 
-install(TARGETS micro_native LIBRARY DESTINATION lib RUNTIME DESTINATION lib)
+install(TARGETS micro_native
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION lib
+  ARCHIVE DESTINATION lib
+)

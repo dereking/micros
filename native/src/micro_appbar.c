@@ -55,6 +55,15 @@ static void close_callback(lv_event_t *event)
     s_back = 1;
 }
 
+static int read_local_time(time_t now, struct tm *local)
+{
+#if defined(_WIN32)
+    return localtime_s(local, &now) == 0;
+#else
+    return localtime_r(&now, local) != NULL;
+#endif
+}
+
 static void clock_timer_callback(lv_timer_t *timer)
 {
     (void)timer;
@@ -64,7 +73,7 @@ static void clock_timer_callback(lv_timer_t *timer)
     time_t now = time(NULL);
     struct tm local;
     char text[16];
-    if (now <= 0 || localtime_r(&now, &local) == NULL ||
+    if (now <= 0 || !read_local_time(now, &local) ||
         local.tm_year + 1900 < 2020) {
         snprintf(text, sizeof text, "--:--");
     } else {

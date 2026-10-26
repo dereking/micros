@@ -1,6 +1,6 @@
 use micro_ir::{
-    AppImage, AppMetadata, BindingId, Constant, DecodeError, FontFamily, FontWeight, Function,
-    FunctionId, FunctionKind, HostCallKind, HostRequest, Instruction, LayoutSpec, NodeId,
+    AppImage, AppMetadata, BindingId, Capability, Constant, DecodeError, FontFamily, FontWeight,
+    Function, FunctionId, FunctionKind, HostCallKind, HostRequest, Instruction, LayoutSpec, NodeId,
     ScalarType, StateDecl, StateId, TextSource, TextStyle, TextStyleError, UiKind, UiNodeSpec,
     ValueSource, decode, encode, validate,
 };
@@ -36,12 +36,14 @@ fn fixture() -> AppImage {
             range: None,
             options: vec![],
             layout: None,
+            visible: None,
         }],
         host_requests: vec![],
         metadata: AppMetadata {
             id: "fixture".into(),
             name: "Fixture".into(),
             icon: "F".into(),
+            capabilities: None,
         },
         root: NodeId(0),
     }
@@ -60,6 +62,7 @@ fn round_trips_metadata() {
         id: "counter".into(),
         name: "Counter".into(),
         icon: "C".into(),
+        capabilities: None,
     };
     let decoded = decode(&encode(&image).unwrap()).unwrap();
     assert_eq!(
@@ -68,8 +71,29 @@ fn round_trips_metadata() {
             id: "counter".into(),
             name: "Counter".into(),
             icon: "C".into(),
+            capabilities: None,
         }
     );
+}
+
+#[test]
+fn round_trips_declared_capabilities() {
+    let mut image = fixture();
+    image.metadata = AppMetadata {
+        id: "counter".into(),
+        name: "Counter".into(),
+        icon: "C".into(),
+        capabilities: Some(vec![Capability::Kv, Capability::Net]),
+    };
+    let decoded = decode(&encode(&image).unwrap()).unwrap();
+    assert_eq!(
+        decoded.metadata.capabilities,
+        Some(vec![Capability::Kv, Capability::Net])
+    );
+
+    image.metadata.capabilities = Some(vec![]);
+    let decoded = decode(&encode(&image).unwrap()).unwrap();
+    assert_eq!(decoded.metadata.capabilities, Some(vec![]));
 }
 
 #[test]
@@ -173,6 +197,7 @@ fn round_trips_progress_and_switch_values() {
                 range: None,
                 options: vec![],
                 layout: None,
+                visible: None,
             },
             UiNodeSpec {
                 id: NodeId(1),
@@ -185,6 +210,7 @@ fn round_trips_progress_and_switch_values() {
                 range: None,
                 options: vec![],
                 layout: None,
+                visible: None,
             },
             UiNodeSpec {
                 id: NodeId(2),
@@ -197,6 +223,7 @@ fn round_trips_progress_and_switch_values() {
                 range: None,
                 options: vec![],
                 layout: None,
+                visible: None,
             },
         ],
         host_requests: vec![],
@@ -204,6 +231,7 @@ fn round_trips_progress_and_switch_values() {
             id: "demo".into(),
             name: "Demo".into(),
             icon: "D".into(),
+            capabilities: None,
         },
         root: NodeId(0),
     };
@@ -229,6 +257,7 @@ fn round_trips_host_requests_and_host_call_instructions() {
             None,
         ),
         HostRequest::async_request(HostCallKind::NetScanWifi, vec![], FunctionId(1)),
+        HostRequest::sync(HostCallKind::OsSetTitle, vec![ScalarType::String], None),
     ];
     image.functions.push(Function {
         kind: FunctionKind::Handler(micro_ir::HandlerId(1)),
@@ -310,8 +339,8 @@ fn rejects_bad_magic_and_version() {
 #[test]
 fn rejects_a_bad_text_style_tag() {
     let mut bytes = encode(&fixture()).unwrap();
-    /* Trailing sections after section 4: empty host_requests (9 bytes) + metadata (32 bytes). */
-    let style_tag = bytes.len() - 52;
+    /* Trailing sections after section 4: empty host_requests (9 bytes) + metadata (33 bytes). */
+    let style_tag = bytes.len() - 58;
     bytes[style_tag] = 2;
     refresh_checksum(&mut bytes);
 
@@ -329,8 +358,8 @@ fn rejects_an_unsupported_serialized_text_size() {
     let mut image = fixture();
     image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
     let mut bytes = encode(&image).unwrap();
-    /* Trailing sections after section 4: empty host_requests (9 bytes) + metadata (32 bytes). */
-    let size_px = bytes.len() - 54;
+    /* Trailing sections after section 4: empty host_requests (9 bytes) + metadata (33 bytes). */
+    let size_px = bytes.len() - 60;
     bytes[size_px] = 16;
     refresh_checksum(&mut bytes);
 
@@ -347,8 +376,8 @@ fn rejects_non_regular_serialized_font_weight() {
     let mut image = fixture();
     image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
     let mut bytes = encode(&image).unwrap();
-    /* Trailing sections after section 4: empty host_requests (9 bytes) + metadata (32 bytes). */
-    let weight = bytes.len() - 53;
+    /* Trailing sections after section 4: empty host_requests (9 bytes) + metadata (33 bytes). */
+    let weight = bytes.len() - 59;
     bytes[weight] = 1;
     refresh_checksum(&mut bytes);
     assert_eq!(
@@ -365,8 +394,8 @@ fn rejects_an_unsupported_serialized_line_height_pair() {
     let mut image = fixture();
     image.nodes[0].text_style = Some(TextStyle::ui_sans(18, FontWeight::Regular, 24).unwrap());
     let mut bytes = encode(&image).unwrap();
-    /* Trailing sections after section 4: empty host_requests (9 bytes) + metadata (32 bytes). */
-    let line_height_px = bytes.len() - 52;
+    /* Trailing sections after section 4: empty host_requests (9 bytes) + metadata (33 bytes). */
+    let line_height_px = bytes.len() - 58;
     bytes[line_height_px] = 17;
     refresh_checksum(&mut bytes);
 
@@ -399,6 +428,17 @@ fn validates_references_jumps_and_stack_depth() {
     let mut bad_stack = fixture();
     bad_stack.functions[0].max_stack = 1;
     assert!(validate(&bad_stack).is_err());
+}
+
+#[test]
+fn rejects_duplicate_capabilities_during_validation() {
+    let mut image = fixture();
+    image.metadata.capabilities = Some(vec![Capability::Net, Capability::Net]);
+    let error = validate(&image).unwrap_err();
+    assert!(
+        error.0.contains("duplicate app capability `net`"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -465,6 +505,7 @@ fn round_trips_a_shared_icon_node() {
             height: Some(80.0),
             anchor: Default::default(),
         }),
+        visible: None,
     });
     let decoded = decode(&encode(&image).unwrap()).unwrap();
     assert_eq!(decoded.nodes[1].kind, UiKind::Icon);
@@ -492,7 +533,53 @@ fn round_trips_a_decorative_surface() {
             height: Some(220.0),
             anchor: Default::default(),
         }),
+        visible: None,
     });
     let decoded = decode(&encode(&image).unwrap()).unwrap();
     assert_eq!(decoded, image);
+}
+
+#[test]
+fn round_trips_constant_and_bound_visibility() {
+    let mut image = fixture();
+    image.constants.push(Constant::Bool(true));
+    image.nodes.push(UiNodeSpec {
+        id: NodeId(1),
+        kind: UiKind::Column,
+        children: vec![],
+        text: None,
+        value: None,
+        on_click: None,
+        text_style: None,
+        range: None,
+        options: vec![],
+        layout: None,
+        visible: Some(ValueSource::Constant(2)),
+    });
+    image.nodes.push(UiNodeSpec {
+        id: NodeId(2),
+        kind: UiKind::Text,
+        children: vec![],
+        text: Some(TextSource::Constant(1)),
+        value: None,
+        on_click: None,
+        text_style: None,
+        range: None,
+        options: vec![],
+        layout: None,
+        visible: Some(ValueSource::Binding(FunctionId(0))),
+    });
+
+    let decoded = decode(&encode(&image).unwrap()).unwrap();
+
+    assert_eq!(decoded, image);
+    assert_eq!(
+        decoded.nodes[1].visible,
+        Some(ValueSource::Constant(2)),
+        "constant visibility survives the round trip"
+    );
+    assert!(
+        matches!(decoded.nodes[2].visible, Some(ValueSource::Binding(_))),
+        "bound visibility survives the round trip"
+    );
 }

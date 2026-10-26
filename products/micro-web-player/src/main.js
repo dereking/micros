@@ -1,4 +1,9 @@
-import init, { MicroWebRuntime, decode_app_metadata } from "./generated/micro_web.js";
+import init, { MicroWebRuntime, decode_app_manifest } from "./generated/micro_web.js";
+import {
+  loadExternalApps,
+  mergeAppRegistry,
+  parseManifestString,
+} from "./app-registry.js";
 import {
   BOARD_MONITOR,
   fitDeviceCanvas,
@@ -14,6 +19,8 @@ import "./style.css";
 // fires. The shell reads the installed-app registry (decoded from each app's
 // MBC metadata) through `os.appName/Icon` and boots apps via `os.launchIndex`;
 // apps return to the shell via `os.goBack`. This mirrors the ESP32 firmware.
+// External Apps come from the simulated card at `/sdcard/apps` (index.json +
+// MBC files); built-ins always win an id collision.
 // The host-drawn app bar wraps both: the shell gets the same title/Wi-Fi/clock/
 // close chrome as every app, with "Home" as its title.
 const SHELL_URL = "/apps/shell.mbc";
@@ -54,7 +61,7 @@ const hostOrientation = document.querySelector("[data-host-orientation]");
 const deviceSizeLabel = document.querySelector("[data-device-size]");
 const hostDisplay = document.querySelector("[data-host-display]");
 
-let registry = []; // { url, name, icon } decoded from the installed app MBCs
+let registry = []; // { url, id, name, icon, external } from built-ins + simulated SD
 let shellRuntime, shellLoop;
 let appRuntime, appLoop;
 let appBarClockTimer;
@@ -94,6 +101,12 @@ function showAppBar(app) {
   currentView = app.name;
   setHostStatus(`Running · ${app.name}`);
   syncHostMenu();
+}
+
+/** Apply a pending `os.setTitle` from the running App; `undefined` keeps it. */
+function applyAppBarTitle(runtime) {
+  const title = runtime.take_nav_title();
+  if (title !== undefined) appBarTitle.textContent = title;
 }
 
 function setHostStatus(label, state = "running") {
@@ -232,7 +245,8 @@ function loopFor(runtime, afterTick) {
 
 async function bootShell() {
   const bytes = await fetchMbc(SHELL_URL);
-  const meta = decode_app_metadata(bytes).split("|");
+  const meta = parseManifestString(decode_app_manifest(bytes));
+  if (!meta) throw new Error("shell MBC has no manifest");
   // The shell is an App too: it sits under the same OS app bar and carries its
   // manifest name ("Home") as the title.
   // Reveal the target screen before materializing: the delphi layout engine
@@ -240,7 +254,7 @@ async function bootShell() {
   // subtree — a hidden container collapses every left+right stretch to width 0.
   appShell.hidden = true;
   systemScreen.hidden = false;
-  showAppBar({ name: meta[0] });
+  showAppBar({ name: meta.name });
   shellRuntime = new MicroWebRuntime(
     "system-screen",
     bytes,
@@ -248,6 +262,7 @@ async function bootShell() {
     registry.map((app) => `${app.name}|${app.icon}`).join("\n"),
   );
   shellLoop = loopFor(shellRuntime, (shell) => {
+    applyAppBarTitle(shell);
     const launch = shell.take_nav_launch();
     if (launch >= 0) launchApp(launch);
   });
@@ -271,6 +286,7 @@ function launchApp(index) {
       showAppBar(registry[index]);
       appRuntime = new MicroWebRuntime("app-screen", bytes, BigInt(BOARD_MONITOR.instructionBudget), "");
       appLoop = loopFor(appRuntime, (app) => {
+        applyAppBarTitle(app);
         if (app.take_nav_back()) goBackToShell();
       });
       appLoop.start();
@@ -332,12 +348,22 @@ async function start() {
   setHostStatus("Booting…", "busy");
   await init();
 
-  // Decode each installed app's manifest so the shell's launcher registry is
-  // derived from the MBC metadata, not a hardcoded list.
+  // Decode each built-in App's manifest so the shell's launcher registry is
+  // derived from the MBC metadata, not a hardcoded list. Then append external
+  // Apps from the simulated SD card (`/sdcard/apps`); built-ins win id
+  // collisions, matching the ESP32 and native hosts.
+  const builtin = [];
   for (const url of APP_URLS) {
-    const meta = decode_app_metadata(await fetchMbc(url)).split("|");
-    registry.push({ url, name: meta[0], icon: meta[1] });
+    const manifest = parseManifestString(decode_app_manifest(await fetchMbc(url)));
+    if (!manifest) throw new Error(`${url} has no manifest`);
+    builtin.push({ url, ...manifest });
   }
+  const external = await loadExternalApps({
+    builtin,
+    fetchImpl: (url, init) => fetch(url, init),
+    decodeManifest: decode_app_manifest,
+  });
+  registry = mergeAppRegistry(builtin, external);
 
   document.querySelector(".app-back").addEventListener("click", goBackToShell);
   deviceOff.addEventListener("click", powerOn);

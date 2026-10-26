@@ -9,9 +9,10 @@
 - **设备有两种逻辑方向**：横屏 `800×480`，竖屏 `480×800`。切换时改的是
   LVGL 的逻辑分辨率，不是对成品纹理做位图旋转。
 - **宿主工具栏在设备画布之外**：窗口顶部固定 40 px 的 SDL 图标工具栏，提供
-  Landscape / Portrait / Rotate 三个图标控件；macOS 上再多一个 **Device**
-  齿轮按钮，打开原生 `NSMenu`。工具栏和菜单都不属于 LVGL，不参与 App 布局，
-  也不会随方向旋转或缩放。
+  Landscape / Portrait / Rotate 三个图标控件，以及一个 **Device** 齿轮按钮。
+  macOS 优先打开原生 `NSMenu`；其他桌面构建（以及原生菜单不可用时）使用同一
+  入口的 SDL 绘制弹出层。工具栏和菜单都不属于 LVGL，不参与 App 布局，也不会
+  随方向旋转或缩放。
 - **OS chrome 跟着方向走**：40 px app bar 始终在逻辑屏幕顶部；内容容器从
   `800×440` 变为 `480×760`。app bar 的标题、Wi-Fi、时钟、关闭按钮重新定位。
 - **App 在同一棵 UI 树上重排**：宿主不重启 Runtime，不清空 App 状态；只把
@@ -162,8 +163,8 @@ SDL 在设备画布上方绘制 40 px 图标工具栏，全部由基础图元（
 
 - 左侧三个方形图标按钮：横屏（横置设备轮廓）、竖屏（竖置设备轮廓）、
   Rotate（顺时针圆弧箭头）；
-- macOS 上第四个按钮是齿轮 **Device**，与 Rotate 之间有一条细分隔线；非
-  macOS 构建不显示齿轮，`micro_host_menu_available()` 返回 0；
+- 第四个按钮是齿轮 **Device**，与 Rotate 之间有一条细分隔线；只要宿主菜单
+  后端可用就显示，`micro_host_menu_available()` 返回 1；
 - 当前方向用绿色胶囊高亮；鼠标悬停显示浅色胶囊，并在右侧显示
   `Landscape` / `Portrait` / `Rotate` / `Device menu` 名称（调试字体按输出
   DPI 缩放）；
@@ -172,7 +173,15 @@ SDL 在设备画布上方绘制 40 px 图标工具栏，全部由基础图元（
 - 点击工具栏只改变方向/打开宿主菜单，不向 LVGL 发送按下/抬起事件；
 - 无头测试模式不显示工具栏（窗口和逻辑画布同尺寸）。
 
-Device 菜单是 **锚定在齿轮下方的原生 `NSMenu`**，不是 macOS 菜单栏项：
+Device 菜单由 `open_host_menu()` 统一打开，锚定在齿轮下方。macOS 上优先用
+**原生 `NSMenu`**（不是 macOS 菜单栏项）；非 Apple 桌面构建使用 SDL 在窗口内
+绘制的弹出层，交互和动作集合相同：
+
+- 原生菜单：`micro_host_menu.m`，由 AppKit 负责定位、键盘和屏幕边界处理。
+- SDL 弹出层：`micro_native.c` 中的 `host_menu_*`，支持鼠标悬停、点击、滚轮
+  和上下键滚动；窗口缩放或失去焦点时关闭，不向 LVGL 透传事件。
+- 开发验证时可用 `MICRO_HOST_MENU_UI=1` 强制 macOS 也走 SDL 弹出层；这是
+  测试钩子，不是面向用户的配置。
 
 | 分组 | 条目 | 行为 |
 | --- | --- | --- |
@@ -181,7 +190,7 @@ Device 菜单是 **锚定在齿轮下方的原生 `NSMenu`**，不是 macOS 菜�
 | Power | Force Restart… | 二次确认后关闭当前 App，冷启动 Home，保留已安装 App 和存储 |
 | DISPLAY | Landscape / Portrait | 切换逻辑分辨率；原生宿主原地重排，不重启 Runtime |
 | DISPLAY | Zoom → Fit / 75/100/125/150% | 与快捷键/滚轮同一套缩放状态 |
-| Emulator Info | Board / Resolution / Memory / Touch / Runtime | 只读模拟器参数，分辨率随方向更新 |
+| Emulator Info | Board / Resolution / Memory / Touch | 只读模拟器参数，分辨率随方向更新 |
 
 菜单项通过 `micro_native_request_host_action()` 投递 SDL user event，由
 `micro_native_poll()` 收进宿主队列，再由 Rust 主循环 `take_host_action()`
@@ -193,7 +202,7 @@ Device 菜单是 **锚定在齿轮下方的原生 `NSMenu`**，不是 macOS 菜�
 | 快捷键 | 行为 |
 | --- | --- |
 | `Cmd/Ctrl+R` | 横屏/竖屏切换 |
-| `Cmd/Ctrl+,` | 打开 Device 菜单（仅 macOS） |
+| `Cmd/Ctrl+,` | 打开 Device 菜单 |
 | `Cmd/Ctrl+0` | fit 到当前显示器 |
 | `Cmd/Ctrl+1` | 100% |
 | `Cmd/Ctrl+=` / `-` | 放大 / 缩小 25% |
@@ -294,8 +303,10 @@ cargo run -p micro-host-sdl --features native -- \
   保留大段固定 `left/width`，竖屏下仍可能溢出。
 - 竖屏只改变逻辑分辨率，不改变 UI 树的语义；固定高度的卡片下方会有留白，
   没有按方向隐藏/重排不同内容。
-- 原生 Device 菜单目前只有 macOS 实现；Windows/Linux 原生窗口尚未打包验证，
-  非 Apple 构建返回“无菜单”，工具栏只保留方向按钮。
+- macOS 的 Device 菜单是完整原生实现。Windows/Linux 的 C/SDL 层包含可移植的
+  SDL 弹出菜单，并已在本机用强制 fallback 验证绘制、点击和关机路径。构建脚本
+  也已处理 Windows 的 DLL 导出/落位与 POSIX 兼容，但这两个平台仍没有启动器或
+  发布包，也没有在真实 Windows/Linux 桌面上跑过，因此不宣称“已支持”。
 - Web Player 用 DOM 对话框提供等价的 Device 菜单（开关机、强制重启、方向、
   模拟器信息），但 Web 端方向切换是冷启动，不是原地重排；ESP32 宿主没有
   这个宿主菜单。
@@ -389,3 +400,21 @@ Finder 启动不带参数，因此 `crates/micro-host-sdl/src/main.rs` 的
 
 如果 Finder 仍显示旧图标，`touch "dist/Micro OS.app"` 或重新登录一次；这是
 LaunchServices 的缓存，不是图标生成失败。
+
+### 单实例运行
+
+宿主只允许一个可见实例。首次启动会在
+`$MICROS_HOME/instance.lock`（默认 `~/.micros/instance.lock`）上持有 `flock`
+并写入自己的 PID；进程退出（包括崩溃）时内核自动释放，不会留下失效锁。
+
+第二次启动（例如 `open -n "dist/Micro OS.app"`、再次双击原始二进制，或
+bundle 已打开时又跑 `cargo run`）不会创建窗口，而是弹出原生提示框
+**Micro OS is already running**。点 **OK** 关闭提示后，宿主激活第一个实例
+（`NSRunningApplication` 激活 + 分布式通知让第一个实例自己抬起窗口，最小化
+的窗口也会恢复），随后第二个进程直接退出。
+
+`--smoke` / `--os-smoke` 是隐藏窗口的测试通道，不参与单实例锁，因此可以在
+桌面实例运行时并行执行。锁文件位于 store 根目录，`MICROS_HOME` 因此也会
+隔离出独立的实例槽位（用于并排调试）。实现位于
+`crates/micro-host-sdl/src/single_instance.rs`（锁与判定）和
+`native/src/micro_host_single_instance.m`（提示框与激活）。

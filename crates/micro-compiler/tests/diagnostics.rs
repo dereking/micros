@@ -145,3 +145,77 @@ fn rejects_unknown_switch_props() {
     .unwrap_err();
     assert_eq!(errors[0].code, "MTS002");
 }
+
+#[test]
+fn rejects_unknown_and_duplicate_manifest_capabilities() {
+    let unknown = validate_source(
+        "caps.ts",
+        r#"app({ id: "x", name: "X", icon: "X", capabilities: ["net", "telepathy"] });
+ui.mount(ui.text("x"));"#,
+    )
+    .unwrap_err();
+    assert_eq!(unknown[0].code, "MTS002");
+    assert!(
+        unknown[0]
+            .to_string()
+            .contains("unknown capability `telepathy`"),
+        "{unknown:?}"
+    );
+
+    let duplicate = validate_source(
+        "dup.ts",
+        r#"app({ id: "x", name: "X", icon: "X", capabilities: ["net", "net"] });
+ui.mount(ui.text("x"));"#,
+    )
+    .unwrap_err();
+    assert_eq!(duplicate[0].code, "MTS002");
+    assert!(
+        duplicate[0]
+            .to_string()
+            .contains("duplicate capability `net`"),
+        "{duplicate:?}"
+    );
+
+    let not_array = validate_source(
+        "shape.ts",
+        r#"app({ id: "x", name: "X", icon: "X", capabilities: "net" });
+ui.mount(ui.text("x"));"#,
+    )
+    .unwrap_err();
+    assert!(
+        not_array[0]
+            .to_string()
+            .contains("must be an array of capability names"),
+        "{not_array:?}"
+    );
+}
+
+#[test]
+fn rejects_host_calls_outside_the_declared_capabilities() {
+    let undeclared = compile_source(
+        "call.ts",
+        r#"app({ id: "x", name: "X", icon: "X", capabilities: ["kv"] });
+ui.mount(ui.text(bind(() => net.wifiState())));"#,
+    )
+    .unwrap_err();
+    assert_eq!(undeclared[0].code, "MTS002");
+    assert!(
+        undeclared[0]
+            .to_string()
+            .contains("requires the `net` capability"),
+        "{undeclared:?}"
+    );
+
+    let omitted = compile_source(
+        "omit.ts",
+        r#"app({ id: "x", name: "X", icon: "X" });
+ui.mount(ui.text(bind(() => clock.now())));"#,
+    )
+    .unwrap_err();
+    assert!(
+        omitted[0]
+            .to_string()
+            .contains("requires the `clock` capability"),
+        "{omitted:?}"
+    );
+}

@@ -18,7 +18,7 @@ npm run demo
 Web 播放器启动后，点击桌面上的 **momo** 图标进入。数据先按 App id 隔离，App 内再按本机用户隔离（最多 5 个），分成两层：
 
 - **`kv`（学习状态）**：每个用户写入 `<ns><key>`；默认用户（用户 1）的 `ns` 为空，沿用旧版键名，所以升级后原有数据自动归到默认用户，其他用户是 `u2:`…`u5:`。Web `localStorage["micro:kv:momo:<ns><key>"]`（每个标量一个 key）；macOS `~/.micros/kv/momo.json`（经 `micro-store::NativeStore`）；ESP32 NVS 命名空间 `momo`（`micro_cfg` 分区，经 `micro_kv` 组件，重启保留）。
-- **`config`（配置）**：由 OS 统一 API 读写，App 不直接碰文件系统。Web `localStorage["micro:config:momo"]`（一个 JSON 对象）；macOS `~/.micros/momo/config.json`（经 `micro-store::NativeConfigStore`，可手工编辑）；ESP32 NVS 命名空间 `micro_config` 的 `momo` 键（`micro_cfg` 分区）。用户级 `goal`、`name` 和 `maimemoToken` 带同一用户前缀；全局只有 `userCount` / `activeUser`。名称和 Token 在**用户**页一起编辑并保存，同步页只显示当前用户是否已配置 Token。
+- **`config`（配置）**：由 OS 统一 API 读写，App 不直接碰文件系统。Web `localStorage["micro:config:momo"]`（一个 JSON 对象）；macOS `~/.micros/momo/config.json`（经 `micro-store::NativeConfigStore`，可手工编辑）；ESP32 NVS 命名空间 `micro_config` 的 `momo` 键（`micro_cfg` 分区）。用户级 `goal`、`name` 和 `maimemoToken` 带同一用户前缀；全局只有 `userCount` / `activeUser`。名称和 Token 在**用户**页点「编辑」后一起修改并保存（默认只读显示名称和 Token 是否已配置，不显示 Token 内容），同步页只显示当前用户是否已配置 Token。
 
 ## 多用户与数据隔离
 
@@ -28,7 +28,7 @@ Web 播放器启动后，点击桌面上的 **momo** 图标进入。数据先按
 - 学习状态（`w*` / `d*` / `s*` / `l*` / `pool` / `day` / `streak` 等）全部按前缀分开；`goal`、`name` 和 `maimemoToken` 在同一个 config 文档里也带前缀。
 - 只有 `userCount` 和 `activeUser` 是无前缀的全局键：新建用户写 `userCount`，切换写 `activeUser`；启动时由第一个绑定恢复用户和前缀，所以下次打开仍是上次的用户。
 - 新建用户只递增计数并切过去，不复制任何单词、名称或 Token；新用户第一次点“开始今日学习”时写入自己的 10 个引导词，目标默认 5。
-- 当前用户的显示名由 `<ns>name` 保存（缺省时回退到“默认用户”/“用户 N”）；学习页顶部标题显示 `MOMO · <当前用户名>`，切换或保存后立即更新。
+- 当前用户的显示名由 `<ns>name` 保存（缺省时回退到“默认用户”/“用户 N”）；学习页顶部标题显示 `MOMO · <当前用户名>`，系统 AppBar 标题显示 `momo · <当前用户名>`（经 `os.setTitle`），切换、保存或启动时立即更新。
 - 切换用户会停止发音、清空当前学习会话和同步统计，避免上一用户的单词、反馈或 Token 短暂残留。同步和在线词典的回调在发起时记录用户快照，切换后到达的响应会被丢弃，不会写进新用户的命名空间。
 - 同步链是串行的：上一次同步还没结束（包括已切换用户、等待旧响应返回）时再次点同步只会提示“同步进行中”，不会并发发出第二个请求，避免旧响应覆盖新用户的 `syncUser` 快照。
 - “重置学习进度”只删除当前用户的 `s*` / `l*` / `m*` / `r*` / `pool` / 快照等键，不会碰其他用户，也不会删 `goal` / `name` / `maimemoToken`。
@@ -40,8 +40,8 @@ momo 采用「学习手帐」的视觉方向：暖米色画布、纸白卡片、
 - 学习页：顶部是今日目标与连续天数，中间一张纸白卡承载阶段、单词、例句和释义；发音按钮贴在单词右侧，卡片下方是「认识 / 不认识」操作区。“开始今日学习”只在未开始或本轮完成时出现，学习过程中隐藏。
 - 进度页：当前 10 个活动槽位在单张卡片内按行排布，标题显示“本组 N 个 · 今日队列 M 个”。
 - 设置页：新词目标和学习数据分成两张卡片。
-- 同步页：今日统计一张卡片；上方 Token 卡片只显示“已配置/未配置”，并提示到用户页管理。Token 属于当前用户，切换后状态立即跟着切换。
-- 用户页：当前用户的名称与 API Token 编辑卡（一起保存）、最多 5 个用户的切换列表和新建入口；当前用户按钮用陶土色，与未选中的绿色按钮区分。
+- 同步页：今日统计一张卡片；上方 Token 卡片只显示“已配置/未配置”，并提示到用户页管理。Token 属于当前用户，切换后状态立即跟着切换。按钮下方固定提示「使用前请先在墨墨 App 打开『今日学习』并开启自动同步」，因为 `get_today_items` 依赖官方 App 初始化当天队列。
+- 用户页：当前用户的资料卡默认只读，显示名称和「API Key · 已配置/未配置」；点「编辑」才展开名称与 API Token 输入框，可「保存」或「取消」；下方是「新建用户」、最多 5 个用户的切换列表和新建入口；当前用户按钮用陶土色，与未选中的绿色按钮区分。
 
 `ui.surface` 的 tone 有 `canvas`、`paper`、`sage`、`terracotta`、`line` 五种；实现见 `sdk/index.d.ts`、`crates/micro-ir`、`native/src/micro_native.c` 和 `crates/micro-host-web`。
 
@@ -150,14 +150,15 @@ ESP32 的 `micro_cfg` NVS 分区只有 64 KiB，而且 NVS 还要存每个 key �
 
 参考文档：<https://open.maimemo.com/#/>。同步页不再只是统计：它把账号今天**未完成**的单词写入本机队列，最多缓存 64 个；其中前 10 个立即进入活动槽，并在原生端用在线词典补全释义、例句和音标。这样既避免 ESP32 的 64 KiB NVS 被几十个词的完整释义撑爆，也能在学完 10 个后继续。
 
-- 在用户页填写名称和 Token 并保存（原生输入框支持键盘和 `Cmd+V`），再到同步页点“同步墨墨”；请求 `POST /open/api/v1/memo/study/get_today_items`，带 `Authorization: Bearer …`、`Accept` 和 `Content-Type` 头。
+- 在用户页点「编辑」，填写名称和 Token 并保存（原生输入框支持键盘和 `Cmd+V`），再到同步页点“同步墨墨”；请求 `POST /open/api/v1/memo/study/get_today_items`，带 `Authorization: Bearer …`、`Accept` 和 `Content-Type` 头。
+- `get_today_items` 在墨墨服务端尚未初始化当天队列时会返回空数组（官方文档要求当天先在 App 中打开今日学习，并在 App 中开启自动同步）。momo 遇到空数组不会清空已有 `pool`，同步页会提示先到 App 初始化；已有活动批仍可继续学习。
 - 响应通过 `json.length` / `json.getText` 读取 `data.today_items`，统计 `is_finished`；把所有 `is_finished !== "true"` 的词拼写按顺序写入紧凑的 `pool` JSON（最多 64 个），再把前 10 个写入 `w0…w9` 活动槽（活动槽同时保留 `voc_id`）。单词变化时清空该槽的 `s/l/d/e/c/t/p/m/r`，相同则保留本地复习阶段。
 - 随后串行调用 `POST /api/v1/memo/study/get_study_progress`，把今日完成数、计划数和学习时长（毫秒换算为分钟）显示在同步页。
 - 再调用 `POST /api/v1/memo/study/query_study_records`，按当前活动批的 `voc_ids`（最多 10 个）取每词的学习次数、上次反馈和标签。`study_count` 与 `last_response`（`FAMILIAR/VAGUE/FORGET/WELL_FAMILIAR`）写入 `m*/r*`；如果本地还没有该词的学习记录（`l*=0`），用它们推断初始复习阶段并设为当前到期，避免刚导入的词被未来复习时间挡住。
 - 选中词拼成换行分隔的列表，调用 `net.lookupWords`。macOS 原生宿主在 worker 线程逐个查询有道公开 JSON 词典，返回 `entries`（`word / phonetic / definition / example / cloze / translation`），App 再按单词写回对应槽位。
 - 当前活动批长度写入 `rCount`；少于 10 个时，多出的旧槽不会进入本轮扫描。`poolNext` 指向下一批起点；当前批学完后自动取下一批，不额外占 NVS key。同步成功后 `idx`、本轮计数、`poolNext` 和当前阶段会重置，避免继续显示旧词。
 - 墨墨 OpenAPI 本身只返回 `voc_spelling` 等词表字段，**没有内置释义、例句、音频**，也没有提交复习结果的公开端点；因此释义走在线词典，复习曲线仍由本机艾宾浩斯调度维护，不会向墨墨提交评分。
-- 名称和 Token 通过 OS `config` API 按用户保存（macOS `~/.micros/momo/config.json` 的 `<ns>name` / `<ns>maimemoToken`、Web localStorage、ESP32 NVS）；用户页的保存按钮一次写入两者，同步页只读取当前用户的 Token。在线词典请求只发送单词拼写，不发送 Token。
+- 名称和 Token 通过 OS `config` API 按用户保存（macOS `~/.micros/momo/config.json` 的 `<ns>name` / `<ns>maimemoToken`、Web localStorage、ESP32 NVS）；用户页的保存按钮一次写入两者，取消则丢弃本次草稿，同步页只读取当前用户的 Token。在线词典请求只发送单词拼写，不发送 Token。
 
 用真实账号跑一次同步 + 词典链路（token 只放环境变量，测试使用临时 KV/config，不会写你的 `~/.micros`）：
 

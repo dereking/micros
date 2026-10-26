@@ -2,6 +2,7 @@
 
 #include "micro_appbar.h"
 #include "micro_host_menu.h"
+#include "micro_host_single_instance.h"
 
 #include <SDL3/SDL.h>
 #include <lvgl.h>
@@ -9,6 +10,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if defined(_WIN32)
+#define micro_strdup _strdup
+#define micro_strtok_r strtok_s
+#else
+#define micro_strdup strdup
+#define micro_strtok_r strtok_r
+#endif
 
 /* Tab titles are created inside LVGL's tabview and therefore do not receive a
  * Rust-owned text-style handle. Use the generated 14 px UI face directly so
@@ -75,7 +84,7 @@ extern const lv_font_t micro_ui_sans_14;
 #define MICRO_HOST_MENU_PRESSED 0x38503F
 #define MICRO_HOST_MENU_TEXT 0xE6EEE7
 #define MICRO_HOST_MENU_MUTED 0x93A398
-#define MICRO_HOST_MENU_HEADER_COLOR 0x9FD3A8
+#define MICRO_HOST_MENU_HEADER_COLOR 0xB4E6BC
 #define MICRO_HOST_MENU_CHECK 0x6FCF97
 #define MICRO_HOST_MENU_RUNNING 0x7BD88F
 #define MICRO_HOST_MENU_OFF 0xE0B36A
@@ -672,6 +681,27 @@ static void toolbar_debug_text(SDL_Renderer *renderer, float x, float y,
     if (scale > 1.001f) SDL_SetRenderScale(renderer, 1.0f, 1.0f);
 }
 
+/* SDL_RenderDebugText is 8 px wide per glyph. When the renderer is scaled for
+ * a larger menu, a render clip rect is also scaled, which clips the first row
+ * at the top/left. Truncate menu strings to the panel instead of relying on a
+ * scaled clip. */
+static void toolbar_debug_text_fit(SDL_Renderer *renderer, float x, float y,
+                                   float scale, const char *text, uint32_t color,
+                                   float max_x) {
+    if (text == NULL || max_x <= x) return;
+    if (scale < 1.0f) scale = 1.0f;
+    size_t limit = (size_t)((max_x - x) /
+                            ((float)SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE * scale));
+    if (limit == 0) return;
+    char buffer[128];
+    size_t length = strlen(text);
+    if (length > limit) length = limit;
+    if (length >= sizeof buffer) length = sizeof buffer - 1;
+    memcpy(buffer, text, length);
+    buffer[length] = '\0';
+    toolbar_debug_text(renderer, x, y, scale, buffer, color);
+}
+
 static void toolbar_metrics(const micro_native_t *native, float *scale_x,
                             float *scale_y, float *bar_y, float *bar_height) {
     float sx = native->window_width > 0
@@ -1030,7 +1060,6 @@ static int host_menu_hit(micro_native_t *native, const host_menu_item_t *items,
 
 static void host_menu_close(micro_native_t *native) {
     if (native == NULL || !native->sdl_menu_open) return;
-    fprintf(stderr, "host_menu_close\n");
     native->sdl_menu_open = false;
     native->sdl_menu_hover = -1;
     native->sdl_menu_pressed = -1;
@@ -1044,6 +1073,7 @@ static void host_menu_open(micro_native_t *native) {
         return;
     }
     native->sdl_menu_open = true;
+    native->sdl_menu_swallow_release = false;
     native->sdl_menu_hover = -1;
     native->sdl_menu_pressed = -1;
     native->sdl_menu_scroll = 0;
@@ -1202,20 +1232,13 @@ static void host_menu_draw(micro_native_t *native) {
     set_render_color(renderer, MICRO_HOST_MENU_BG);
     toolbar_fill_round_rect(renderer, inner, 5.0f * scale);
 
-    SDL_Rect clip = {
-        (int)floorf(geometry.content.x),
-        (int)floorf(geometry.content.y),
-        (int)ceilf(geometry.content.w),
-        (int)ceilf(geometry.content.h),
-    };
-    SDL_SetRenderClipRect(renderer, &clip);
-
     for (int row = 0; row < count; ++row) {
         float row_y = geometry.content.y -
                       (float)native->sdl_menu_scroll * geometry.row_height +
                       (float)row * geometry.row_height;
-        if (row_y + geometry.row_height <= geometry.content.y ||
-            row_y >= geometry.content.y + geometry.content.h) {
+        if (row_y < geometry.content.y ||
+            row_y + geometry.row_height >
+                geometry.content.y + geometry.content.h) {
             continue;
         }
         const host_menu_item_t *item = &items[row];
@@ -1259,25 +1282,34 @@ static void host_menu_draw(micro_native_t *native) {
                 6.0f * scale,
             };
             toolbar_fill_round_rect(renderer, dot, 3.0f * scale);
-            toolbar_debug_text(renderer, geometry.content.x + 18.0f * scale,
-                               text_y, scale, item->label, color);
+            toolbar_debug_text_fit(renderer,
+                                   geometry.content.x + 18.0f * scale,
+                                   text_y, scale, item->label, color,
+                                   geometry.panel.x + geometry.panel.w -
+                                       4.0f * scale);
             continue;
         }
 
         float label_x = geometry.content.x;
         if (item->kind == MICRO_HOST_MENU_ACTION) {
             if (item->checked) {
-                toolbar_debug_text(renderer, geometry.content.x + 6.0f * scale,
-                                   text_y, scale, "*", MICRO_HOST_MENU_CHECK);
+                toolbar_debug_text_fit(renderer,
+                                   geometry.content.x + 6.0f * scale,
+                                   text_y, scale, "*", MICRO_HOST_MENU_CHECK,
+                                   geometry.panel.x + geometry.panel.w -
+                                       4.0f * scale);
             }
             label_x += 18.0f * scale;
         } else if (item->kind == MICRO_HOST_MENU_INFO) {
             label_x += 6.0f * scale;
+        } else if (item->kind == MICRO_HOST_MENU_HEADER) {
+            label_x += 6.0f * scale;
         }
 
         /* Header rows are full-width section labels. */
-        toolbar_debug_text(renderer, label_x, text_y, scale, item->label,
-                           color);
+        toolbar_debug_text_fit(renderer, label_x, text_y, scale, item->label,
+                               color, geometry.panel.x + geometry.panel.w -
+                                          4.0f * scale);
 
         if (item->value[0] != '\0') {
             float value_width =
@@ -1286,8 +1318,10 @@ static void host_menu_draw(micro_native_t *native) {
             float value_x = geometry.content.x + geometry.content.w -
                             value_width - 4.0f * scale;
             if (value_x > label_x) {
-                toolbar_debug_text(renderer, value_x, text_y, scale,
-                                   item->value, MICRO_HOST_MENU_MUTED);
+                toolbar_debug_text_fit(renderer, value_x, text_y, scale,
+                                       item->value, MICRO_HOST_MENU_MUTED,
+                                       geometry.panel.x + geometry.panel.w -
+                                           4.0f * scale);
             }
         }
     }
@@ -1324,7 +1358,7 @@ static bool host_menu_handle_event(micro_native_t *native,
         case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
         case SDL_EVENT_WINDOW_MAXIMIZED:
         case SDL_EVENT_WINDOW_RESTORED:
-            fprintf(stderr, "menu closed by window event %u\n", event->type);
+        case SDL_EVENT_WINDOW_FOCUS_LOST:
             host_menu_close(native);
             return false;
         case SDL_EVENT_MOUSE_MOTION: {
@@ -2002,6 +2036,9 @@ micro_native_t *micro_native_create(int width, int height, int hidden, char *err
          * if a native menu backend is unavailable. */
         (void)micro_host_menu_install();
         native->host_menu_available = 1;
+        /* A duplicate launch brings this one back by activating the app and by
+         * posting the host's activation notification. */
+        micro_host_single_instance_observe(native->window);
     }
     native->design_width = width;
     native->design_height = height;
@@ -2067,6 +2104,9 @@ sdl_error:
 void micro_native_destroy(micro_native_t *native) {
     if (native == NULL) return;
     if (s_active_native == native) s_active_native = NULL;
+    /* The activation observer must not touch a destroyed SDL window (the
+     * process normally exits right after, but the pointer is cleared first). */
+    if (!native->hidden) micro_host_single_instance_observe(NULL);
     /* Drop the app bar's cached LVGL pointers before the display tree is
      * destroyed, so a later host instance starts clean. */
     micro_appbar_reset();
@@ -2481,6 +2521,12 @@ void micro_native_set_app_chrome(micro_native_t *native, int visible,
     micro_appbar_set_visible(visible);
 }
 
+void micro_native_set_appbar_title(micro_native_t *native, const char *title) {
+    if (native == NULL) return;
+    micro_appbar_ensure();
+    micro_appbar_set_title(title);
+}
+
 int micro_native_appbar_visible(micro_native_t *native) {
     (void)native;
     return micro_appbar_visible();
@@ -2513,6 +2559,14 @@ void micro_native_press_power_on(micro_native_t *native) {
 
 uint32_t micro_native_timer(micro_native_t *native) {
     uint32_t delay = lv_timer_handler();
+    if (native != NULL && native->display != NULL &&
+        micro_appbar_power_off_active()) {
+        /* Host-menu power-off mutates the LVGL tree outside a normal event
+         * flush. Force the off surface through the display before idling. */
+        lv_obj_invalidate(lv_screen_active());
+        lv_refr_now(native->display);
+        native->view_dirty = true;
+    }
     /* A window resize / rotation / zoom changes only the presentation, so LVGL
      * may have nothing to redraw. Re-present the existing canvas texture. */
     if (native != NULL && native->view_dirty) {
@@ -2745,11 +2799,11 @@ int micro_native_create_tabview(micro_native_t *native, uint32_t node_id, uint32
      * tabview cannot hold its tab pages' children. */
     lv_obj_set_size(tabview, LV_PCT(100),
                     parent_id == MICRO_NO_PARENT ? LV_PCT(100) : 280);
-    char *copy = strdup(titles);
+    char *copy = micro_strdup(titles);
     if (copy != NULL) {
         char *save = NULL;
-        for (char *token = strtok_r(copy, "\n", &save); token != NULL;
-             token = strtok_r(NULL, "\n", &save)) {
+        for (char *token = micro_strtok_r(copy, "\n", &save); token != NULL;
+             token = micro_strtok_r(NULL, "\n", &save)) {
             lv_tabview_add_tab(tabview, token);
         }
         free(copy);

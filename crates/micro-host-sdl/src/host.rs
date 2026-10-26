@@ -36,6 +36,8 @@ pub struct ShellState {
     pub pending_launch: Option<u32>,
     /// Whether the current app requested `os.goBack`.
     pub pending_back: bool,
+    /// Title requested via `os.setTitle`, applied by the main loop.
+    pub pending_title: Option<String>,
     /// Installed-app registry: `(name, icon)` per index.
     pub apps: Vec<(String, String)>,
     /// Suppress system speech for headless smoke runs.
@@ -531,6 +533,10 @@ impl HostAccess for NativeHost {
             }
             OsGoBack => {
                 self.nav.borrow_mut().pending_back = true;
+                None
+            }
+            OsSetTitle => {
+                self.nav.borrow_mut().pending_title = Some(string_arg(args, 0));
                 None
             }
             OsDelay => {

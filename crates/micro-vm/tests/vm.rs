@@ -56,12 +56,14 @@ fn image(kind: FunctionKind, code: Vec<Instruction>, max_stack: u16) -> AppImage
             range: None,
             options: vec![],
             layout: None,
+            visible: None,
         }],
         host_requests: vec![],
         metadata: AppMetadata {
             id: "vm".into(),
             name: "Vm".into(),
             icon: "V".into(),
+            capabilities: None,
         },
         root: NodeId(0),
     }
@@ -249,12 +251,14 @@ fn host_image(
             range: None,
             options: vec![],
             layout: None,
+            visible: None,
         }],
         host_requests: requests,
         metadata: AppMetadata {
             id: "host".into(),
             name: "Host".into(),
             icon: "H".into(),
+            capabilities: None,
         },
         root: NodeId(0),
     }

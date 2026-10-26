@@ -727,6 +727,85 @@ int micro_esp_ui_create_row(uint32_t node, uint32_t parent)
     return result;
 }
 
+/* Decorative filled rectangle (ui.surface). The tone palette must stay
+ * identical to native/src/micro_native.c so the three hosts render the same
+ * chrome; a surface is only clickable when it carries an onClick handler, so
+ * backdrop tones (canvas/line) never swallow taps meant for the rows above. */
+int micro_esp_ui_create_surface(uint32_t node, uint32_t parent,
+                                const uint8_t *tone, size_t tone_len,
+                                uint32_t handler)
+{
+    char *copy = copy_text(tone, tone_len);
+    if (copy == NULL) return -5;
+    if (!lvgl_port_lock(0)) { free(copy); return -3; }
+    lv_obj_t *parent_obj;
+    int result = begin_create(node, parent, &parent_obj);
+    if (result == 0) {
+        lv_obj_t *surface = lv_obj_create(parent_obj);
+        if (surface == NULL) result = -4;
+        else {
+            /* ui.place overrides this for laid-out nodes; the default keeps an
+             * un-positioned surface as wide as its parent and content-high. */
+            lv_obj_set_size(surface, LV_PCT(100), LV_SIZE_CONTENT);
+            lv_obj_remove_flag(surface, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_set_style_pad_all(surface, 0, LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(surface, LV_OPA_COVER, LV_PART_MAIN);
+
+            uint32_t bg = 0xFFFDF7;
+            uint32_t border = 0xE4DAC6;
+            int32_t radius = 18;
+            int32_t border_width = 1;
+            int32_t shadow_width = 18;
+            if (strcmp(copy, "canvas") == 0) {
+                bg = 0xF4EFE4;
+                border = 0xF4EFE4;
+                radius = 0;
+                border_width = 0;
+                shadow_width = 0;
+            } else if (strcmp(copy, "sage") == 0) {
+                bg = 0xE7F0E5;
+                border = 0xD0DFCD;
+                shadow_width = 12;
+            } else if (strcmp(copy, "terracotta") == 0) {
+                bg = 0xF7E4D8;
+                border = 0xEBC9B6;
+                shadow_width = 12;
+            } else if (strcmp(copy, "line") == 0) {
+                bg = 0xDED5C2;
+                border = 0xDED5C2;
+                radius = 0;
+                border_width = 0;
+                shadow_width = 0;
+            }
+            lv_obj_set_style_bg_color(surface, lv_color_hex(bg), LV_PART_MAIN);
+            lv_obj_set_style_border_color(surface, lv_color_hex(border), LV_PART_MAIN);
+            lv_obj_set_style_border_width(surface, border_width, LV_PART_MAIN);
+            lv_obj_set_style_radius(surface, radius, LV_PART_MAIN);
+            lv_obj_set_style_shadow_color(surface, lv_color_hex(0x20342B), LV_PART_MAIN);
+            lv_obj_set_style_shadow_width(surface, shadow_width, LV_PART_MAIN);
+            lv_obj_set_style_shadow_opa(surface, LV_OPA_20, LV_PART_MAIN);
+            lv_obj_set_style_shadow_ofs_y(surface, 6, LV_PART_MAIN);
+
+            click_contexts[node].handler = handler;
+            if (handler != MICRO_UI_NO_HANDLER) {
+                lv_obj_add_flag(surface, LV_OBJ_FLAG_CLICKABLE);
+                lv_obj_add_event_cb(surface, click_callback, LV_EVENT_CLICKED,
+                                    &click_contexts[node]);
+                /* Launcher tiles are surfaces: a missing handler here is the
+                 * difference between a clickable row and a dead backdrop. */
+                ESP_LOGD("micro_ui", "surface node=%lu tone=%s handler=%lu",
+                         (unsigned long)node, copy, (unsigned long)handler);
+            } else {
+                lv_obj_remove_flag(surface, LV_OBJ_FLAG_CLICKABLE);
+            }
+            objects[node] = surface;
+        }
+    }
+    lvgl_port_unlock();
+    free(copy);
+    return result;
+}
+
 int micro_esp_ui_create_list(uint32_t node, uint32_t parent)
 {
     if (!lvgl_port_lock(0)) return -3;
@@ -1614,6 +1693,24 @@ int micro_esp_ui_set_spinner(uint32_t node, int active)
     return result;
 }
 
+int micro_esp_ui_set_visible(uint32_t node, int visible)
+{
+    if (!lvgl_port_lock(0)) return -3;
+    int result = -1;
+    /* Every widget can be hidden: containers hide their children with them,
+     * which is what `ui.show` on a form group relies on. */
+    if (node < MICRO_UI_MAX_NODES && objects[node] != NULL) {
+        if (visible) {
+            lv_obj_clear_flag(objects[node], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(objects[node], LV_OBJ_FLAG_HIDDEN);
+        }
+        result = 0;
+    }
+    lvgl_port_unlock();
+    return result;
+}
+
 int micro_esp_ui_create_scale(uint32_t node, uint32_t parent,
                               double value, double min, double max)
 {
@@ -1815,6 +1912,40 @@ void micro_esp_ui_set_app_chrome(int visible, const char *title)
 #endif
 }
 
+/* Called once the new App tree is mounted, inside the same LVGL tick as the
+ * switch. Two things can otherwise leak into the first App frame:
+ *
+ * 1. A press that began on the previous App is still in flight. LVGL deletes
+ *    the pressed object with `lv_indev_wait_release`, but the *scroll* object
+ *    of that gesture can survive and drag the freshly created page a few
+ *    pixels, which reads as the page jumping up and down as the App appears.
+ * 2. The App tree was built after the last refresh, so anything the previous
+ *    frame painted outside the new tree's own invalidations would be presented
+ *    again. Repainting the whole screen makes the first App frame complete.
+ *
+ * Home -> App is the only transition that creates a whole tree in one tick, so
+ * this runs on every switch (the App -> Home path pays one extra full paint).
+ */
+void micro_esp_ui_settle_after_switch(void)
+{
+#ifndef MICRO_UI_BRIDGE_HOST_TEST
+    if (!lvgl_port_lock(0)) return;
+    /* Forget the gesture that opened this App: keep the touch in "pressed"
+     * state (the finger is still down) but detach it from the old tree, so it
+     * can neither scroll the new page nor re-fire a click on it. */
+    lv_indev_reset(NULL, NULL);
+    lv_obj_t *content = micro_appbar_content();
+    if (content != NULL) {
+        lv_obj_scroll_to(content, 0, 0, LV_ANIM_OFF);
+    }
+    lv_obj_t *screen = lv_screen_active();
+    if (screen != NULL) {
+        lv_obj_invalidate(screen);
+    }
+    lvgl_port_unlock();
+#endif
+}
+
 void micro_esp_ui_set_app_wifi(const char *state, const char *ssid)
 {
 #ifndef MICRO_UI_BRIDGE_HOST_TEST
@@ -1824,6 +1955,18 @@ void micro_esp_ui_set_app_wifi(const char *state, const char *ssid)
 #else
     (void)state;
     (void)ssid;
+#endif
+}
+
+void micro_esp_ui_set_appbar_title(const char *title)
+{
+#ifndef MICRO_UI_BRIDGE_HOST_TEST
+    /* Same contract as `micro_esp_ui_set_app_wifi`: called from the OS tick,
+     * with the LVGL port lock held, when an App uses `os.setTitle`. */
+    micro_appbar_ensure();
+    micro_appbar_set_title(title != NULL ? title : "");
+#else
+    (void)title;
 #endif
 }
 

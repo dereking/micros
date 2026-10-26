@@ -18,6 +18,11 @@
  * the relative path are validated again here (defense in depth) before the
  * prefix is prepended. The API never exposes the mount root, the OS itself, or
  * another App's directory.
+ *
+ * External programs live outside the per-App sandbox in the card's top-level
+ * `/apps` directory. That directory is read-only to Apps: the launcher lists
+ * `*.mbc` images there and the OS loads them by bare file name, so an App can
+ * never ask the host to read an arbitrary path.
  */
 
 #include "micro_sd.h"
@@ -40,8 +45,12 @@
 #define SD_MOUNT_POINT "/sdcard"
 /* `esp_vfs_fat_sdspi_mount` mounts the first FATFS volume as drive 0. */
 #define SD_FAT_ROOT "0:/micros/apps"
+/* Top-level directory for installable external Apps (not per-App data). */
+#define SD_EXTERNAL_APP_DIR "0:/apps"
 #define SD_MAX_PATH 320
 #define SD_MAX_FILE (64 * 1024)
+#define SD_MAX_EXTERNAL_APP (2 * 1024 * 1024)
+#define SD_MAX_EXTERNAL_NAME 64
 #define SD_MAX_LIST 128
 #define SD_MAX_SCAN 1024
 #define SD_SPI_MOSI_GPIO 11
@@ -66,6 +75,36 @@ static bool valid_app_id(const char *app_id)
     for (size_t i = 0; i < len; ++i) {
         unsigned char ch = (unsigned char)app_id[i];
         if (!isalnum(ch) && ch != '_' && ch != '-' && ch != '.') {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* A launcher-visible external App file: a bare file name in /apps, at most
+ * 64 bytes, ending in ".mbc" (FATFS may report 8.3 or long names). Reject path
+ * separators and control characters so the name can never escape /apps. */
+static bool valid_external_app_name(const char *name)
+{
+    if (name == NULL) {
+        return false;
+    }
+    size_t len = strlen(name);
+    if (len < 5 || len > SD_MAX_EXTERNAL_NAME || name[0] == '.' || name[0] == ' ') {
+        return false;
+    }
+    if (name[len - 1] == ' ' || name[len - 1] == '.') {
+        return false;
+    }
+    if (tolower((unsigned char)name[len - 4]) != '.' ||
+        tolower((unsigned char)name[len - 3]) != 'm' ||
+        tolower((unsigned char)name[len - 2]) != 'b' ||
+        tolower((unsigned char)name[len - 1]) != 'c') {
+        return false;
+    }
+    for (size_t i = 0; i < len; ++i) {
+        unsigned char ch = (unsigned char)name[i];
+        if (ch < 0x20 || ch == 0x7f || ch == '/' || ch == '\\' || ch == ':') {
             return false;
         }
     }
@@ -544,6 +583,169 @@ int micro_sd_list(const char *app_id, const char *path, char **out, size_t *out_
     }
     free(names);
     return buffer == NULL && total > 0 ? -1 : 0;
+}
+
+int micro_sd_list_external_apps(char **out, size_t *out_len)
+{
+    if (out == NULL || out_len == NULL) {
+        return -1;
+    }
+    *out = NULL;
+    *out_len = 0;
+    /* No card (or a failed mount) means no external Apps; this is expected and
+     * must never stop the OS from booting. */
+    if (!s_mounted) {
+        return 0;
+    }
+
+    FF_DIR dir;
+    FRESULT result = f_opendir(&dir, SD_EXTERNAL_APP_DIR);
+    if (result == FR_NO_FILE || result == FR_NO_PATH) {
+        return 0;
+    }
+    if (result != FR_OK) {
+        return -1;
+    }
+
+    char **names = NULL;
+    size_t count = 0;
+    size_t capacity = 0;
+    while (count < SD_MAX_SCAN) {
+        FILINFO entry;
+        result = f_readdir(&dir, &entry);
+        if (result != FR_OK) {
+            f_closedir(&dir);
+            for (size_t i = 0; i < count; ++i) {
+                free(names[i]);
+            }
+            free(names);
+            return -1;
+        }
+        if (entry.fname[0] == '\0') {
+            break;
+        }
+        if ((entry.fattrib & AM_DIR) != 0 || !valid_external_app_name(entry.fname)) {
+            continue;
+        }
+        if (count == capacity) {
+            size_t next = capacity == 0 ? 16 : capacity * 2;
+            if (next > SD_MAX_SCAN) {
+                next = SD_MAX_SCAN;
+            }
+            if (next == capacity) {
+                break;
+            }
+            char **grown = realloc(names, next * sizeof names[0]);
+            if (grown == NULL) {
+                f_closedir(&dir);
+                for (size_t i = 0; i < count; ++i) {
+                    free(names[i]);
+                }
+                free(names);
+                return -1;
+            }
+            names = grown;
+            capacity = next;
+        }
+        char *name = strdup(entry.fname);
+        if (name == NULL) {
+            f_closedir(&dir);
+            for (size_t i = 0; i < count; ++i) {
+                free(names[i]);
+            }
+            free(names);
+            return -1;
+        }
+        names[count++] = name;
+    }
+    f_closedir(&dir);
+
+    if (count > 1) {
+        qsort(names, count, sizeof names[0], compare_names);
+    }
+    size_t listed = count < SD_MAX_LIST ? count : SD_MAX_LIST;
+    size_t total = 0;
+    for (size_t i = 0; i < listed; ++i) {
+        total += strlen(names[i]) + (i + 1 < listed ? 1 : 0);
+    }
+    char *buffer = NULL;
+    if (total > 0) {
+        buffer = malloc(total + 1);
+        if (buffer != NULL) {
+            size_t offset = 0;
+            for (size_t i = 0; i < listed; ++i) {
+                size_t len = strlen(names[i]);
+                memcpy(buffer + offset, names[i], len);
+                offset += len;
+                if (i + 1 < listed) {
+                    buffer[offset++] = '\n';
+                }
+            }
+            buffer[offset] = '\0';
+            *out = buffer;
+            *out_len = offset;
+        }
+    }
+    for (size_t i = 0; i < count; ++i) {
+        free(names[i]);
+    }
+    free(names);
+    return buffer == NULL && total > 0 ? -1 : 0;
+}
+
+int micro_sd_read_external_app(const char *name, char **out, size_t *out_len)
+{
+    if (out == NULL || out_len == NULL) {
+        return -1;
+    }
+    *out = NULL;
+    *out_len = 0;
+    if (!s_mounted || !valid_external_app_name(name)) {
+        return -1;
+    }
+
+    char full[SD_MAX_PATH];
+    int written = snprintf(full, sizeof full, "%s/%s", SD_EXTERNAL_APP_DIR, name);
+    if (written < 0 || (size_t)written >= sizeof full) {
+        return -1;
+    }
+
+    FILINFO info;
+    FRESULT result = f_stat(full, &info);
+    if (result == FR_NO_FILE || result == FR_NO_PATH) {
+        return 0;
+    }
+    if (result != FR_OK || (info.fattrib & AM_DIR) != 0 || info.fsize == 0 ||
+        info.fsize > SD_MAX_EXTERNAL_APP) {
+        return -1;
+    }
+
+    FIL file;
+    result = f_open(&file, full, FA_READ);
+    if (result != FR_OK) {
+        return -1;
+    }
+    size_t size = (size_t)f_size(&file);
+    if (size == 0 || size > SD_MAX_EXTERNAL_APP) {
+        f_close(&file);
+        return -1;
+    }
+    char *buffer = malloc(size + 1);
+    if (buffer == NULL) {
+        f_close(&file);
+        return -1;
+    }
+    UINT read = 0;
+    result = f_read(&file, buffer, (UINT)size, &read);
+    f_close(&file);
+    if (result != FR_OK || read != size) {
+        free(buffer);
+        return -1;
+    }
+    buffer[size] = '\0';
+    *out = buffer;
+    *out_len = size;
+    return 0;
 }
 
 int micro_sd_mkdir(const char *app_id, const char *path, int *out)

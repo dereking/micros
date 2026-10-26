@@ -1,6 +1,7 @@
 use micro_compiler::compile_source;
 use micro_ir::{
-    FunctionKind, HostCallKind, Instruction, ScalarType, TextSource, UiKind, ValueSource,
+    Capability, FunctionKind, HostCallKind, Instruction, ScalarType, TextSource, UiKind,
+    ValueSource,
 };
 
 #[test]
@@ -219,6 +220,69 @@ ui.mount(ui.column([ui.text(bind(() => count.value))]));
 }
 
 #[test]
+fn lowers_manifest_capabilities() {
+    let image = compile_source(
+        "caps.ts",
+        r#"
+app({ id: "caps", name: "Caps", icon: "C", capabilities: ["net", "kv"] });
+ui.mount(ui.text("caps"));
+"#,
+    )
+    .unwrap();
+    assert_eq!(
+        image.metadata.capabilities,
+        Some(vec![Capability::Net, Capability::Kv])
+    );
+
+    let empty = compile_source(
+        "deny.ts",
+        r#"
+app({ id: "deny", name: "Deny", icon: "D", capabilities: [] });
+ui.mount(ui.text("deny"));
+"#,
+    )
+    .unwrap();
+    assert_eq!(empty.metadata.capabilities, Some(vec![]));
+
+    let legacy = compile_source(
+        "legacy.ts",
+        r#"
+app({ id: "legacy", name: "Legacy", icon: "L" });
+ui.mount(ui.text("legacy"));
+"#,
+    )
+    .unwrap();
+    // An app() without capabilities is explicit default-deny, not "legacy all".
+    assert_eq!(legacy.metadata.capabilities, Some(vec![]));
+}
+
+#[test]
+fn every_shipped_app_declares_every_host_capability_it_uses() {
+    let apps = [
+        ("counter", include_str!("../../../apps/counter/app.ts")),
+        ("momo", include_str!("../../../apps/momo/app.ts")),
+        ("settings", include_str!("../../../apps/settings/app.ts")),
+        ("shell", include_str!("../../../apps/shell/app.ts")),
+    ];
+    for (name, source) in apps {
+        let image = compile_source(&format!("{name}.ts"), source).unwrap();
+        let declared = image
+            .metadata
+            .capabilities
+            .as_ref()
+            .unwrap_or_else(|| panic!("{name} must declare capabilities"));
+        for request in &image.host_requests {
+            let capability = request.kind.capability();
+            assert!(
+                declared.contains(&capability),
+                "{name} calls {:?} without declaring `{capability}`",
+                request.kind
+            );
+        }
+    }
+}
+
+#[test]
 fn lowers_host_calls_into_requests_and_instructions() {
     let source = r#"
 const list = state("");
@@ -288,7 +352,7 @@ ui.mount(ui.column([
 #[test]
 fn lowers_config_calls_into_requests() {
     let source = r#"
-app({ id: "cfg", name: "cfg", icon: "c" });
+app({ id: "cfg", name: "cfg", icon: "c", capabilities: ["config"] });
 const goal = state(0);
 ui.mount(ui.column([
   ui.text(bind(() => `token: ${config.getText("maimemoToken")}`)),
@@ -519,6 +583,32 @@ ui.mount(ui.column([
 }
 
 #[test]
+fn lowers_os_set_title_inside_a_binding() {
+    // os.setTitle only touches chrome, so a launch binding may restore the
+    // title (MBC v28) even though other side-effecting os.* calls are rejected.
+    let source = r#"
+const user = state("小墨");
+ui.mount(ui.column([
+  ui.text(bind(() => {
+    os.setTitle(`momo · ${user.value}`);
+    return user.value;
+  })),
+  ui.button("switch", { onClick: () => { os.setTitle("momo · 默认用户"); } }),
+]));
+"#;
+    let image = compile_source("title.ts", source).unwrap();
+    use micro_ir::HostCallKind;
+    let title = image
+        .host_requests
+        .iter()
+        .find(|r| r.kind == HostCallKind::OsSetTitle)
+        .expect("os.setTitle request");
+    assert_eq!(title.arg_kinds, [ScalarType::String]);
+    assert_eq!(title.result_kind, None);
+    assert_eq!(title.callback, None);
+}
+
+#[test]
 fn expands_align_and_anchors_to_layout_spec() {
     let source = r#"
 const x = state(0);
@@ -641,7 +731,7 @@ ui.mount(ui.column([
 #[test]
 fn lowers_header_requests_and_json_queries() {
     let source = r#"
-app({ id: "sync", name: "Sync", icon: "S" });
+app({ id: "sync", name: "Sync", icon: "S", capabilities: ["net", "json"] });
 const status = state("");
 ui.mount(ui.column([
   ui.place(ui.button("sync", {
@@ -694,7 +784,7 @@ ui.mount(ui.column([
 #[test]
 fn template_literal_escapes_are_cooked() {
     let source = r#"
-app({ id: "esc", name: "esc", icon: "e" });
+app({ id: "esc", name: "esc", icon: "e", capabilities: ["kv"] });
 ui.mount(ui.column([
   ui.button("x", {
     onClick: () => {
@@ -853,7 +943,7 @@ ui.mount(ui.column([
 }
 
 #[test]
-fn lowers_surface_taps_and_conditional_buttons() {
+fn lowers_surface_taps_and_conditional_visibility() {
     let source = r#"
 const mode = state(0);
 ui.mount(ui.column([
@@ -863,11 +953,13 @@ ui.mount(ui.column([
     },
   }), { height: 100 }),
   ui.place(ui.show(
-    ui.button("start", {
-      onClick: () => {
-        mode.value = 0;
-      },
-    }),
+    ui.column([
+      ui.place(ui.button("start", {
+        onClick: () => {
+          mode.value = 0;
+        },
+      }), { height: 40 }),
+    ]),
     bind(() => mode.value === 0),
   ), { height: 40 }),
 ]));
@@ -879,15 +971,22 @@ ui.mount(ui.column([
         .find(|node| node.kind == UiKind::Surface)
         .expect("surface");
     assert!(surface.on_click.is_some(), "surface tap is a handler");
+    let group = image
+        .nodes
+        .iter()
+        .find(|node| node.kind == UiKind::Column && node.children.len() == 1)
+        .expect("visibility group");
+    assert!(
+        matches!(group.visible, Some(ValueSource::Binding(_))),
+        "show should bind the group's visibility"
+    );
+    assert_eq!(group.value, None, "visibility no longer uses `value`");
     let button = image
         .nodes
         .iter()
         .find(|node| node.kind == UiKind::Button)
         .expect("button");
-    assert!(
-        matches!(button.value, Some(ValueSource::Binding(_))),
-        "show should bind the button's visibility"
-    );
+    assert_eq!(button.visible, None, "the child stays visible itself");
 }
 
 #[test]
@@ -917,7 +1016,7 @@ ui.mount(ui.column([
 #[test]
 fn lowers_storage_calls_into_requests() {
     let source = r#"
-app({ id: "store", name: "Store", icon: "S" });
+app({ id: "store", name: "Store", icon: "S", capabilities: ["storage"] });
 const size = state(0);
 const listing = state("");
 ui.mount(ui.column([

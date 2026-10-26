@@ -314,7 +314,7 @@ uint32_t micro_esp_host_take_wifi_disconnect(void)
 
 static uint32_t s_host_app_count = 0;
 static char s_host_app_name[MICRO_HOST_MAX_APPS][32];
-static char s_host_app_icon[MICRO_HOST_MAX_APPS][4];
+static char s_host_app_icon[MICRO_HOST_MAX_APPS][16];
 
 void micro_esp_host_set_app_count(uint32_t count)
 {
@@ -375,6 +375,36 @@ uint32_t micro_esp_host_take_back(void)
         return 0;
     }
     s_host_back_intent_pending = 0;
+    return 1;
+}
+
+/* --- os.setTitle (app-bar chrome) ---
+ * The Rust host queues the title; main.c drains it from the OS tick and
+ * repaints the shared app bar with the LVGL port lock already held. */
+static char s_host_title[64];
+static int s_host_title_pending = 0;
+
+void micro_esp_host_set_title(const char *title, size_t len)
+{
+    if (title == NULL) {
+        len = 0;
+    } else if (len >= sizeof s_host_title) {
+        len = sizeof s_host_title - 1;
+    }
+    if (len > 0) {
+        memcpy(s_host_title, title, len);
+    }
+    s_host_title[len] = '\0';
+    s_host_title_pending = 1;
+}
+
+uint32_t micro_esp_host_take_title(char *buf, size_t cap)
+{
+    if (s_host_title_pending == 0 || buf == NULL || cap == 0) {
+        return 0;
+    }
+    s_host_title_pending = 0;
+    copy_str(buf, cap, s_host_title);
     return 1;
 }
 

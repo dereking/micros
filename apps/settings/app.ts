@@ -35,7 +35,12 @@
 // slider, the Wi-Fi form, the last scan trigger and a boot guard that samples
 // persisted values plus host facts exactly once.
 
-app({ id: "settings", name: "Settings", icon: "settings" });
+app({
+  id: "settings",
+  name: "Settings",
+  icon: "settings",
+  capabilities: ["audio", "config", "device", "net", "os", "storage"],
+});
 
 // --- reactive state -------------------------------------------------------
 // `booted` makes the first binding a one-shot initialiser: it samples the

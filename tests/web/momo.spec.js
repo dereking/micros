@@ -9,7 +9,11 @@ test("momo runs the listen → spell → cloze → definition flow", async ({ pa
   await expect(tile).toBeVisible();
   await tile.click();
 
-  await expect(page.getByText("MOMO · 默认用户")).toBeVisible();
+  await expect(page.getByText("MOMO · 默认用户", { exact: true })).toBeVisible();
+  // The OS app bar names the active profile, not just the app.
+  await expect(page.locator("[data-appbar-title]")).toHaveText(
+    "momo · 默认用户",
+  );
   await expect(page.getByText("今天的单词")).toBeVisible();
   await expect(
     page.locator('.micro-tab-page-active .micro-surface[data-tone="canvas"]'),
@@ -76,11 +80,17 @@ test("momo runs the listen → spell → cloze → definition flow", async ({ pa
 
   // With a token the Web host returns its 501 JSON error, which exercises the
   // HTTP callback -> json.getText -> status binding chain. The token is edited
-  // together with the user's name on the 用户 tab.
+  // together with the user's name on the 用户 tab, and only after 编辑 reveals
+  // the form.
   await page.getByRole("button", { name: "用户", exact: true }).click();
+  await expect(page.getByText("当前用户资料")).toBeVisible();
+  await expect(page.getByPlaceholder("用户名")).toBeHidden();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await expect(page.getByPlaceholder("用户名")).toHaveValue("默认用户");
   await page.getByPlaceholder("墨墨开放 API Token").fill("test-token");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("已保存当前用户的名称和 API Key。")).toBeVisible();
+  await expect(page.getByPlaceholder("用户名")).toBeHidden();
   await page.getByRole("button", { name: "同步", exact: true }).click();
   // The token goes through the unified `config` API, not the per-key KV store.
   await expect
@@ -107,6 +117,9 @@ test("momo runs the listen → spell → cloze → definition flow", async ({ pa
     .getByRole("button", { name: "Open momo", exact: true })
     .click();
   await expect(page.getByText("新词 1 / 5  ·  连续 1 天")).toBeVisible();
+  await expect(page.locator("[data-appbar-title]")).toHaveText(
+    "momo · 默认用户",
+  );
   await page.getByRole("button", { name: "进度", exact: true }).click();
   await expect(page.getByText(/abandon  ·  第 3 阶  ·  /)).toBeVisible();
 
@@ -119,14 +132,22 @@ test("momo isolates each user's study data, goal and token", async ({ page }) =>
     .locator("#system-screen")
     .getByRole("button", { name: "Open momo", exact: true })
     .click();
-  await expect(page.getByText("MOMO · 默认用户")).toBeVisible();
+  await expect(page.getByText("MOMO · 默认用户", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-appbar-title]")).toHaveText(
+    "momo · 默认用户",
+  );
 
   // Create the second profile from the 用户 tab.
   await page.getByRole("button", { name: "用户", exact: true }).click();
   await expect(page.getByText("PROFILE · 学习账号")).toBeVisible();
   await expect(page.getByText("名称和 Token 只保存到当前用户。")).toBeVisible();
   await page.getByRole("button", { name: "新建用户", exact: true }).click();
+  // A fresh profile opens its edit form directly.
+  await expect(page.getByPlaceholder("用户名")).toBeVisible();
   await expect(page.getByPlaceholder("用户名")).toHaveValue("用户 2");
+  await expect(page.locator("[data-appbar-title]")).toHaveText(
+    "momo · 用户 2",
+  );
   await expect(
     page.getByRole("button", { name: "用户 2  ·  当前", exact: true }),
   ).toHaveClass(/micro-button-selected/);
@@ -152,18 +173,24 @@ test("momo isolates each user's study data, goal and token", async ({ page }) =>
     .toBe(8);
 
   await page.getByRole("button", { name: "学习", exact: true }).click();
-  await expect(page.getByText("MOMO · 用户 2")).toBeVisible();
+  await expect(page.getByText("MOMO · 用户 2", { exact: true })).toBeVisible();
   await expect(page.getByText("新词 0 / 8  ·  连续 0 天")).toBeVisible();
   await page.getByRole("button", { name: "开始今日学习" }).click();
   await page.getByRole("button", { name: "认识", exact: true }).click();
   await expect(page.getByText("新词 1 / 8  ·  连续 1 天")).toBeVisible();
 
-  // Name and API key are managed together on the 用户 tab.
+  // Name and API key are managed together on the 用户 tab. The new profile's
+  // edit form is still open, so both fields are ready to fill.
   await page.getByRole("button", { name: "用户", exact: true }).click();
+  await expect(page.getByPlaceholder("用户名")).toBeVisible();
   await page.getByPlaceholder("用户名").fill("小墨");
   await page.getByPlaceholder("墨墨开放 API Token").fill("user-two-token");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("已保存当前用户的名称和 API Key。")).toBeVisible();
+  await expect(page.getByPlaceholder("用户名")).toBeHidden();
+  await expect(page.locator("[data-appbar-title]")).toHaveText(
+    "momo · 小墨",
+  );
   await expect(
     page.getByRole("button", { name: "小墨  ·  当前", exact: true }),
   ).toHaveClass(/micro-button-selected/);
@@ -183,7 +210,8 @@ test("momo isolates each user's study data, goal and token", async ({ page }) =>
     )
     .toEqual(["小墨", "user-two-token"]);
   await page.getByRole("button", { name: "学习", exact: true }).click();
-  await expect(page.getByText("MOMO · 小墨")).toBeVisible();
+  await expect(page.getByText("MOMO · 小墨", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-appbar-title]")).toHaveText("momo · 小墨");
   await page.getByRole("button", { name: "同步", exact: true }).click();
   await expect(page.getByText(/已配置 · 可在用户页修改/)).toBeVisible();
   expect(
@@ -197,13 +225,25 @@ test("momo isolates each user's study data, goal and token", async ({ page }) =>
 
   // The default user keeps an empty, independent profile.
   await page.getByRole("button", { name: "用户", exact: true }).click();
+  await expect(page.getByText("API Key · 已配置", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "默认用户", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "默认用户  ·  当前", exact: true }),
   ).toHaveClass(/micro-button-selected/);
+  await expect(page.locator("[data-appbar-title]")).toHaveText(
+    "momo · 默认用户",
+  );
+  // Switching accounts closes any edit form; the selected user stays read-only
+  // until 编辑 is pressed.
+  await expect(page.getByPlaceholder("用户名")).toBeHidden();
+  await expect(page.getByText("API Key · 未配置", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
   await expect(page.getByPlaceholder("用户名")).toHaveValue("默认用户");
+  await expect(page.getByPlaceholder("墨墨开放 API Token")).toHaveValue("");
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(page.getByPlaceholder("用户名")).toBeHidden();
   await page.getByRole("button", { name: "学习", exact: true }).click();
-  await expect(page.getByText("MOMO · 默认用户")).toBeVisible();
+  await expect(page.getByText("MOMO · 默认用户", { exact: true })).toBeVisible();
   await expect(page.getByText("新词 0 / 5  ·  连续 0 天")).toBeVisible();
 
   await page.getByRole("button", { name: "同步", exact: true }).click();
@@ -230,12 +270,16 @@ test("momo isolates each user's study data, goal and token", async ({ page }) =>
     .locator("#system-screen")
     .getByRole("button", { name: "Open momo", exact: true })
     .click();
-  await expect(page.getByText("MOMO · 小墨")).toBeVisible();
+  await expect(page.getByText("MOMO · 小墨", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-appbar-title]")).toHaveText("momo · 小墨");
   await expect(page.getByText("新词 1 / 8  ·  连续 1 天")).toBeVisible();
   await page.getByRole("button", { name: "同步", exact: true }).click();
   await expect(page.getByText(/已配置 · 可在用户页修改/)).toBeVisible();
 
   await page.getByRole("button", { name: "用户", exact: true }).click();
+  // The restored profile is read-only until 编辑.
+  await expect(page.getByPlaceholder("用户名")).toBeHidden();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
   await expect(page.getByPlaceholder("用户名")).toHaveValue("小墨");
   await expect(page.getByPlaceholder("墨墨开放 API Token")).toHaveValue(
     "user-two-token",

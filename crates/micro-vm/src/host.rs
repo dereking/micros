@@ -37,3 +37,17 @@ impl HostAccess for NullHost {
         )))
     }
 }
+
+impl HostAccess for Box<dyn HostAccess> {
+    fn call(&mut self, request: &HostRequest, args: &[Value]) -> Result<Option<Value>, VmError> {
+        (**self).call(request, args)
+    }
+
+    fn drain_results(&mut self) -> Vec<(FunctionId, Value)> {
+        (**self).drain_results()
+    }
+
+    fn dispose(&mut self) {
+        (**self).dispose();
+    }
+}

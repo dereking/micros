@@ -5,9 +5,9 @@ use micro_core::{
     Event, EventQueue, MicroUiTree, RenderError, RenderPatch, RenderPort, Runtime, RuntimeError,
 };
 use micro_ir::{
-    AppImage, AppMetadata, BindingId, Constant, FontWeight, Function, FunctionId, FunctionKind,
-    HandlerId, HostCallKind, HostRequest, Instruction, NodeId, ScalarType, StateDecl, StateId,
-    TextSource, TextStyle, UiKind, UiNodeSpec, ValueSource,
+    AppImage, AppMetadata, BindingId, Capability, Constant, FontWeight, Function, FunctionId,
+    FunctionKind, HandlerId, HostCallKind, HostRequest, Instruction, NodeId, ScalarType, StateDecl,
+    StateId, TextSource, TextStyle, UiKind, UiNodeSpec, ValueSource,
 };
 use micro_vm::{HostAccess, Value, VmError};
 
@@ -121,6 +121,7 @@ fn counter_image() -> AppImage {
                 range: None,
                 options: vec![],
                 layout: None,
+                visible: None,
             },
             UiNodeSpec {
                 id: NodeId(1),
@@ -133,6 +134,7 @@ fn counter_image() -> AppImage {
                 range: None,
                 options: vec![],
                 layout: None,
+                visible: None,
             },
             UiNodeSpec {
                 id: NodeId(2),
@@ -145,6 +147,7 @@ fn counter_image() -> AppImage {
                 range: None,
                 options: vec![],
                 layout: None,
+                visible: None,
             },
         ],
         host_requests: vec![],
@@ -152,6 +155,7 @@ fn counter_image() -> AppImage {
             id: "counter".into(),
             name: "Counter".into(),
             icon: "C".into(),
+            capabilities: None,
         },
         root: NodeId(0),
     }
@@ -359,12 +363,14 @@ fn replaces_binding_dependencies_after_each_evaluation() {
             range: None,
             options: vec![],
             layout: None,
+            visible: None,
         }],
         host_requests: vec![],
         metadata: AppMetadata {
             id: "tick".into(),
             name: "Tick".into(),
             icon: "T".into(),
+            capabilities: None,
         },
         root: NodeId(0),
     };
@@ -466,6 +472,7 @@ fn value_image() -> AppImage {
                 range: None,
                 options: vec![],
                 layout: None,
+                visible: None,
             },
             UiNodeSpec {
                 id: NodeId(1),
@@ -478,6 +485,7 @@ fn value_image() -> AppImage {
                 range: None,
                 options: vec![],
                 layout: None,
+                visible: None,
             },
             UiNodeSpec {
                 id: NodeId(2),
@@ -490,6 +498,7 @@ fn value_image() -> AppImage {
                 range: None,
                 options: vec![],
                 layout: None,
+                visible: None,
             },
         ],
         host_requests: vec![],
@@ -497,6 +506,7 @@ fn value_image() -> AppImage {
             id: "values".into(),
             name: "Values".into(),
             icon: "V".into(),
+            capabilities: None,
         },
         root: NodeId(0),
     }
@@ -641,6 +651,7 @@ fn host_image() -> AppImage {
             range: None,
             options: vec![],
             layout: None,
+            visible: None,
         }],
         host_requests: vec![HostRequest::async_request(
             HostCallKind::NetScanWifi,
@@ -651,6 +662,7 @@ fn host_image() -> AppImage {
             id: "host".into(),
             name: "Host".into(),
             icon: "H".into(),
+            capabilities: Some(vec![Capability::Device, Capability::Net]),
         },
         root: NodeId(0),
     }
@@ -707,6 +719,97 @@ fn null_host_rejects_host_reads_during_creation() {
     ];
     let result = Runtime::new(image, RecordingRenderer::default(), 10_000);
     assert!(matches!(result, Err(RuntimeError::Vm(VmError::Host(_)))));
+}
+
+#[test]
+fn capability_gate_denies_ungranted_host_call() {
+    let mut image = host_image();
+    image.host_requests[0] =
+        HostRequest::sync(HostCallKind::DeviceChip, vec![], Some(ScalarType::String));
+    image.functions[0].code = vec![Instruction::HostCall(0), Instruction::Return];
+    image.functions[2].code = vec![
+        Instruction::HostCall(0),
+        Instruction::Pop,
+        Instruction::Return,
+    ];
+    image.metadata.capabilities = Some(vec![Capability::Net, Capability::Kv]);
+    let result = Runtime::new_with_host(
+        image,
+        RecordingRenderer::default(),
+        10_000,
+        Box::new(SimHost::default()),
+    );
+    assert!(
+        matches!(result, Err(RuntimeError::Vm(VmError::Host(message))) if message.contains("capability `device`"))
+    );
+}
+
+#[test]
+fn capability_gate_allows_a_granted_host_call() {
+    let mut image = host_image();
+    image.host_requests[0] =
+        HostRequest::sync(HostCallKind::DeviceChip, vec![], Some(ScalarType::String));
+    image.functions[0].code = vec![Instruction::HostCall(0), Instruction::Return];
+    image.functions[2].code = vec![
+        Instruction::HostCall(0),
+        Instruction::Pop,
+        Instruction::Return,
+    ];
+    image.metadata.capabilities = Some(vec![Capability::Device]);
+    let runtime = Runtime::new_with_host(
+        image,
+        RecordingRenderer::default(),
+        10_000,
+        Box::new(SimHost::default()),
+    )
+    .unwrap();
+    assert_eq!(runtime.renderer().created[0].nodes[0].text, "ESP32-S3");
+}
+
+#[test]
+fn capability_gate_denies_every_call_for_an_empty_grant() {
+    let mut image = host_image();
+    image.host_requests[0] =
+        HostRequest::sync(HostCallKind::DeviceChip, vec![], Some(ScalarType::String));
+    image.functions[0].code = vec![Instruction::HostCall(0), Instruction::Return];
+    image.functions[2].code = vec![
+        Instruction::HostCall(0),
+        Instruction::Pop,
+        Instruction::Return,
+    ];
+    image.metadata.capabilities = Some(vec![]);
+    let result = Runtime::new_with_host(
+        image,
+        RecordingRenderer::default(),
+        10_000,
+        Box::new(SimHost::default()),
+    );
+    assert!(
+        matches!(result, Err(RuntimeError::Vm(VmError::Host(message))) if message.contains("capability `device`"))
+    );
+}
+
+#[test]
+fn capability_gate_denies_host_calls_when_the_manifest_omits_capabilities() {
+    let mut image = host_image();
+    image.host_requests[0] =
+        HostRequest::sync(HostCallKind::DeviceChip, vec![], Some(ScalarType::String));
+    image.functions[0].code = vec![Instruction::HostCall(0), Instruction::Return];
+    image.functions[2].code = vec![
+        Instruction::HostCall(0),
+        Instruction::Pop,
+        Instruction::Return,
+    ];
+    image.metadata.capabilities = None;
+    let result = Runtime::new_with_host(
+        image,
+        RecordingRenderer::default(),
+        10_000,
+        Box::new(SimHost::default()),
+    );
+    assert!(
+        matches!(result, Err(RuntimeError::Vm(VmError::Host(message))) if message.contains("capability `device`"))
+    );
 }
 
 #[test]
@@ -859,6 +962,7 @@ fn input_image() -> AppImage {
                 range: None,
                 options: vec![],
                 layout: None,
+                visible: None,
             },
             UiNodeSpec {
                 id: NodeId(1),
@@ -871,6 +975,7 @@ fn input_image() -> AppImage {
                 range: None,
                 options: vec![],
                 layout: None,
+                visible: None,
             },
             UiNodeSpec {
                 id: NodeId(2),
@@ -883,6 +988,7 @@ fn input_image() -> AppImage {
                 range: None,
                 options: vec![],
                 layout: None,
+                visible: None,
             },
         ],
         host_requests: vec![],
@@ -890,6 +996,7 @@ fn input_image() -> AppImage {
             id: "input-cache".into(),
             name: "Input".into(),
             icon: "I".into(),
+            capabilities: None,
         },
         root: NodeId(0),
     }
@@ -961,12 +1068,14 @@ fn icon_name_binding_patches_set_icon() {
             range: None,
             options: vec![],
             layout: None,
+            visible: None,
         }],
         host_requests: vec![],
         metadata: AppMetadata {
             id: "icon".into(),
             name: "Icon".into(),
             icon: "edit".into(),
+            capabilities: None,
         },
         root: NodeId(0),
     };
@@ -980,6 +1089,120 @@ fn icon_name_binding_patches_set_icon() {
         [RenderPatch::SetIcon {
             node: NodeId(0),
             name: "trash".to_owned(),
+        }]
+    );
+}
+
+#[test]
+fn visibility_bindings_patch_any_widget_and_start_hidden() {
+    let image = AppImage {
+        constants: vec![
+            Constant::Number(0.0),
+            Constant::Bool(false),
+            Constant::String("hidden form".into()),
+            Constant::Bool(true),
+        ],
+        states: vec![StateDecl {
+            ty: ScalarType::Bool,
+            initial: 1,
+        }],
+        functions: vec![
+            Function {
+                kind: FunctionKind::Binding(BindingId(0)),
+                arg_count: 0,
+                locals: 0,
+                max_stack: 1,
+                code: vec![Instruction::LoadState(StateId(0)), Instruction::Return],
+            },
+            Function {
+                kind: FunctionKind::Handler(HandlerId(0)),
+                arg_count: 0,
+                locals: 0,
+                max_stack: 1,
+                code: vec![
+                    Instruction::Const(3),
+                    Instruction::StoreState(StateId(0)),
+                    Instruction::Return,
+                ],
+            },
+            Function {
+                kind: FunctionKind::Handler(HandlerId(1)),
+                arg_count: 0,
+                locals: 0,
+                max_stack: 1,
+                code: vec![
+                    Instruction::Const(1),
+                    Instruction::StoreState(StateId(0)),
+                    Instruction::Return,
+                ],
+            },
+        ],
+        nodes: vec![
+            UiNodeSpec {
+                id: NodeId(0),
+                kind: UiKind::Column,
+                children: vec![NodeId(1)],
+                text: None,
+                value: None,
+                on_click: None,
+                text_style: None,
+                range: None,
+                options: vec![],
+                layout: None,
+                visible: Some(ValueSource::Binding(FunctionId(0))),
+            },
+            UiNodeSpec {
+                id: NodeId(1),
+                kind: UiKind::Text,
+                children: vec![],
+                text: Some(TextSource::Constant(2)),
+                value: None,
+                on_click: None,
+                text_style: None,
+                range: None,
+                options: vec![],
+                layout: None,
+                visible: None,
+            },
+        ],
+        host_requests: vec![],
+        metadata: AppMetadata {
+            id: "show".into(),
+            name: "Show".into(),
+            icon: "edit".into(),
+            capabilities: None,
+        },
+        root: NodeId(0),
+    };
+    let mut runtime = Runtime::new(image, RecordingRenderer::default(), 10_000).unwrap();
+    /* The form group starts hidden, before the first tick, so it never flashes. */
+    assert_eq!(
+        runtime.renderer().patches,
+        [RenderPatch::SetVisible {
+            node: NodeId(0),
+            visible: false
+        }]
+    );
+
+    runtime.renderer_mut().patches.clear();
+    runtime.enqueue(Event::Activate(FunctionId(1)));
+    runtime.tick().unwrap();
+    assert_eq!(
+        runtime.renderer().patches,
+        [RenderPatch::SetVisible {
+            node: NodeId(0),
+            visible: true
+        }]
+    );
+
+    runtime.renderer_mut().patches.clear();
+    runtime.enqueue(Event::Activate(FunctionId(2)));
+    runtime.tick().unwrap();
+    assert_eq!(
+        runtime.renderer().patches,
+        [RenderPatch::SetVisible {
+            node: NodeId(0),
+            visible: false
         }]
     );
 }

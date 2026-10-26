@@ -19,7 +19,12 @@
 // Maimemo OpenAPI does not expose built-in meanings. There are no arrays or
 // user functions in this dialect: the active queue is ten KV-addressed slots.
 
-app({ id: "momo", name: "momo", icon: "edit" });
+app({
+  id: "momo",
+  name: "momo",
+  icon: "edit",
+  capabilities: ["audio", "clock", "config", "json", "kv", "net", "os"],
+});
 
 // Session state.
 const mode = state(0); // 0 idle, 1 studying, 2 round complete
@@ -64,10 +69,14 @@ const batchUser = state(0); // active user at the time a batch lookup started
 const syncBusy = state(0);
 // Display name of the active user, plus the editable profile drafts shown on
 // the 用户 tab. The drafts are loaded from the active user's config keys on
-// boot and on every switch, so unsaved edits never leak between accounts.
+// boot, on every switch, and when 编辑 is tapped, so unsaved edits never leak
+// between accounts. `profileEditing` swaps the profile card between its
+// read-only summary and the name/Token form; the form starts hidden, so the
+// selected user never exposes a Token field until 编辑 is pressed.
 const userName = state("");
 const nameDraft = state("");
 const tokenDraft = state("");
+const profileEditing = state(0);
 // `poolNext` lives in KV rather than a state so the cursor survives a
 // relaunch. The pool itself is compact (word + voc_id only): the rest of
 // today's list fits on ESP32 NVS while full dictionary payloads stay limited
@@ -118,6 +127,9 @@ ui.mount(
                 userName.value = savedName;
                 nameDraft.value = savedName;
                 tokenDraft.value = config.getText(`${ns.value}maimemoToken`);
+                // The OS bar should name the active profile, not just "momo".
+                // Chrome-only, so the launch binding may set it (MBC v28).
+                os.setTitle(`momo · ${savedName}`);
                 booted.value = 1;
               }
               return "";
@@ -274,6 +286,9 @@ ui.mount(
                 return "momo";
               }
               if (mode.value === 2) {
+                if (roundTotal.value === 0) {
+                  return "暂无待学词";
+                }
                 return "今日完成";
               }
               if (phase.value === 0) {
@@ -320,6 +335,9 @@ ui.mount(
                 return "每天一点，记住更多";
               }
               if (mode.value === 2) {
+                if (roundTotal.value === 0) {
+                  return "先去墨墨 App 初始化今日学习，再回同步页同步";
+                }
                 return "今天的词已经安排好了";
               }
               if (phase.value === 0) {
@@ -1720,6 +1738,15 @@ ui.mount(
           { height: 30, anchor: { left: 44, right: 44, top: 306 } },
         ),
         ui.place(
+          ui.text("学习记录仅保存在本机；墨墨服务器不会收到 momo 的评分。", {
+            font: "uiSans",
+            size: 12,
+            weight: "regular",
+            lineHeight: 14,
+          }),
+          { height: 16, anchor: { left: 24, right: 24, top: 372 } },
+        ),
+        ui.place(
           ui.text("momo · Micro App  ·  今日词表 · 艾宾浩斯复习  ·  v1.3", {
             font: "uiSans",
             size: 12,
@@ -1931,7 +1958,12 @@ Content-Type: application/json`,
                         kv.remove(`${ns.value}r${clear}`);
                         clear = clear + 1;
                       }
-                    } else {
+                    } else if (total > 0) {
+                      // The API returned a non-empty list but no usable item
+                      // (all finished or missing spellings). Only then is it
+                      // safe to drop the old pool. An empty `today_items`
+                      // (total === 0) is different: the server has no
+                      // initialized queue, so keep the previous batch usable.
                       kv.setText(`${ns.value}pool`, "[]");
                       kv.setNumber(`${ns.value}poolCount`, 0);
                       kv.setNumber(`${ns.value}poolNext`, 0);
@@ -1942,7 +1974,12 @@ Content-Type: application/json`,
                       if (message !== "") {
                         syncStatus.value = `同步失败：${message}`;
                       } else if (json.getText(response, "success") === "true") {
-                        syncStatus.value = "今日没有未完成单词。";
+                        if (total === 0) {
+                          syncStatus.value =
+                            "墨墨今日列表为空：先在墨墨 App 打开今日学习并开启自动同步后重试。";
+                        } else {
+                          syncStatus.value = "今日没有未完成单词。";
+                        }
                       } else {
                         syncStatus.value = "同步失败：没有可读的今日词表。";
                       }
@@ -2211,6 +2248,13 @@ Content-Type: application/json`,
         ),
         ui.place(
           ui.text(
+            "使用前请先在墨墨 App 打开「今日学习」并开启自动同步；否则今日词表可能为空。",
+            { font: "uiSans", size: 12, weight: "regular", lineHeight: 14 },
+          ),
+          { height: 32, anchor: { left: 24, right: 24, top: 236 } },
+        ),
+        ui.place(
+          ui.text(
             bind(
               () =>
                 `墨墨今日：完成 ${syncDone.value} / ${syncTotal.value}  ·  已导入 ${syncImported.value}`,
@@ -2336,6 +2380,10 @@ Content-Type: application/json`,
                 syncLookup.value = "";
                 syncUser.value = 0;
                 batchUser.value = 0;
+                // A new profile has nothing to show yet: open the edit form so
+                // the user can name it and add a Token in one step.
+                profileEditing.value = 1;
+                os.setTitle(`momo · ${userName.value}`);
                 userStatus.value = `已创建 用户 ${next}，请填写名称和 API Key。`;
                 refresh.value++;
               }
@@ -2352,55 +2400,134 @@ Content-Type: application/json`,
           }),
           { height: 20, width: 200, anchor: { left: 44, top: 82 } },
         ),
+        // Read-only summary. The selected user never shows an editable field
+        // until 编辑 is pressed: just the display name and whether an API Key
+        // exists (never the key itself).
         ui.place(
-          ui.button("保存", {
-            textStyle: { font: "uiSans", size: 12, weight: "regular", lineHeight: 14 },
-            onClick: () => {
-              let name = nameDraft.value;
-              if (name === "") {
-                if (activeUser.value === 1) {
-                  name = "默认用户";
-                } else {
-                  name = `用户 ${activeUser.value}`;
-                }
-              }
-              config.setText(`${ns.value}name`, name);
-              config.setText(`${ns.value}maimemoToken`, tokenDraft.value);
-              userName.value = name;
-              nameDraft.value = name;
-              userStatus.value = "已保存当前用户的名称和 API Key。";
-              refresh.value++;
-            },
-          }),
+          ui.show(
+            ui.column([
+              ui.place(
+                ui.text(
+                  bind(() => {
+                    if (refresh.value < 0) {
+                      return "";
+                    }
+                    return userName.value;
+                  }),
+                  { font: "uiSans", size: 18, weight: "regular", lineHeight: 24 },
+                ),
+                { height: 24, anchor: { left: 44, right: 96, top: 32 } },
+              ),
+              ui.place(
+                ui.text(
+                  bind(() => {
+                    if (refresh.value < 0) {
+                      return "";
+                    }
+                    if (config.getText(`${ns.value}maimemoToken`) === "") {
+                      return "API Key · 未配置";
+                    }
+                    return "API Key · 已配置";
+                  }),
+                  { font: "uiSans", size: 12, weight: "regular", lineHeight: 14 },
+                ),
+                { height: 16, anchor: { left: 44, right: 44, top: 66 } },
+              ),
+            ]),
+            bind(() => profileEditing.value === 0),
+          ),
+          { height: 144, anchor: { left: 0, right: 0, top: 72 } },
+        ),
+        // Editable profile form, hidden until 编辑 (or a fresh 新建用户).
+        ui.place(
+          ui.show(
+            ui.column([
+              ui.place(
+                ui.input(bind(() => nameDraft.value), {
+                  placeholder: "用户名",
+                  textStyle: { font: "uiSans", size: 14, weight: "regular", lineHeight: 18 },
+                  onChange: (s) => {
+                    nameDraft.value = s;
+                    userStatus.value = "";
+                  },
+                }),
+                { height: 34, anchor: { left: 44, right: 44, top: 32 } },
+              ),
+              ui.place(
+                ui.input(bind(() => tokenDraft.value), {
+                  placeholder: "墨墨开放 API Token",
+                  textStyle: { font: "uiSans", size: 14, weight: "regular", lineHeight: 18 },
+                  onChange: (s) => {
+                    tokenDraft.value = s;
+                    userStatus.value = "";
+                  },
+                }),
+                { height: 34, anchor: { left: 44, right: 44, top: 72 } },
+              ),
+            ]),
+            bind(() => profileEditing.value === 1),
+          ),
+          { height: 144, anchor: { left: 0, right: 0, top: 72 } },
+        ),
+        // One action slot: 编辑 when reading, 保存 + 取消 while editing.
+        ui.place(
+          ui.show(
+            ui.button("编辑", {
+              textStyle: { font: "uiSans", size: 12, weight: "regular", lineHeight: 14 },
+              onClick: () => {
+                nameDraft.value = userName.value;
+                tokenDraft.value = config.getText(`${ns.value}maimemoToken`);
+                profileEditing.value = 1;
+                userStatus.value = "编辑中：保存后写入当前用户。";
+                refresh.value++;
+              },
+            }),
+            bind(() => profileEditing.value === 0),
+          ),
           { width: 72, height: 26, anchor: { right: 44, top: 78 } },
         ),
         ui.place(
-          ui.input(
-            bind(() => nameDraft.value),
-            {
-              placeholder: "用户名",
-              textStyle: { font: "uiSans", size: 14, weight: "regular", lineHeight: 18 },
-              onChange: (s) => {
-                nameDraft.value = s;
-                userStatus.value = "";
+          ui.show(
+            ui.button("保存", {
+              textStyle: { font: "uiSans", size: 12, weight: "regular", lineHeight: 14 },
+              onClick: () => {
+                let name = nameDraft.value;
+                if (name === "") {
+                  if (activeUser.value === 1) {
+                    name = "默认用户";
+                  } else {
+                    name = `用户 ${activeUser.value}`;
+                  }
+                }
+                config.setText(`${ns.value}name`, name);
+                config.setText(`${ns.value}maimemoToken`, tokenDraft.value);
+                userName.value = name;
+                nameDraft.value = name;
+                profileEditing.value = 0;
+                os.setTitle(`momo · ${name}`);
+                userStatus.value = "已保存当前用户的名称和 API Key。";
+                refresh.value++;
               },
-            },
+            }),
+            bind(() => profileEditing.value === 1),
           ),
-          { height: 34, anchor: { left: 44, right: 44, top: 104 } },
+          { width: 72, height: 26, anchor: { right: 44, top: 78 } },
         ),
         ui.place(
-          ui.input(
-            bind(() => tokenDraft.value),
-            {
-              placeholder: "墨墨开放 API Token",
-              textStyle: { font: "uiSans", size: 14, weight: "regular", lineHeight: 18 },
-              onChange: (s) => {
-                tokenDraft.value = s;
-                userStatus.value = "";
+          ui.show(
+            ui.button("取消", {
+              textStyle: { font: "uiSans", size: 12, weight: "regular", lineHeight: 14 },
+              onClick: () => {
+                nameDraft.value = userName.value;
+                tokenDraft.value = config.getText(`${ns.value}maimemoToken`);
+                profileEditing.value = 0;
+                userStatus.value = "已取消编辑。";
+                refresh.value++;
               },
-            },
+            }),
+            bind(() => profileEditing.value === 1),
           ),
-          { height: 34, anchor: { left: 44, right: 44, top: 144 } },
+          { width: 72, height: 26, anchor: { right: 124, top: 78 } },
         ),
         ui.place(
           ui.text(
@@ -2456,6 +2583,7 @@ Content-Type: application/json`,
                     }
                     nameDraft.value = userName.value;
                     tokenDraft.value = config.getText(`${ns.value}maimemoToken`);
+                    profileEditing.value = 0;
                     audio.stop();
                     mode.value = 0;
                     phase.value = 0;
@@ -2479,6 +2607,7 @@ Content-Type: application/json`,
                     syncLookup.value = "";
                     syncUser.value = 0;
                     batchUser.value = 0;
+                    os.setTitle(`momo · ${userName.value}`);
                     userStatus.value = `已切换到 ${userName.value}。`;
                     refresh.value++;
                   }
@@ -2511,7 +2640,7 @@ Content-Type: application/json`,
                 variant: "selected",
                 textStyle: { font: "uiSans", size: 14, weight: "regular", lineHeight: 18 },
                 onClick: () => {
-                  userStatus.value = "已在当前用户，可直接编辑资料。";
+                  userStatus.value = "已在当前用户，点编辑可修改名称和 API Key。";
                   refresh.value++;
                 },
               },
@@ -2551,6 +2680,7 @@ Content-Type: application/json`,
                     }
                     nameDraft.value = userName.value;
                     tokenDraft.value = config.getText(`${ns.value}maimemoToken`);
+                    profileEditing.value = 0;
                     audio.stop();
                     mode.value = 0;
                     phase.value = 0;
@@ -2574,6 +2704,7 @@ Content-Type: application/json`,
                     syncLookup.value = "";
                     syncUser.value = 0;
                     batchUser.value = 0;
+                    os.setTitle(`momo · ${userName.value}`);
                     userStatus.value = `已切换到 ${userName.value}。`;
                     refresh.value++;
                   }
@@ -2606,7 +2737,7 @@ Content-Type: application/json`,
                 variant: "selected",
                 textStyle: { font: "uiSans", size: 14, weight: "regular", lineHeight: 18 },
                 onClick: () => {
-                  userStatus.value = "已在当前用户，可直接编辑资料。";
+                  userStatus.value = "已在当前用户，点编辑可修改名称和 API Key。";
                   refresh.value++;
                 },
               },
@@ -2646,6 +2777,7 @@ Content-Type: application/json`,
                     }
                     nameDraft.value = userName.value;
                     tokenDraft.value = config.getText(`${ns.value}maimemoToken`);
+                    profileEditing.value = 0;
                     audio.stop();
                     mode.value = 0;
                     phase.value = 0;
@@ -2669,6 +2801,7 @@ Content-Type: application/json`,
                     syncLookup.value = "";
                     syncUser.value = 0;
                     batchUser.value = 0;
+                    os.setTitle(`momo · ${userName.value}`);
                     userStatus.value = `已切换到 ${userName.value}。`;
                     refresh.value++;
                   }
@@ -2701,7 +2834,7 @@ Content-Type: application/json`,
                 variant: "selected",
                 textStyle: { font: "uiSans", size: 14, weight: "regular", lineHeight: 18 },
                 onClick: () => {
-                  userStatus.value = "已在当前用户，可直接编辑资料。";
+                  userStatus.value = "已在当前用户，点编辑可修改名称和 API Key。";
                   refresh.value++;
                 },
               },
@@ -2741,6 +2874,7 @@ Content-Type: application/json`,
                     }
                     nameDraft.value = userName.value;
                     tokenDraft.value = config.getText(`${ns.value}maimemoToken`);
+                    profileEditing.value = 0;
                     audio.stop();
                     mode.value = 0;
                     phase.value = 0;
@@ -2764,6 +2898,7 @@ Content-Type: application/json`,
                     syncLookup.value = "";
                     syncUser.value = 0;
                     batchUser.value = 0;
+                    os.setTitle(`momo · ${userName.value}`);
                     userStatus.value = `已切换到 ${userName.value}。`;
                     refresh.value++;
                   }
@@ -2796,7 +2931,7 @@ Content-Type: application/json`,
                 variant: "selected",
                 textStyle: { font: "uiSans", size: 14, weight: "regular", lineHeight: 18 },
                 onClick: () => {
-                  userStatus.value = "已在当前用户，可直接编辑资料。";
+                  userStatus.value = "已在当前用户，点编辑可修改名称和 API Key。";
                   refresh.value++;
                 },
               },
@@ -2836,6 +2971,7 @@ Content-Type: application/json`,
                     }
                     nameDraft.value = userName.value;
                     tokenDraft.value = config.getText(`${ns.value}maimemoToken`);
+                    profileEditing.value = 0;
                     audio.stop();
                     mode.value = 0;
                     phase.value = 0;
@@ -2859,6 +2995,7 @@ Content-Type: application/json`,
                     syncLookup.value = "";
                     syncUser.value = 0;
                     batchUser.value = 0;
+                    os.setTitle(`momo · ${userName.value}`);
                     userStatus.value = `已切换到 ${userName.value}。`;
                     refresh.value++;
                   }
@@ -2891,7 +3028,7 @@ Content-Type: application/json`,
                 variant: "selected",
                 textStyle: { font: "uiSans", size: 14, weight: "regular", lineHeight: 18 },
                 onClick: () => {
-                  userStatus.value = "已在当前用户，可直接编辑资料。";
+                  userStatus.value = "已在当前用户，点编辑可修改名称和 API Key。";
                   refresh.value++;
                 },
               },

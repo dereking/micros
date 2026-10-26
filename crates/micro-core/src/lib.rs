@@ -1,5 +1,6 @@
 //! Platform-neutral event-driven Micro App runtime.
 
+mod capability;
 mod event;
 mod runtime;
 mod state;

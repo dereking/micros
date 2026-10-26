@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 fn main() {
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_NATIVE");
     println!("cargo:rerun-if-env-changed=MICRO_NATIVE_SDL3_SOURCE");
@@ -33,8 +35,49 @@ fn main() {
         library_directory.display()
     );
     println!("cargo:rustc-link-lib=dylib=micro_native");
-    println!(
-        "cargo:rustc-link-arg=-Wl,-rpath,{}",
-        library_directory.display()
-    );
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if target_os == "windows" {
+        copy_windows_runtime(&destination, &library_directory);
+    } else {
+        println!(
+            "cargo:rustc-link-arg=-Wl,-rpath,{}",
+            library_directory.display()
+        );
+    }
+}
+
+/// CMake installs the DLL under `lib`/`bin`; the Windows loader does not use
+/// rpath, so stage it beside the Cargo executable and test harnesses.
+fn copy_windows_runtime(destination: &Path, library_directory: &Path) {
+    let mut dll = None;
+    for candidate in [
+        library_directory.join("micro_native.dll"),
+        destination.join("bin").join("micro_native.dll"),
+        destination.join("micro_native.dll"),
+    ] {
+        if candidate.is_file() {
+            dll = Some(candidate);
+            break;
+        }
+    }
+    let Some(dll) = dll else {
+        println!("cargo:warning=micro_native.dll was not produced by CMake");
+        return;
+    };
+    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
+    let Some(profile_dir) = out_dir.ancestors().nth(3) else {
+        println!("cargo:warning=could not locate Cargo profile directory");
+        return;
+    };
+    for target in [profile_dir.to_path_buf(), profile_dir.join("deps")] {
+        if let Err(error) = std::fs::create_dir_all(&target)
+            .and_then(|()| std::fs::copy(&dll, target.join("micro_native.dll")))
+        {
+            println!(
+                "cargo:warning=could not stage {} into {}: {error}",
+                dll.display(),
+                target.display()
+            );
+        }
+    }
 }

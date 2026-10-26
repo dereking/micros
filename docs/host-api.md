@@ -1,6 +1,11 @@
 # Host API: clock / kv / config / audio / HTTP headers / JSON
 
-MBC v26 adds the `ui.icon` widget and the App-wide shared OS icon catalog
+MBC v28 makes `ui.show` work for every widget — a hidden container hides its
+children, so a read-only profile card and its edit form can share one layout
+slot — and adds `os.setTitle` for the OS app-bar title. MBC v27 adds the
+optional manifest capability allow-list enforced at the host-call boundary
+(see [Manifest capabilities](#manifest-capabilities)). MBC
+v26 adds the `ui.icon` widget and the App-wide shared OS icon catalog
 (`micro_ir::icons`), plus the tappable-surface `label` used for accessible
 launcher cards. See [ui-icons.md](ui-icons.md). MBC v25 adds the App-private
 `storage.*` file calls backed by the external TF card on ESP32. MBC v24 adds URL
@@ -10,13 +15,51 @@ MBC v23 adds `audio.stop` and `audio.setRate`. MBC v22 adds the per-App
 `ui.surface` UI kind (cards, pills, rules and page canvases) used by the momo
 dashboard. A surface is non-interactive by default;
 `ui.surface(tone, { onClick })` turns it into a blank tap target (used for
-“tap anywhere to continue”). `ui.show(button, bind(...))` conditionally hides a
-button without changing the static tree. MBC v20 adds the dictionary lookup used by the momo study queue, on top of the
+“tap anywhere to continue”). MBC v20 adds the dictionary lookup used by the momo
+study queue, on top of the
 MBC v19 header-aware HTTP request and JSON query, and the MBC v18 clock / KV /
 audio capabilities. Most calls are
 synchronous scalar reads or writes; the `net.*` requests are asynchronous and
 deliver their result through a callback. All calls are available in bindings
 and handlers, except writes and async requests, which are handlers-only.
+`os.setTitle` is the one chrome-only exception: it may run inside a binding
+because the launch binding uses it to restore the title on the first frame.
+
+## Manifest capabilities
+
+`app({ id, name, icon, capabilities: [...] })` declares which host API categories
+an App may call. The compiler validates the names (`MTS002` for an unknown or
+duplicate entry) and stores the list in the MBC metadata section.
+
+| Capability | Calls |
+| --- | --- |
+| `clock` | `clock.now` |
+| `kv` | `kv.getNumber`, `kv.getText`, `kv.setNumber`, `kv.setText`, `kv.remove` |
+| `config` | all `config.*` calls (`getNumber`, `getText`, `setNumber`, `setText`, `remove`) |
+| `storage` | all `storage.*` calls (`available`, `exists`, `readText`, `writeText`, `appendText`, `list`, `remove`, `mkdir`, `size`) |
+| `net` | all `net.*` calls (`wifi*`, `scanWifi`, `http*`, `lookupWords`) |
+| `audio` | all `audio.*` calls, including URL and background playback |
+| `json` | `json.getText`, `json.getNumber`, `json.length` |
+| `device` | all `device.*` calls (`name`, `chip`, memory, reset, backlight, GPIO) |
+| `os` | `os.appName`, `os.appIcon`, `os.launchIndex`, `os.goBack`, `os.setTitle`, `os.delay` |
+
+Semantics:
+
+- The gate is default-deny: only the categories in the declared list are
+  callable. `Runtime` wraps the host in a capability gate and a call outside the
+  list fails with `VmError::Host` before the host implementation runs.
+- `microc` rejects a host call outside the manifest at the call site (`MTS002`),
+  so under-declaring fails the build rather than the first launch.
+- Omitting `capabilities` or writing `capabilities: []` denies every host call.
+- The manifest is still unauthenticated: signing and install-time grants are
+  missing, so this is a correctness boundary, not yet a security boundary.
+- The gate is per category, not per function: declaring `net` permits HTTP and
+  Wi-Fi calls. Finer-grained grants are future work.
+
+All four shipped Apps declare exactly what they use: `counter`
+(`device`, `net`), `momo` (`audio`, `clock`, `config`, `json`, `kv`, `net`, `os`),
+`settings` (`audio`, `config`, `device`, `net`, `os`, `storage`) and `shell`
+(`os`).
 
 ## `clock.now(): number`
 
@@ -255,6 +298,12 @@ declare const storage: {
 | macOS (`micro-host-sdl`) | `<MICROS_HOME>/sdcard/micros/apps/<app-id>/<path>` (default `~/.micros`) |
 | ESP32 (`micro-host-esp32`) | `/sdcard/micros/apps/<app-id>/<path>` on the mounted TF card via `micro_sd` |
 
+The launcher's installable external-App directory is separate and is **not**
+reachable through `storage`: `/sdcard/apps` on ESP32,
+`<MICROS_HOME>/sdcard/apps` on macOS and `/sdcard/apps` in the Web simulator.
+Only the OS registry scan reads it. See
+[docs/external-apps.md](external-apps.md).
+
 ### Isolation contract
 
 The path is the only input, and it is always interpreted inside
@@ -343,6 +392,27 @@ literal `label`, which the Web host exposes as `role="button"` +
 
 See [ui-icons.md](ui-icons.md) for the full catalog and rendering contract.
 
+## `os.setTitle(title): void`
+
+Replaces the centred OS app-bar title for the running App (MBC v28). It only
+touches chrome: it does not mutate App state, the platform applies it after the
+current tick, and booting another App resets the bar through the normal
+`set_app_chrome` path. Use it for a profile-aware title such as
+`momo · 小墨`. Unlike other
+side-effecting calls it is allowed inside a binding, because the launch binding
+restores the title on the first frame.
+
+## Conditional visibility (`ui.show`)
+
+`ui.show(widget, visible)` stores a visibility source on any node (`visible` in
+`UiNodeSpec`, MBC v28). A bound value must be Boolean and a constant must be
+`true`/`false`; the runtime validates both. A hidden node keeps its layout slot
+but paints nothing and receives no clicks, and hiding a container hides its
+children — that is how a read-only card hides its edit form. The runtime applies
+the initial value right after creating the tree, so a form never flashes before
+its first state change, and later binding flips emit `SetVisible` patches like
+any other bound value.
+
 ## Encoding
 
 | Kind | Tag | Result |
@@ -379,8 +449,9 @@ See [ui-icons.md](ui-icons.md) for the full catalog and rendering contract.
 | `StorageRemove` | 53 | bool |
 | `StorageMkdir` | 54 | bool |
 | `StorageSize` | 55 | number |
+| `OsSetTitle` | 56 | none |
 
-`VERSION` is `26` in `crates/micro-ir/src/codec.rs`. A host request may carry up
+`VERSION` is `28` in `crates/micro-ir/src/codec.rs`. A host request may carry up
 to four typed arguments (`net.httpRequestWithHeaders` is the first to use that
 many). The compiler allow-list and arity table are in
 `crates/micro-compiler/src/parse.rs` and `crates/micro-compiler/src/lower.rs`;
