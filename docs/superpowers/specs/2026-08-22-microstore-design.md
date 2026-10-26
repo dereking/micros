@@ -4,6 +4,17 @@
 
 Give Micro Apps one host-managed storage model shaped by the ESP32's real flash layout, simulated by the PC and Web hosts, that (a) holds installed Apps as MBC blobs, (b) exposes per-App key-value data through the SDK, and (c) lets the device install and uninstall Apps over HTTP from a Store screen. The model has no traditional file paths: the App and KV stores are the two abstractions, and AppId is the only identifier that crosses the core boundary.
 
+## Implementation status
+
+The `micro-store` crate now provides the `AppStore` / `KvStore` / `ScopedKv`
+contracts and the native JSON backend. The per-App KV path is wired into all
+three hosts: native uses `NativeStore`, Web implements `ScopedKv` over
+per-key localStorage (`micro:kv:<app>:<key>`), and ESP32 implements `ScopedKv`
+over NVS (the `micro_kv` firmware component). The Runtime still exposes typed
+`kv.getNumber` / `getText` calls rather than the union `KVGet` / `KVSet`
+instructions described below; those remain future work and do not change the
+storage contract.
+
 ## Two-store contract
 
 A new `micro-store` crate defines the contract in the shape of the ESP32 flash. It has no UI, VM, or renderer dependencies.
@@ -40,7 +51,7 @@ The ESP32-S3 partition table already reserves both stores: `micro_cfg` (NVS, 64 
 | | AppStore | KvStore |
 |---|---|---|
 | ESP32 (real) | LittleFS on `micro_apps`: `<id>.mbc` files + `manifest.json` | NVS on `micro_cfg`: `nvs_open(namespace = app_id)` |
-| PC (simulator) | `~/.micrapp/apps/` directory + `manifest.json` | `~/.micrapp/kv/<namespace>.json` |
+| PC (simulator) | `~/.micros/apps/` directory + `manifest.json` | `~/.micros/kv/<namespace>.json`; config at `~/.micros/<app>/config.json` |
 | Web (simulator) | in-memory preloaded set | `localStorage` keys `micro:kv:<ns>:<key>` |
 
 PC and Web are literal simulators of the ESP contract: behavior is fixed by the trait, physical layout is host-local. `manifest.json` stores `[{ id, name, version, file }]` and is the AppStore index on both ESP32 and PC.
