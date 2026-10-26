@@ -1,0 +1,15 @@
+[package]
+name = "micro-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+# Native (macOS) transport backed by ureq + rustls. The ESP32 host uses the
+# firmware's esp_http_client instead, so this feature stays off in that build.
+native = ["dep:ureq"]
+
+[dependencies]
+serde_json.workspace = true
+ureq = { version = "3.4", optional = true }
