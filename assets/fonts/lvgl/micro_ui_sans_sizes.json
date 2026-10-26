@@ -6,41 +6,87 @@
       "size_px": 12,
       "line_height_px": 14,
       "path": "assets/fonts/lvgl/micro_ui_sans_12.c",
-      "payload_bytes": 161896,
-      "sha256": "043e8f5cd9993be90b0140ff7a938c98e2a500f265bdb470e0ef6449c62301f8"
+      "payload_bytes": 161972,
+      "sha256": "1f48fe979a46eae334c804eafed3c62065b015a99c3ef5071b725ce2fe428d80"
     },
     {
       "size_px": 14,
       "line_height_px": 18,
       "path": "assets/fonts/lvgl/micro_ui_sans_14.c",
-      "payload_bytes": 197316,
-      "sha256": "07f4cec5641c14e62831c203360a961a0d462d14e5fa4cb593533d19215ff6c3"
+      "payload_bytes": 197412,
+      "sha256": "c0afa59da6769212ced13341d441923ace91543aef14b298f63d7859f11b33c3"
     },
     {
       "size_px": 18,
       "line_height_px": 24,
       "path": "assets/fonts/lvgl/micro_ui_sans_18.c",
-      "payload_bytes": 278816,
-      "sha256": "b63ba820509c5c592c52602b569281e83ec9c63e8f02a04cca9125d47ebc6b78"
+      "payload_bytes": 278944,
+      "sha256": "8fff5267e71537e024584b1169c2548413ad4350d7da1644123154259f875c2d"
     },
     {
       "size_px": 24,
       "line_height_px": 32,
       "path": "assets/fonts/lvgl/micro_ui_sans_24.c",
-      "payload_bytes": 418968,
-      "sha256": "ca801d2c21936924916973510e5003c800a453a0ba2e2170163b10e70d084f29"
+      "payload_bytes": 419164,
+      "sha256": "061c68e0830ce49558fefcff786163ecb6370d68e310fe0d9ba1e567aa854006"
     },
     {
       "size_px": 32,
       "line_height_px": 40,
       "path": "assets/fonts/lvgl/micro_ui_sans_32.c",
-      "payload_bytes": 599544,
-      "sha256": "856095564be05091421a38723b3ec833bcd5b0ad4fe5c097322baab6d4ce2eae"
+      "payload_bytes": 599816,
+      "sha256": "cd3c37be69689e74d4f1bd7ff3a2393b1f7fe5e76ac194f033f7a4941eff780f"
     }
   ],
-  "total_payload_bytes": 1656540,
+  "ipa": {
+    "source_sha256": "76c021109ac1edf3134ea9ce3d3af9495a5fec01212892a77b315619900c6d45",
+    "bpp": 2,
+    "fonts": [
+      {
+        "size_px": 12,
+        "line_height_px": 14,
+        "path": "assets/fonts/lvgl/micro_ui_ipa_12.c",
+        "payload_bytes": 4308,
+        "sha256": "387f3c1e3a55e425d231a41294c65663cae91f842eee25d8fc1bb4dec8af528e"
+      },
+      {
+        "size_px": 14,
+        "line_height_px": 18,
+        "path": "assets/fonts/lvgl/micro_ui_ipa_14.c",
+        "payload_bytes": 4924,
+        "sha256": "b353dfa9c88de9dcfa23ff49a0497e4993d197a7a0a4a5e67dacb235fb2f64cd"
+      },
+      {
+        "size_px": 18,
+        "line_height_px": 24,
+        "path": "assets/fonts/lvgl/micro_ui_ipa_18.c",
+        "payload_bytes": 6368,
+        "sha256": "2e192f6705970bf2b938b986d51b4f82963023e64e55706078fe51dd5957b91f"
+      },
+      {
+        "size_px": 24,
+        "line_height_px": 32,
+        "path": "assets/fonts/lvgl/micro_ui_ipa_24.c",
+        "payload_bytes": 8704,
+        "sha256": "9d978479fbcf6aecad371d9776e1b079e8da8eb2dc3ac74c66e779f75df99b31"
+      },
+      {
+        "size_px": 32,
+        "line_height_px": 40,
+        "path": "assets/fonts/lvgl/micro_ui_ipa_32.c",
+        "payload_bytes": 13208,
+        "sha256": "78c541f043474d9664a25f0f9a1e0f3c8ab282397d97d0d24ca71d3244bdf27a"
+      }
+    ],
+    "total_payload_bytes": 37512,
+    "web": {
+      "path": "products/micro-web-player/public/fonts/micro-ui-ipa.woff2",
+      "sha256": "7854126383786483b150c47dcd8800438ce277f4ef0f47c998ab137bad5e467a"
+    }
+  },
+  "total_payload_bytes": 1694820,
   "web": {
     "path": "products/micro-web-player/public/fonts/micro-ui-sans-common.woff2",
-    "sha256": "7fbb3538b626c495e0d269bb7f84f418c5d1412312f129c0de87be18b1b5d2a8"
+    "sha256": "e314e987dd84cd51d48da05dc2ac8259a7d2e75edacfefac90ac1cfcd330bf72"
   }
 }

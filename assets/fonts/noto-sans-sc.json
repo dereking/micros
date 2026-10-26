@@ -12,11 +12,37 @@
   "glyph_manifest": "assets/fonts/ui-sans-common.txt",
   "generator_lock": "assets/fonts/lv-font-conv-lock.json",
   "lvgl_bpp": 2,
-  "sizes_px": [12, 14, 18, 24, 32],
-  "line_heights_px": [14, 18, 24, 32, 40],
+  "sizes_px": [
+    12,
+    14,
+    18,
+    24,
+    32
+  ],
+  "line_heights_px": [
+    14,
+    18,
+    24,
+    32,
+    40
+  ],
   "generation_tools": {
     "fonttools": "4.59.1",
     "brotli": "1.1.0",
     "lv_font_conv": "1.5.3"
+  },
+  "ipa": {
+    "family": "Noto Sans",
+    "postscript_name": "NotoSans-Regular",
+    "weight": 400,
+    "version": "2.015",
+    "license": "SIL Open Font License 1.1",
+    "license_url": "https://raw.githubusercontent.com/notofonts/latin-greek-cyrillic/NotoSans-v2.015/OFL.txt",
+    "license_file": "assets/fonts/OFL-1.1-NotoSans.txt",
+    "license_sha256": "cee9892f9f0cc8fe882c9e9537ee6a89621d86ee7ceaf70b02e2b2b1c25c061a",
+    "source_url": "https://github.com/notofonts/latin-greek-cyrillic/releases/download/NotoSans-v2.015/NotoSans-v2.015.zip",
+    "source_archive_sha256": "0c34df072a3fa7efbb7cbf34950e1f971a4447cffe365d3a359e2d4089b958f5",
+    "source_member": "NotoSans/full/otf/NotoSans-Regular.otf",
+    "source_sha256": "76c021109ac1edf3134ea9ce3d3af9495a5fec01212892a77b315619900c6d45"
   }
 }
