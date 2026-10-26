@@ -1,273 +1,350 @@
-/* Minimal async HTTP over the connected STA link, using a raw lwip socket
- * (HTTP/1.0, http:// only). This is deliberately NOT esp_http_client: that
- * component pulls esp-tls/mbedtls into the image, which the ~330 KB of free app
- * partition cannot afford. Any method (GET/POST/PUT/DELETE/HEAD/…) with an
- * optional body is supported. The request runs on its own FreeRTOS task so the
- * LVGL task never blocks; the result is parked in shared state and consumed
- * once by the app host (micro_http_take_result), mirroring the scan bridge.
+/* Blocking HTTP/HTTPS client for the App `net.*` host calls.
  *
- * Threading: the shared s_method / s_url / s_body / s_busy / s_ready / s_result
- * are written by the http task (or micro_http_request on the caller task) and
- * read by the LVGL task, so every access is under s_lock. One request at a
- * time; a second request while one is in flight is rejected.
+ * This uses IDF's esp_http_client instead of a raw lwip socket:
+ *   - HTTPS with the configured mbedTLS certificate bundle,
+ *   - arbitrary request headers (Authorization, Accept, Content-Type, ...),
+ *   - redirects and chunked transfer encoding handled by IDF,
+ *   - 4xx/5xx response bodies preserved for the App's error UI.
+ *
+ * One request runs synchronously on the caller's worker task. The Rust host
+ * owns the async boundary (`std::thread` + mpsc), so this file has no shared
+ * global state and no request slot to go stale after a failed handshake.
+ *
+ * Memory: the response is heap-allocated and returned to Rust, which copies it
+ * into a String and calls micro_http_free(). Request buffers are borrowed from
+ * the caller and stay valid for the duration of the call.
  */
 
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <sys/time.h>
+#include <strings.h>
 
+#include "esp_crt_bundle.h"
+#include "esp_err.h"
+#include "esp_http_client.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "lwip/err.h"
-#include "lwip/netdb.h"
-#include "lwip/sockets.h"
 
 #include "micro_http.h"
 
 static const char *TAG = "micro_http";
 
-#define MICRO_HTTP_METHOD_CAP 16U
-#define MICRO_HTTP_URL_CAP 128U
-#define MICRO_HTTP_BODY_CAP 256U
-#define MICRO_HTTP_RESULT_CAP 512U
-#define MICRO_HTTP_RAW_CAP 1024U
-#define MICRO_HTTP_TASK_STACK 8192U
-#define MICRO_HTTP_TIMEOUT_MS 8000U
+#define MICRO_HTTP_MAX_METHOD 16U
+#define MICRO_HTTP_MAX_URL 4096U
+#define MICRO_HTTP_MAX_HEADER_NAME 64U
+#define MICRO_HTTP_MAX_HEADER_VALUE 1024U
+#define MICRO_HTTP_MAX_BODY (64U * 1024U)
+#define MICRO_HTTP_MAX_RESPONSE (96U * 1024U)
+#define MICRO_HTTP_TIMEOUT_MS 20000
 
-static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
-static char s_method[MICRO_HTTP_METHOD_CAP];
-static char s_url[MICRO_HTTP_URL_CAP];
-static char s_body[MICRO_HTTP_BODY_CAP];
-static bool s_busy;
-static bool s_ready;
-static char s_result[MICRO_HTTP_RESULT_CAP];
-
-/* Split "http://host[:port][/path]" into host / port / path. Returns -1 on a
- * malformed URL; on success host and path are NUL-terminated in the buffers. */
-static int parse_url(const char *url, char *host, size_t host_cap,
-                     int *port, char *path, size_t path_cap)
+/* Builds an error body and installs it as the response. Returns 0 so callers
+ * can `return failf(...)` directly, or -1 when even the message cannot be
+ * allocated. */
+static int failf(int *status, char **response, size_t *response_len,
+                 const char *format, ...)
 {
-    const char *p = url;
-    if (strncmp(p, "http://", 7) == 0) {
-        p += 7;
+    char stack[256];
+    va_list args;
+    va_list copy;
+    va_start(args, format);
+    va_copy(copy, args);
+    int written = vsnprintf(stack, sizeof stack, format, args);
+    va_end(args);
+
+    char *message = NULL;
+    if (written >= 0 && (size_t)written < sizeof stack) {
+        message = strdup(stack);
+    } else if (written >= 0) {
+        message = malloc((size_t)written + 1);
+        if (message != NULL) {
+            vsnprintf(message, (size_t)written + 1, format, copy);
+        }
     }
-    const char *slash = strchr(p, '/');
-    const char *host_end = slash != NULL ? slash : p + strlen(p);
-    size_t host_len = (size_t)(host_end - p);
-    if (host_len == 0 || host_len >= host_cap) {
+    va_end(copy);
+
+    if (message == NULL) {
+        *status = 0;
+        *response = NULL;
+        *response_len = 0;
         return -1;
     }
-    memcpy(host, p, host_len);
-    host[host_len] = '\0';
+    *status = 0;
+    *response = message;
+    *response_len = strlen(message);
+    return 0;
+}
 
-    *port = 80;
-    char *colon = strchr(host, ':');
-    if (colon != NULL) {
-        *colon = '\0';
-        char *end = NULL;
-        long parsed = strtol(colon + 1, &end, 10);
-        if (end == colon + 1 || *end != '\0' || parsed <= 0 || parsed > 65535) {
+static bool token_byte(unsigned char byte)
+{
+    return (byte >= '0' && byte <= '9') || (byte >= 'A' && byte <= 'Z') ||
+           (byte >= 'a' && byte <= 'z') ||
+           (byte != 0 && strchr("!#$%&'*+-.^_`|~", (int)byte) != NULL);
+}
+
+static bool managed_header(const char *name)
+{
+    static const char *const managed[] = {
+        "host", "content-length", "connection", "transfer-encoding",
+        "expect", "upgrade", "proxy-connection", "te", "trailer",
+    };
+    for (size_t i = 0; i < sizeof managed / sizeof managed[0]; ++i) {
+        if (strcasecmp(name, managed[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool method_from_token(const char *method, size_t len,
+                              esp_http_client_method_t *out)
+{
+#define MICRO_METHOD(name, value)                                            \
+    if (len == sizeof(name) - 1 && memcmp(method, name, len) == 0) {         \
+        *out = value;                                                        \
+        return true;                                                         \
+    }
+    MICRO_METHOD("GET", HTTP_METHOD_GET)
+    MICRO_METHOD("POST", HTTP_METHOD_POST)
+    MICRO_METHOD("PUT", HTTP_METHOD_PUT)
+    MICRO_METHOD("PATCH", HTTP_METHOD_PATCH)
+    MICRO_METHOD("DELETE", HTTP_METHOD_DELETE)
+    MICRO_METHOD("HEAD", HTTP_METHOD_HEAD)
+    MICRO_METHOD("OPTIONS", HTTP_METHOD_OPTIONS)
+#undef MICRO_METHOD
+    return false;
+}
+
+/* Applies a newline-delimited header block through esp_http_client_set_header.
+ * The IDF copies both strings, so the stack buffers can be reused per line. */
+static int apply_headers(esp_http_client_handle_t client, const char *headers,
+                         size_t headers_len)
+{
+    const char *cursor = headers;
+    const char *end = headers + headers_len;
+    while (cursor < end) {
+        const char *newline = memchr(cursor, '\n', (size_t)(end - cursor));
+        size_t line_len = newline != NULL ? (size_t)(newline - cursor)
+                                          : (size_t)(end - cursor);
+        if (line_len > 0 && cursor[line_len - 1] == '\r') {
+            line_len--;
+        }
+        while (line_len > 0 && (cursor[0] == ' ' || cursor[0] == '\t')) {
+            cursor++;
+            line_len--;
+        }
+        while (line_len > 0 &&
+               (cursor[line_len - 1] == ' ' || cursor[line_len - 1] == '\t')) {
+            line_len--;
+        }
+        if (line_len == 0) {
+            cursor = newline != NULL ? newline + 1 : end;
+            continue;
+        }
+
+        const char *colon = memchr(cursor, ':', line_len);
+        if (colon == NULL) {
+            ESP_LOGW(TAG, "header line without a colon");
             return -1;
         }
-        *port = (int)parsed;
-    }
-
-    if (slash != NULL) {
-        strncpy(path, slash, path_cap - 1);
-        path[path_cap - 1] = '\0';
-    } else {
-        strcpy(path, "/");
-    }
-    return 0;
-}
-
-static void micro_http_task(void *arg)
-{
-    (void)arg;
-    char method[MICRO_HTTP_METHOD_CAP];
-    char url[MICRO_HTTP_URL_CAP];
-    char body[MICRO_HTTP_BODY_CAP];
-    portENTER_CRITICAL(&s_lock);
-    memcpy(method, s_method, sizeof method);
-    memcpy(url, s_url, sizeof url);
-    memcpy(body, s_body, sizeof body);
-    portEXIT_CRITICAL(&s_lock);
-
-    char result[MICRO_HTTP_RESULT_CAP];
-    size_t used = 0;
-
-    /* Reject anything that is not an uppercase token: blocks header injection
-     * through the method string while allowing GET/POST/PUT/DELETE/HEAD/… */
-    size_t method_len = strlen(method);
-    if (method_len == 0 ||
-        strspn(method, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") != method_len) {
-        used = (size_t)snprintf(result, sizeof result, "HTTP 0\nbad method: %s", method);
-        goto done;
-    }
-    size_t body_len = strlen(body);
-
-    char host[64];
-    char path[96];
-    int port = 80;
-    if (parse_url(url, host, sizeof host, &port, path, sizeof path) != 0) {
-        used = (size_t)snprintf(result, sizeof result, "HTTP 0\nbad URL: %s", url);
-        goto done;
-    }
-
-    struct hostent *entry = gethostbyname(host);
-    if (entry == NULL) {
-        used = (size_t)snprintf(result, sizeof result, "HTTP 0\nDNS failed for %s", host);
-        goto done;
-    }
-
-    int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (fd < 0) {
-        used = (size_t)snprintf(result, sizeof result, "HTTP 0\nsocket failed");
-        goto done;
-    }
-    struct timeval timeout = {.tv_sec = MICRO_HTTP_TIMEOUT_MS / 1000,
-                              .tv_usec = (MICRO_HTTP_TIMEOUT_MS % 1000) * 1000};
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout);
-
-    struct sockaddr_in addr = {0};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((u16_t)port);
-    memcpy(&addr.sin_addr, entry->h_addr_list[0], entry->h_length);
-    if (connect(fd, (struct sockaddr *)&addr, sizeof addr) != 0) {
-        used = (size_t)snprintf(result, sizeof result,
-                                "HTTP 0\nconnect %s:%d failed", host, port);
-        close(fd);
-        goto done;
-    }
-
-    /* Send the request head (method line + Host + optional Content-Length), then
-     * the body separately so it never overflows a fixed request buffer. */
-    char content_length[24] = "";
-    if (body_len > 0) {
-        snprintf(content_length, sizeof content_length, "Content-Length: %zu\r\n", body_len);
-    }
-    char head[256];
-    int head_len = snprintf(head, sizeof head,
-                            "%s %s HTTP/1.0\r\nHost: %s\r\n%s"
-                            "Connection: close\r\n\r\n",
-                            method, path, host, content_length);
-    if (head_len <= 0 || send(fd, head, (size_t)head_len, 0) != head_len ||
-        (body_len > 0 && send(fd, body, body_len, 0) != (ssize_t)body_len)) {
-        used = (size_t)snprintf(result, sizeof result, "HTTP 0\nsend failed");
-        close(fd);
-        goto done;
-    }
-
-    /* Read the whole (bounded) response, then split status line / body. */
-    char raw[MICRO_HTTP_RAW_CAP];
-    size_t raw_used = 0;
-    ssize_t got;
-    while (raw_used + 1 < sizeof raw &&
-           (got = recv(fd, raw + raw_used, sizeof raw - raw_used - 1, 0)) > 0) {
-        raw_used += (size_t)got;
-    }
-    raw[raw_used] = '\0';
-    close(fd);
-
-    if (raw_used == 0) {
-        used = (size_t)snprintf(result, sizeof result, "HTTP 0\nno response");
-        goto done;
-    }
-    int status = 0;
-    if (sscanf(raw, "HTTP/%*d.%*d %d", &status) != 1) {
-        status = 0;
-    }
-    const char *body_out = strstr(raw, "\r\n\r\n");
-    if (body_out == NULL) {
-        body_out = strstr(raw, "\n\n");
-        body_out = body_out != NULL ? body_out + 2 : NULL;
-    } else {
-        body_out += 4;
-    }
-    if (body_out == NULL) {
-        body_out = raw;
-    }
-    used = (size_t)snprintf(result, sizeof result, "HTTP %d\n%s", status, body_out);
-    if (used >= sizeof result) {
-        used = sizeof result - 1;
-    }
-
-done:
-    portENTER_CRITICAL(&s_lock);
-    memcpy(s_result, result, used);
-    s_result[used] = '\0';
-    s_ready = true;
-    s_busy = false;
-    portEXIT_CRITICAL(&s_lock);
-    vTaskDelete(NULL);
-}
-
-static int spawn_request(const char *method, size_t method_len,
-                         const char *url, size_t url_len,
-                         const char *body, size_t body_len)
-{
-    if (method == NULL || method_len == 0 || method_len >= MICRO_HTTP_METHOD_CAP ||
-        url == NULL || url_len == 0 || url_len >= MICRO_HTTP_URL_CAP ||
-        (body_len > 0 && (body == NULL || body_len >= MICRO_HTTP_BODY_CAP))) {
-        return -1;
-    }
-    portENTER_CRITICAL(&s_lock);
-    bool busy = s_busy;
-    if (!busy) {
-        memcpy(s_method, method, method_len);
-        s_method[method_len] = '\0';
-        memcpy(s_url, url, url_len);
-        s_url[url_len] = '\0';
-        if (body_len > 0) {
-            memcpy(s_body, body, body_len);
+        size_t name_len = (size_t)(colon - cursor);
+        while (name_len > 0 &&
+               (cursor[name_len - 1] == ' ' || cursor[name_len - 1] == '\t')) {
+            name_len--;
         }
-        s_body[body_len] = '\0';
-        s_busy = true;
-    }
-    portEXIT_CRITICAL(&s_lock);
-    if (busy) {
-        ESP_LOGW(TAG, "request already in flight; rejected %s", url);
-        return -1;
-    }
-    if (xTaskCreate(micro_http_task, "micro_http", MICRO_HTTP_TASK_STACK, NULL, 5,
-                    NULL) != pdPASS) {
-        portENTER_CRITICAL(&s_lock);
-        s_busy = false;
-        portEXIT_CRITICAL(&s_lock);
-        ESP_LOGE(TAG, "cannot spawn http task");
-        return -1;
+        const char *value = colon + 1;
+        size_t value_len = line_len - (size_t)(value - cursor);
+        while (value_len > 0 && (value[0] == ' ' || value[0] == '\t')) {
+            value++;
+            value_len--;
+        }
+
+        if (name_len == 0 || name_len >= MICRO_HTTP_MAX_HEADER_NAME ||
+            value_len >= MICRO_HTTP_MAX_HEADER_VALUE) {
+            ESP_LOGW(TAG, "header name/value is out of range");
+            return -1;
+        }
+        for (size_t i = 0; i < name_len; ++i) {
+            if (!token_byte((unsigned char)cursor[i])) {
+                ESP_LOGW(TAG, "invalid header name");
+                return -1;
+            }
+        }
+        for (size_t i = 0; i < value_len; ++i) {
+            unsigned char byte = (unsigned char)value[i];
+            if (byte == '\r' || byte == '\n' || byte == '\0' || byte == 0x7f) {
+                ESP_LOGW(TAG, "invalid header value");
+                return -1;
+            }
+        }
+
+        char name[MICRO_HTTP_MAX_HEADER_NAME];
+        char text[MICRO_HTTP_MAX_HEADER_VALUE];
+        memcpy(name, cursor, name_len);
+        name[name_len] = '\0';
+        memcpy(text, value, value_len);
+        text[value_len] = '\0';
+        if (managed_header(name)) {
+            ESP_LOGW(TAG, "transport-owned header rejected: %s", name);
+            return -1;
+        }
+        if (esp_http_client_set_header(client, name, text) != ESP_OK) {
+            ESP_LOGW(TAG, "cannot set header %s", name);
+            return -1;
+        }
+        cursor = newline != NULL ? newline + 1 : end;
     }
     return 0;
 }
 
-int micro_http_get(const char *url, size_t len)
+/* Reads the complete response body into a heap buffer. esp_http_client has
+ * already parsed framing (chunked/content-length) in esp_http_client_perform,
+ * so a 0-byte read means the message is complete. */
+static int read_response(esp_http_client_handle_t client, bool body_expected,
+                         int *status, char **response, size_t *response_len)
 {
-    return spawn_request("GET", 3, url, len, "", 0);
+    size_t capacity = 8192;
+    size_t used = 0;
+    char *buffer = malloc(capacity);
+    if (buffer == NULL) {
+        return failf(status, response, response_len, "out of memory");
+    }
+
+    for (;;) {
+        if (used + 1 >= capacity) {
+            if (capacity >= MICRO_HTTP_MAX_RESPONSE) {
+                free(buffer);
+                return failf(status, response, response_len,
+                             "response exceeds %u bytes", MICRO_HTTP_MAX_RESPONSE);
+            }
+            size_t next = capacity * 2;
+            if (next > MICRO_HTTP_MAX_RESPONSE) {
+                next = MICRO_HTTP_MAX_RESPONSE;
+            }
+            char *grown = realloc(buffer, next);
+            if (grown == NULL) {
+                free(buffer);
+                return failf(status, response, response_len, "out of memory");
+            }
+            buffer = grown;
+            capacity = next;
+        }
+
+        int read = esp_http_client_read(client, buffer + used,
+                                        (int)(capacity - used - 1));
+        if (read < 0) {
+            free(buffer);
+            return failf(status, response, response_len, "response read failed");
+        }
+        if (read == 0) {
+            /* HEAD (and 204/304) legitimately carry no body even when the
+             * headers advertise a Content-Length. */
+            if (body_expected && !esp_http_client_is_complete_data_received(client)) {
+                free(buffer);
+                return failf(status, response, response_len,
+                             "incomplete HTTP response");
+            }
+            break;
+        }
+        used += (size_t)read;
+    }
+
+    buffer[used] = '\0';
+    *status = esp_http_client_get_status_code(client);
+    *response = buffer;
+    *response_len = used;
+    return 0;
 }
 
 int micro_http_request(const char *method, size_t method_len,
                        const char *url, size_t url_len,
-                       const char *body, size_t body_len)
+                       const char *headers, size_t headers_len,
+                       const char *body, size_t body_len,
+                       int *status, char **response, size_t *response_len)
 {
-    return spawn_request(method, method_len, url, url_len, body, body_len);
-}
-
-int micro_http_take_result(char *buf, size_t cap)
-{
-    if (buf == NULL || cap == 0) {
+    if (status == NULL || response == NULL || response_len == NULL) {
         return -1;
     }
-    buf[0] = '\0';
-    portENTER_CRITICAL(&s_lock);
-    bool fresh = s_ready;
-    if (fresh) {
-        s_ready = false;
-        strncpy(buf, s_result, cap - 1);
-        buf[cap - 1] = '\0';
+    *status = 0;
+    *response = NULL;
+    *response_len = 0;
+
+    if (method == NULL || method_len == 0 || method_len > MICRO_HTTP_MAX_METHOD ||
+        url == NULL || url_len == 0 || url_len > MICRO_HTTP_MAX_URL ||
+        (headers_len > 0 && headers == NULL) ||
+        (body_len > 0 && body == NULL) || body_len > MICRO_HTTP_MAX_BODY) {
+        return failf(status, response, response_len, "invalid HTTP request");
     }
-    portEXIT_CRITICAL(&s_lock);
-    return fresh ? 1 : 0;
+
+    esp_http_client_method_t method_id;
+    if (!method_from_token(method, method_len, &method_id)) {
+        return failf(status, response, response_len,
+                     "unsupported HTTP method: %.*s", (int)method_len, method);
+    }
+
+    char *url_text = malloc(url_len + 1);
+    if (url_text == NULL) {
+        return failf(status, response, response_len, "out of memory");
+    }
+    memcpy(url_text, url, url_len);
+    url_text[url_len] = '\0';
+
+    esp_http_client_config_t config = {0};
+    config.url = url_text;
+    config.method = method_id;
+    config.timeout_ms = MICRO_HTTP_TIMEOUT_MS;
+    config.buffer_size = 4096;
+    config.buffer_size_tx = 1024;
+    config.keep_alive_enable = false;
+    config.disable_auto_redirect = false;
+    config.user_agent = "micros-os/1.0";
+#if defined(CONFIG_MBEDTLS_CERTIFICATE_BUNDLE)
+    config.crt_bundle_attach = esp_crt_bundle_attach;
+#endif
+
+    int result = -1;
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (client == NULL) {
+        result = failf(status, response, response_len,
+                       "cannot create HTTP client");
+        free(url_text);
+        return result;
+    }
+
+    if (headers_len > 0 && apply_headers(client, headers, headers_len) != 0) {
+        result = failf(status, response, response_len, "invalid header block");
+        goto done;
+    }
+    if (body_len > 0) {
+        esp_err_t set = esp_http_client_set_post_field(client, body, (int)body_len);
+        if (set != ESP_OK) {
+            result = failf(status, response, response_len,
+                           "cannot attach request body: %s", esp_err_to_name(set));
+            goto done;
+        }
+    }
+
+    esp_err_t performed = esp_http_client_perform(client);
+    if (performed != ESP_OK) {
+        result = failf(status, response, response_len,
+                       "HTTP transport error: %s", esp_err_to_name(performed));
+        goto done;
+    }
+    result = read_response(client, method_id != HTTP_METHOD_HEAD, status, response,
+                           response_len);
+    if (result == 0) {
+        ESP_LOGD(TAG, "%s %s -> %d", method, url_text, *status);
+    }
+
+done:
+    esp_http_client_cleanup(client);
+    free(url_text);
+    return result;
+}
+
+void micro_http_free(char *response)
+{
+    free(response);
 }

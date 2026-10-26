@@ -10,6 +10,22 @@ idf_build_set_property(COMPILE_DEFINITIONS "-DLV_USE_STDLIB_MALLOC=1" APPEND)
 
 project(micro_os_esp32)
 
+# The Rust host's native text-style table references the C font objects. After
+# micro_sd made the BSP a transitive dependency, the BSP archive is scanned
+# before the Rust archive, so those members are not pulled by archive order.
+# Keep the symbols live explicitly; --undefined makes the linker pull the font
+# members regardless of component order.
+idf_build_get_property(project_elf EXECUTABLE)
+target_link_options(${project_elf} PRIVATE
+  "-Wl,--undefined=micro_ui_sans_12"
+  "-Wl,--undefined=micro_ui_sans_32"
+  # Rust's std and mbedTLS reference POSIX directory functions. newlib's
+  # libnosys provides stubs for them, while newlib/realpath.c also defines
+  # getcwd/chdir; with VFS directory support disabled the only remaining
+  # duplicates are these harmless newlib/libnosys stubs. The first definition
+  # (newlib) wins.
+  "-Wl,--allow-multiple-definition")
+
 # A successful final ELF link is the commit point for Rust ABI evidence. This
 # must be attached after project(), because ESP-IDF creates and publishes the
 # application ELF target only after processing all component CMake files.

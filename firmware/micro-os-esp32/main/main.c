@@ -17,6 +17,9 @@
 #include "lvgl.h"
 
 #include "micro_bsp_lcd7.h"
+#include "micro_clock.h"
+#include "micro_kv.h"
+#include "micro_sd.h"
 #include "micro_runtime_ffi.h"
 #include "micro_wifi.h"
 
@@ -59,9 +62,9 @@ static const esp_partition_t *s_partition;
 static micro_runtime_t *s_runtime;
 static bool s_is_shell;
 static char s_runtime_error[MICRO_RUNTIME_ERROR_BUFFER_SIZE];
-/* Last Wi-Fi radio state seen by the tick loop; when it changes, the shell's
- * signal-bar bindings are re-evaluated (they bind `net.wifiState()` once at
- * mount and only re-run when a state they read changes). */
+/* Last Wi-Fi radio state seen by the tick loop; when it changes, the running
+ * App's bindings are re-evaluated (they bind `net.wifiState()` once at mount
+ * and only re-run when a state they read changes). */
 static char s_last_wifi_state[MICRO_WIFI_STATE_CAP];
 
 static micro_action_t s_actions[MICRO_OS_MAX_ACTIONS];
@@ -186,7 +189,7 @@ static void micro_app_scan(void)
             entry->icon[0] = (char)('A' + s_app_count % 26);
         }
         heap_caps_free(mbc);
-        ESP_LOGI(TAG, "scanned MBC[%u] %s (%s) @ 0x%" PRIx32 " (%" PRIu32 " B)",
+        ESP_LOGI(TAG, "scanned MBC[%" PRIu32 "] %s (%s) @ 0x%" PRIx32 " (%" PRIu32 " B)",
                  s_app_count, entry->id, entry->name, offset, total);
         offset += total;
         s_app_count += 1;
@@ -226,6 +229,11 @@ static int micro_runtime_boot_index(uint32_t registry_index)
         heap_caps_free(mbc);
         return -1;
     }
+    /* Every runtime — the shell home screen included — gets the default OS app
+     * bar with the live clock/Wi-Fi and a close control; the App title is the
+     * MBC's display name ("Home" for the shell). Set this before creating the
+     * Runtime so its root layout uses the inset content height. */
+    micro_esp_ui_set_app_chrome(1, entry->name);
     micro_runtime_t *runtime = micro_runtime_create(
         mbc, entry->len, MICRO_RUNTIME_EVENT_BUDGET, s_runtime_error,
         sizeof s_runtime_error);
@@ -425,9 +433,10 @@ static bool micro_boot_button_back_pressed(void)
 }
 
 /* The Wi-Fi radio reaches its live state asynchronously (the wifi task writes
- * it in the event handler), so the shell's signal-bar bindings would otherwise
- * stay frozen at whatever the radio reported at mount. On each transition,
- * re-evaluate every binding; the runtime only patches the ones that changed. */
+ * it in the event handler), so an App's Wi-Fi bindings would otherwise stay
+ * frozen at whatever the radio reported at mount. On each transition,
+ * re-evaluate every binding; the runtime only patches the ones that changed.
+ * (The OS app bar's Wi-Fi icon is updated separately from the same state.) */
 static void micro_os_sync_wifi_state(void)
 {
     if (s_runtime == NULL) {
@@ -451,11 +460,43 @@ static void micro_os_tick_cb(lv_timer_t *timer)
 {
     (void)timer;
 
+    /* Powered off: the LVGL timer still runs so the off surface can receive
+     * taps, but the shell/app runtime is not ticked and Wi-Fi state is frozen.
+     * A tap (or the BOOT button) boots a fresh Home. */
+    if (micro_esp_ui_power_off_active()) {
+        if (micro_esp_ui_take_power_on() || micro_boot_button_back_pressed()) {
+            ESP_LOGI(TAG, "power on: booting the shell");
+            micro_esp_ui_wake();
+            micro_runtime_boot_shell();
+        }
+        return;
+    }
+
     micro_os_drain_host_intents();
 
     micro_os_sync_wifi_state();
 
+    /* Keep the app bar's Wi-Fi icon and SSID tooltip live; the shared bar
+     * caches the tooltip text so this is a cheap string compare on every tick. */
+    {
+        char wifi_state[MICRO_WIFI_STATE_CAP] = {0};
+        char wifi_ssid[33] = {0};
+        micro_esp_host_wifi_state(wifi_state, sizeof wifi_state);
+        micro_esp_host_wifi_ssid(wifi_ssid, sizeof wifi_ssid);
+        micro_esp_ui_set_app_wifi(wifi_state, wifi_ssid);
+    }
+
     micro_os_swipe_tick();
+
+    if (micro_esp_ui_take_appbar_back()) {
+        if (s_is_shell) {
+            ESP_LOGI(TAG, "app bar close: powering off");
+            micro_esp_ui_power_off();
+        } else {
+            ESP_LOGI(TAG, "app bar close: returning to shell");
+            micro_runtime_boot_shell();
+        }
+    }
 
     if (micro_boot_button_back_pressed()) {
         if (!s_is_shell) {
@@ -512,6 +553,13 @@ void app_main(void)
         abort();
     }
 
+    /* The TF card is optional: a missing card must not stop the OS from
+     * booting. `storage.available()` reports the mount result to Apps. */
+    result = micro_sd_init();
+    if (result != ESP_OK) {
+        ESP_LOGW(TAG, "external storage unavailable: %s", esp_err_to_name(result));
+    }
+
     if (!lvgl_port_lock(0)) {
         ESP_LOGE(TAG, "could not lock LVGL for health screen");
         abort();
@@ -545,6 +593,8 @@ void app_main(void)
     /* Bring up the STA radio (default NVS, netif, event loop). A network
      * persisted by a previous connect auto-reconnects from this point. */
     micro_wifi_init();
+    micro_kv_init();
+    micro_clock_init();
 
     s_os = micro_os_create();
     if (s_os == NULL) {

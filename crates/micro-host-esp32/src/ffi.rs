@@ -13,11 +13,15 @@ unsafe extern "C" {
     fn micro_esp_ui_create_column(node: u32, parent: u32) -> c_int;
     fn micro_esp_ui_create_row(node: u32, parent: u32) -> c_int;
     fn micro_esp_ui_create_list(node: u32, parent: u32) -> c_int;
-    fn micro_esp_ui_create_tabview(node: u32, parent: u32, titles: *const u8, titles_len: usize) -> c_int;
+    fn micro_esp_ui_create_tabview(
+        node: u32,
+        parent: u32,
+        titles: *const u8,
+        titles_len: usize,
+    ) -> c_int;
     fn micro_esp_ui_create_tab_content(index: u32) -> c_int;
     fn micro_esp_ui_create_progress(node: u32, parent: u32, fraction: f64) -> c_int;
-    fn micro_esp_ui_create_switch(node: u32, parent: u32, checked: c_int, handler: u32)
-        -> c_int;
+    fn micro_esp_ui_create_switch(node: u32, parent: u32, checked: c_int, handler: u32) -> c_int;
     fn micro_esp_ui_create_label(
         node: u32,
         parent: u32,
@@ -34,8 +38,22 @@ unsafe extern "C" {
         handler: u32,
         font_handle: usize,
         line_height_px: u32,
+        selected: c_int,
     ) -> c_int;
     fn micro_esp_ui_set_label_text(node: u32, text: *const u8, len: usize) -> c_int;
+    fn micro_esp_ui_create_icon(
+        node: u32,
+        parent: u32,
+        glyph: *const u8,
+        glyph_len: usize,
+        size_px: u32,
+        tone: *const u8,
+        tone_len: usize,
+        variant: *const u8,
+        variant_len: usize,
+        handler: u32,
+    ) -> c_int;
+    fn micro_esp_ui_set_icon(node: u32, glyph: *const u8, len: usize) -> c_int;
     fn micro_esp_ui_set_progress_value(node: u32, fraction: f64) -> c_int;
     fn micro_esp_ui_set_switch_checked(node: u32, checked: c_int) -> c_int;
     fn micro_esp_ui_create_input(
@@ -163,9 +181,7 @@ impl NativeUi for EspNativeUi {
         parent: Option<NodeId>,
         fraction: f64,
     ) -> Result<(), String> {
-        native_result(unsafe {
-            micro_esp_ui_create_progress(node.0, parent_id(parent), fraction)
-        })
+        native_result(unsafe { micro_esp_ui_create_progress(node.0, parent_id(parent), fraction) })
     }
 
     fn create_switch(
@@ -190,9 +206,7 @@ impl NativeUi for EspNativeUi {
     }
 
     fn set_switch_checked(&mut self, node: NodeId, checked: bool) -> Result<(), String> {
-        native_result(unsafe {
-            micro_esp_ui_set_switch_checked(node.0, c_int::from(checked))
-        })
+        native_result(unsafe { micro_esp_ui_set_switch_checked(node.0, c_int::from(checked)) })
     }
 
     fn create_label(
@@ -223,17 +237,20 @@ impl NativeUi for EspNativeUi {
         text: &str,
         handler: FunctionId,
         style: Option<&TextStyle>,
+        variant: Option<&str>,
     ) -> Result<(), String> {
+        let selected = i32::from(variant == Some("selected"));
         let result =
-            call_with_native_text_style(style, AVAILABLE_NATIVE_FONTS, |selected| unsafe {
+            call_with_native_text_style(style, AVAILABLE_NATIVE_FONTS, |selected_style| unsafe {
                 micro_esp_ui_create_button(
                     node.0,
                     parent_id(parent),
                     text.as_ptr(),
                     text.len(),
                     handler.0,
-                    selected.font_handle.0 as usize,
-                    selected.line_height_px,
+                    selected_style.font_handle.0 as usize,
+                    selected_style.line_height_px,
+                    selected,
                 )
             })?;
         native_result(result)
@@ -241,6 +258,36 @@ impl NativeUi for EspNativeUi {
 
     fn set_label_text(&mut self, node: NodeId, text: &str) -> Result<(), String> {
         native_result(unsafe { micro_esp_ui_set_label_text(node.0, text.as_ptr(), text.len()) })
+    }
+
+    fn create_icon(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        glyph: &str,
+        size_px: u8,
+        tone: &str,
+        variant: &str,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        native_result(unsafe {
+            micro_esp_ui_create_icon(
+                node.0,
+                parent_id(parent),
+                glyph.as_ptr(),
+                glyph.len(),
+                u32::from(size_px),
+                tone.as_ptr(),
+                tone.len(),
+                variant.as_ptr(),
+                variant.len(),
+                handler.map_or(u32::MAX, |handler| handler.0),
+            )
+        })
+    }
+
+    fn set_icon(&mut self, node: NodeId, glyph: &str) -> Result<(), String> {
+        native_result(unsafe { micro_esp_ui_set_icon(node.0, glyph.as_ptr(), glyph.len()) })
     }
 
     fn create_input(
@@ -380,7 +427,9 @@ impl NativeUi for EspNativeUi {
     }
 
     fn create_led(&mut self, node: NodeId, parent: Option<NodeId>, on: bool) -> Result<(), String> {
-        native_result(unsafe { micro_esp_ui_create_led(node.0, parent_id(parent), c_int::from(on)) })
+        native_result(unsafe {
+            micro_esp_ui_create_led(node.0, parent_id(parent), c_int::from(on))
+        })
     }
 
     fn set_led(&mut self, node: NodeId, on: bool) -> Result<(), String> {
@@ -578,12 +627,9 @@ pub unsafe extern "C" fn micro_runtime_create(
         return ptr::null_mut();
     }
     owned.extend_from_slice(unsafe { std::slice::from_raw_parts(mbc, length) });
-    match RuntimeHost::from_owned_mbc_with_host(
-        owned,
-        EspNativeUi,
-        budget,
-        Box::new(crate::host::EspHost::new()),
-    ) {
+    match RuntimeHost::from_owned_mbc_with_host_factory(owned, EspNativeUi, budget, |metadata| {
+        Box::new(crate::host::EspHost::new_for_app(&metadata.id))
+    }) {
         Ok(runtime) => Box::into_raw(Box::new(runtime)).cast(),
         Err(runtime_error) => {
             write_diagnostic(error, error_length, &runtime_error.to_string());
@@ -682,9 +728,7 @@ pub unsafe extern "C" fn micro_runtime_tick(
         let mut value = 0.0_f64;
         match unsafe { micro_esp_ui_take_slider_change(&raw mut handler, &raw mut value) } {
             1 => {
-                if let Err(runtime_error) =
-                    runtime.set_slider_value(FunctionId(handler), value)
-                {
+                if let Err(runtime_error) = runtime.set_slider_value(FunctionId(handler), value) {
                     return report(runtime_error, error, error_length);
                 }
             }
@@ -730,9 +774,7 @@ pub unsafe extern "C" fn micro_runtime_tick(
         let mut index = 0.0_f64;
         match unsafe { micro_esp_ui_take_dropdown_change(&raw mut handler, &raw mut index) } {
             1 => {
-                if let Err(runtime_error) =
-                    runtime.set_selection(FunctionId(handler), index)
-                {
+                if let Err(runtime_error) = runtime.set_selection(FunctionId(handler), index) {
                     return report(runtime_error, error, error_length);
                 }
             }
@@ -754,9 +796,7 @@ pub unsafe extern "C" fn micro_runtime_tick(
         let mut index = 0.0_f64;
         match unsafe { micro_esp_ui_take_roller_change(&raw mut handler, &raw mut index) } {
             1 => {
-                if let Err(runtime_error) =
-                    runtime.set_selection(FunctionId(handler), index)
-                {
+                if let Err(runtime_error) = runtime.set_selection(FunctionId(handler), index) {
                     return report(runtime_error, error, error_length);
                 }
             }

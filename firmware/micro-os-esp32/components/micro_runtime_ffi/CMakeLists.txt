@@ -6,15 +6,24 @@ set(RUST_DEPS "pthread" "newlib" "lvgl__lvgl" "espressif__esp_lvgl_port")
 # uptime clock (esp_timer) that drives os.delay, the real Wi-Fi state / scan
 # results through the micro_wifi component, and drives real GPIO pins.
 set(ESP_HOST_DEPS "esp_psram" "esp_system" "spi_flash" "esp_timer" "esp_driver_gpio"
-                  "micro_wifi")
+                  "micro_wifi" "micro_kv" "micro_clock" "micro_sd")
 
 # pinyin_table.h is generated from assets/fonts/ui-sans-common.txt and consumed
 # by the on-screen IME in placeholder.c.
 set(MICRO_FONT_ASSET_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../assets/fonts")
 
+# The OS app bar is a shared LVGL-only C module used by both the ESP32 bridge
+# and the macOS native host, so the chrome cannot drift between them.
+set(MICRO_NATIVE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../native")
+
 idf_component_register(
-  SRCS "placeholder.c" "micro_esp_host.c"
-  INCLUDE_DIRS "include" "${MICRO_FONT_ASSET_DIR}"
+  SRCS "placeholder.c" "micro_esp_host.c" "${MICRO_NATIVE_DIR}/src/micro_appbar.c"
+       "${MICRO_FONT_ASSET_DIR}/lvgl/micro_icons_12.c"
+       "${MICRO_FONT_ASSET_DIR}/lvgl/micro_icons_14.c"
+       "${MICRO_FONT_ASSET_DIR}/lvgl/micro_icons_18.c"
+       "${MICRO_FONT_ASSET_DIR}/lvgl/micro_icons_24.c"
+       "${MICRO_FONT_ASSET_DIR}/lvgl/micro_icons_32.c"
+  INCLUDE_DIRS "include" "${MICRO_FONT_ASSET_DIR}" "${MICRO_NATIVE_DIR}/include"
   PRIV_REQUIRES "${RUST_DEPS}" "${ESP_HOST_DEPS}"
 )
 

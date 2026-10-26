@@ -51,6 +51,9 @@ esp_err_t micro_bsp_init(micro_bsp_display_t *display);
 /** Switch the binary CH422G-controlled backlight. */
 esp_err_t micro_bsp_backlight_set(const micro_bsp_display_t *display, bool enabled);
 
+/** Drive CH422G EXIO4 low so the SD card stays selected for SDSPI. */
+esp_err_t micro_bsp_sd_enable(void);
+
 /** Draw the trusted four-corner smoke screen while the LVGL port is locked. */
 esp_err_t micro_bsp_draw_smoke_screen(const micro_bsp_display_t *display);
 

@@ -28,9 +28,9 @@ done
 typeset -a expected_rows=(
   'nvs|data|nvs|0x9000|0x6000|'
   'phy_init|data|phy|0xF000|0x1000|'
-  'factory|app|factory|0x10000|0x380000|'
-  'micro_cfg|data|nvs|0x390000|0x10000|'
-  'micro_apps|data|littlefs|0x3A0000|0x440000|'
+  'factory|app|factory|0x10000|0x3D0000|'
+  'micro_cfg|data|nvs|0x3E0000|0x10000|'
+  'micro_app|data|undefined|0x3F0000|0x3F0000|'
   'coredump|data|coredump|0x7E0000|0x20000|'
 )
 
@@ -88,6 +88,9 @@ typeset -a sdkconfig_contract=(
   'CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_8m.csv"'
   'CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y'
   'CONFIG_COMPILER_OPTIMIZATION_PERF=y'
+  'CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y'
+  'CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y'
+  'CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=y'
 )
 
 for setting in "${sdkconfig_contract[@]}"; do

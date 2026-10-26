@@ -39,7 +39,37 @@ CONFIG_PARTITION_TABLE_FILENAME="partitions_8m.csv"
 # stays invisible on the LCD.
 CONFIG_LV_USE_FONT_COMPRESSED=y
 
+# The OS app bar keeps the default 14 px Montserrat Wi-Fi symbol. App icons use
+# the dedicated 42-glyph micro_icons_* subset fonts instead of full Montserrat
+# faces (~21 KiB vs ~110 KiB of flash).
+CONFIG_LV_FONT_MONTSERRAT_14=y
+
 
 CONFIG_SPIRAM_USE_MALLOC=y
 
 CONFIG_LV_USE_STDLIB_MALLOC=1
+
+# Momo/clock: one SNTP server is enough (micro_clock sets pool.ntp.org).
+CONFIG_LWIP_SNTP_MAX_SERVERS=1
+
+# External SD card: the storage API accepts normal App filenames, so FATFS
+# needs long-file-name support. The heap variant keeps the LVGL task stack
+# small; without LFN only 8.3 names like `notes.txt` would mount.
+CONFIG_FATFS_LFN_HEAP=y
+# CONFIG_FATFS_LFN_NONE is not set
+
+# micro_sd uses FATFS directly for directory operations. Rust's std and mbedTLS
+# still reference the POSIX opendir/mkdir/readdir symbols, which newlib's
+# libnosys provides; VFS's versions collide with them in the final link. VFS
+# directory support is unused by this firmware, so leave those symbols to
+# libnosys and keep VFS for file I/O.
+CONFIG_VFS_SUPPORT_DIR=n
+
+# App HTTPS (net.httpRequestWithHeaders / net.lookupWords). esp_http_client
+# validates Maimemo and Youdao against the common certificate bundle; the
+# common set is half the flash of the full bundle and covers both DigiCert
+# chains. Without the bundle https:// URLs fail closed instead of silently
+# falling back to clear text, so keep it enabled for momo sync.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
+CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=y

@@ -49,7 +49,7 @@ int main(void) {
     assert(micro_esp_ui_create_label(1, 0, (const uint8_t *)"Hello", 5, (uintptr_t)&font, 24) == 0);
     assert(pool[1].parent == &pool[0] && strcmp(pool[1].text, "Hello") == 0);
     assert(pool[1].font == &font && pool[1].line_space == 6);
-    assert(micro_esp_ui_create_button(2, 0, (const uint8_t *)"Go", 2, 7, (uintptr_t)&font, 24) == 0);
+    assert(micro_esp_ui_create_button(2, 0, (const uint8_t *)"Go", 2, 7, (uintptr_t)&font, 24, 0) == 0);
     assert(pool[2].kind == 3 && pool[3].parent == &pool[2] && strcmp(pool[3].text, "Go") == 0);
     assert(micro_esp_ui_set_label_text(2, (const uint8_t *)"Next", 4) == 0);
     assert(strcmp(pool[3].text, "Next") == 0);
@@ -71,7 +71,7 @@ int main(void) {
     assert(micro_esp_ui_destroy_app_root() == 0 && pool[4].deleted == 1);
 
     static const lv_font_t font14 = { .line_height = 17 };
-    assert(micro_esp_ui_create_button(5, UINT32_MAX, (const uint8_t *)"Root", 4, 9, (uintptr_t)&font14, 14) == 0);
+    assert(micro_esp_ui_create_button(5, UINT32_MAX, (const uint8_t *)"Root", 4, 9, (uintptr_t)&font14, 14, 0) == 0);
     assert(pool[6].line_space == -3);
     assert(micro_esp_ui_destroy_app_root() == 0 && pool[5].deleted == 1);
 

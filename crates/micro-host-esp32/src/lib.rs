@@ -7,6 +7,10 @@ mod ffi;
 mod host;
 #[cfg(any(target_os = "espidf", test))]
 mod native_text_style;
+#[cfg(any(target_os = "espidf", test))]
+mod nvs;
+#[cfg(target_os = "espidf")]
+mod sd;
 
 use std::fmt;
 
@@ -162,7 +166,20 @@ impl<B: NativeUi> RuntimeHost<B> {
         event_budget: u64,
         host: Box<dyn HostAccess>,
     ) -> Result<Self, HostError> {
+        Self::from_owned_mbc_with_host_factory(owned_mbc, bridge, event_budget, move |_| host)
+    }
+
+    /// Decode first, then build the host from the App metadata. This gives the
+    /// host the App id before the Runtime takes ownership, so NVS namespaces
+    /// and other per-App resources are bound to the launched MBC.
+    pub fn from_owned_mbc_with_host_factory(
+        owned_mbc: Vec<u8>,
+        bridge: B,
+        event_budget: u64,
+        make_host: impl FnOnce(&micro_ir::AppMetadata) -> Box<dyn HostAccess>,
+    ) -> Result<Self, HostError> {
         let image = decode(&owned_mbc)?;
+        let host = make_host(&image.metadata);
         let runtime = Runtime::new_with_host(image, LvglRenderer::new(bridge), event_budget, host)?;
         Ok(Self {
             runtime,
@@ -214,7 +231,8 @@ impl<B: NativeUi> RuntimeHost<B> {
                 diagnostic: "runtime is stopped".into(),
             });
         }
-        self.runtime.enqueue(Event::CheckedChanged(handler, checked));
+        self.runtime
+            .enqueue(Event::CheckedChanged(handler, checked));
         Ok(())
     }
 
@@ -225,7 +243,8 @@ impl<B: NativeUi> RuntimeHost<B> {
                 diagnostic: "runtime is stopped".into(),
             });
         }
-        self.runtime.enqueue(Event::SelectionChanged(handler, index));
+        self.runtime
+            .enqueue(Event::SelectionChanged(handler, index));
         Ok(())
     }
 

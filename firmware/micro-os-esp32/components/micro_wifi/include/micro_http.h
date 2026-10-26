@@ -7,24 +7,34 @@
 extern "C" {
 #endif
 
-/* Starts an async HTTP/1.0 request over the connected STA link (raw lwip
- * socket; no TLS, so http:// URLs only). `method` is an uppercase token
- * (GET/POST/PUT/DELETE/HEAD/…); `body` is the request body ("" for GET/HEAD/
- * DELETE). Returns 0 when the request was accepted, -1 when it was rejected
- * (busy or malformed). The result is delivered through micro_http_take_result
- * once the response completes. Safe to call from any task; the request runs on
- * its own FreeRTOS task. */
+/* Blocking HTTP/HTTPS client for the App `net.*` host calls.
+ *
+ * Runs on IDF's `esp_http_client` (TLS through mbedTLS + the configured
+ * certificate bundle) instead of a raw lwip socket or an external command, so
+ * `https://` URLs, custom request headers, redirects, chunked responses and
+ * 4xx/5xx response bodies all work. Call it from a worker task; it blocks until
+ * the request finishes or times out.
+ *
+ * `method` is an uppercase token (GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS).
+ * `headers` is a newline-delimited "Name: value" block (already validated by
+ * the Rust host); pass NULL/0 for no headers. `body` is a byte buffer and does
+ * not need a trailing NUL.
+ *
+ * On return:
+ *   - 0 means `*response` is a heap buffer of `*response_len` bytes (always
+ *     NUL-terminated for logging) and `*status` is the HTTP status. A status of
+ *     0 means the transport failed and the buffer contains a short error text.
+ *   - -1 means the output could not be produced (bad arguments / OOM).
+ * Free a non-NULL response with micro_http_free().
+ */
 int micro_http_request(const char *method, size_t method_len,
                        const char *url, size_t url_len,
-                       const char *body, size_t body_len);
+                       const char *headers, size_t headers_len,
+                       const char *body, size_t body_len,
+                       int *status, char **response, size_t *response_len);
 
-/* Convenience: a GET with no body. */
-int micro_http_get(const char *url, size_t len);
-
-/* Returns 1 and fills buf with the fresh result ("HTTP <status>\n<body>",
- * body truncated to cap) if a request completed since the last read, 0 when
- * none is ready, and a negative value on a NULL/empty buf. Clears on read. */
-int micro_http_take_result(char *buf, size_t cap);
+/* Frees a response returned by micro_http_request(). NULL is a no-op. */
+void micro_http_free(char *response);
 
 #ifdef __cplusplus
 }

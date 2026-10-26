@@ -34,8 +34,14 @@
 #define MICRO_BSP_CH422G_OUTPUT_MODE 0x01
 #define MICRO_BSP_CH422G_TOUCH_RESET_ASSERTED 0x2C
 #define MICRO_BSP_CH422G_TOUCH_RESET_RELEASED 0x2E
-#define MICRO_BSP_CH422G_BACKLIGHT_OFF 0x1A
-#define MICRO_BSP_CH422G_BACKLIGHT_ON 0x1E
+/* CH422G EXIO4 is the SD card chip-select, held low for the whole mount so
+ * the SDSPI driver can use GPIO_NUM_NC and the card stays selected. The
+ * backlight values therefore keep bit 4 clear (0x0A = backlight off,
+ * 0x0E = backlight on); the old 0x1A/0x1E values drove EXIO4 high and made the
+ * card invisible to the SPI bus. */
+#define MICRO_BSP_CH422G_SD_CS_BIT 4
+#define MICRO_BSP_CH422G_BACKLIGHT_OFF 0x0A
+#define MICRO_BSP_CH422G_BACKLIGHT_ON 0x0E
 
 static const char *TAG = "micro_bsp_lcd7";
 
@@ -61,6 +67,9 @@ typedef struct {
 } micro_bsp_ch422g_t;
 
 static micro_bsp_ch422g_t s_ch422g;
+/* Last byte written to the CH422G output register, so a later backlight or
+ * SD-select update does not clear unrelated EXIO bits. */
+static uint8_t s_ch422g_output;
 static bool s_pending_profile;
 static lv_obj_t *s_touch_label;
 static esp_lcd_touch_handle_t s_smoke_touch;
@@ -189,12 +198,28 @@ static esp_err_t micro_bsp_ch422g_set_output_mode(void)
     return micro_bsp_ch422g_write(s_ch422g.mode, MICRO_BSP_CH422G_OUTPUT_MODE);
 }
 
+static esp_err_t micro_bsp_ch422g_set_output(uint8_t value)
+{
+    esp_err_t result = micro_bsp_ch422g_write(s_ch422g.output, value);
+    if (result == ESP_OK) {
+        s_ch422g_output = value;
+    }
+    return result;
+}
+
+esp_err_t micro_bsp_sd_enable(void)
+{
+    ESP_RETURN_ON_ERROR(micro_bsp_ch422g_set_output_mode(), TAG, "CH422G mode failed");
+    uint8_t value = s_ch422g_output == 0 ? MICRO_BSP_CH422G_BACKLIGHT_ON : s_ch422g_output;
+    value = (uint8_t)(value & ~(uint8_t)(1U << MICRO_BSP_CH422G_SD_CS_BIT));
+    return micro_bsp_ch422g_set_output(value);
+}
+
 static esp_err_t micro_bsp_touch_reset(void)
 {
     ESP_RETURN_ON_ERROR(micro_bsp_ch422g_set_output_mode(), TAG, "CH422G mode failed");
-    ESP_RETURN_ON_ERROR(micro_bsp_ch422g_write(s_ch422g.output,
-                                                MICRO_BSP_CH422G_TOUCH_RESET_ASSERTED), TAG,
-                        "assert touch reset failed");
+    ESP_RETURN_ON_ERROR(micro_bsp_ch422g_set_output(MICRO_BSP_CH422G_TOUCH_RESET_ASSERTED),
+                        TAG, "assert touch reset failed");
 
     const gpio_config_t irq_drive_low = {
         .pin_bit_mask = UINT64_C(1) << MICRO_BSP_TOUCH_IRQ_GPIO,
@@ -207,9 +232,8 @@ static esp_err_t micro_bsp_touch_reset(void)
     ESP_RETURN_ON_ERROR(gpio_set_level(MICRO_BSP_TOUCH_IRQ_GPIO, 0), TAG,
                         "select GT911 address failed");
     esp_rom_delay_us(100000);
-    ESP_RETURN_ON_ERROR(micro_bsp_ch422g_write(s_ch422g.output,
-                                                MICRO_BSP_CH422G_TOUCH_RESET_RELEASED), TAG,
-                        "release touch reset failed");
+    ESP_RETURN_ON_ERROR(micro_bsp_ch422g_set_output(MICRO_BSP_CH422G_TOUCH_RESET_RELEASED),
+                        TAG, "release touch reset failed");
     esp_rom_delay_us(200000);
 
     const gpio_config_t irq_input = {
@@ -384,9 +408,8 @@ esp_err_t micro_bsp_backlight_set(const micro_bsp_display_t *display, bool enabl
         return ESP_ERR_INVALID_STATE;
     }
     ESP_RETURN_ON_ERROR(micro_bsp_ch422g_set_output_mode(), TAG, "CH422G mode failed");
-    return micro_bsp_ch422g_write(s_ch422g.output,
-                                  enabled ? MICRO_BSP_CH422G_BACKLIGHT_ON
-                                          : MICRO_BSP_CH422G_BACKLIGHT_OFF);
+    return micro_bsp_ch422g_set_output(enabled ? MICRO_BSP_CH422G_BACKLIGHT_ON
+                                               : MICRO_BSP_CH422G_BACKLIGHT_OFF);
 }
 
 esp_err_t micro_bsp_draw_smoke_screen(const micro_bsp_display_t *display)

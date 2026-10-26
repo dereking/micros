@@ -305,14 +305,20 @@ void micro_esp_host_scan_start(void);
 int micro_esp_host_take_scan_result(char *buf, size_t cap);
 /* Copies the SSID of the AP at scan index `index` ("" out of range / no scan). */
 int micro_esp_host_wifi_ap_name(uint32_t index, char *buf, size_t cap);
-/* Start an asynchronous HTTP/1.0 GET (real lwip socket); 0 on accept, -1 when
- * rejected (busy/malformed). The result is polled via take_http_result
- * (returns 1 with "HTTP <status>\n<body>", 0 when still pending). */
-int micro_esp_host_http_get(const uint8_t *url, size_t url_len);
+/* Blocking HTTP/HTTPS request used by the Rust host's worker thread. Runs
+ * esp_http_client with TLS + the certificate bundle, applies the newline-
+ * delimited header block, and returns a heap body through `response`
+ * (*response_len bytes, NUL-terminated). `status` is the HTTP status, or 0
+ * with an error message in the body when the transport fails. Returns 0 on
+ * success (including HTTP 4xx/5xx) and -1 on bad arguments/OOM. The caller
+ * frees `*response` with micro_esp_host_http_free(). */
 int micro_esp_host_http_request(const uint8_t *method, size_t method_len,
                                 const uint8_t *url, size_t url_len,
-                                const uint8_t *body, size_t body_len);
-int micro_esp_host_http_take_result(char *buf, size_t cap);
+                                const uint8_t *headers, size_t headers_len,
+                                const uint8_t *body, size_t body_len,
+                                int *status, uint8_t **response,
+                                size_t *response_len);
+void micro_esp_host_http_free(uint8_t *response);
 /* device.gpio* — configure a pin mode, drive an output, read an input level. */
 int micro_esp_host_gpio_setup(uint32_t pin, const uint8_t *mode, size_t mode_len);
 int micro_esp_host_gpio_write(uint32_t pin, uint32_t level);
@@ -350,8 +356,19 @@ int micro_esp_ui_create_label(uint32_t node, uint32_t parent,
                               uintptr_t font_handle, uint32_t line_height_px);
 int micro_esp_ui_create_button(uint32_t node, uint32_t parent,
                                const uint8_t *text, size_t len, uint32_t handler,
-                               uintptr_t font_handle, uint32_t line_height_px);
+                               uintptr_t font_handle, uint32_t line_height_px,
+                               int selected);
 int micro_esp_ui_set_label_text(uint32_t node, const uint8_t *text, size_t len);
+/* Shared OS icon: `glyph` is the LVGL symbol glyph resolved from the icon name,
+ * `size_px` selects the Montserrat size, `tone` is ink|muted|accent|inverse and
+ * `variant` is plain|badge. handler may be MICRO_UI_NO_HANDLER. */
+int micro_esp_ui_create_icon(uint32_t node, uint32_t parent,
+                             const uint8_t *glyph, size_t glyph_len,
+                             uint32_t size_px,
+                             const uint8_t *tone, size_t tone_len,
+                             const uint8_t *variant, size_t variant_len,
+                             uint32_t handler);
+int micro_esp_ui_set_icon(uint32_t node, const uint8_t *glyph, size_t len);
 int micro_esp_ui_set_progress_value(uint32_t node, double fraction);
 int micro_esp_ui_set_switch_checked(uint32_t node, int checked);
 /* Create an editable single-line text field. `text` is the current value,
@@ -406,6 +423,21 @@ int micro_esp_ui_create_roller(uint32_t node, uint32_t parent,
                                 double index, uint32_t handler);
 int micro_esp_ui_set_selection_value(uint32_t node, double index);
 int micro_esp_ui_destroy_app_root(void);
+/* Default OS app bar: set the title and show it (visible != 0). The shell and
+ * every installed App use it; only a debug viewport would hide it. Call before
+ * creating the Runtime so its root measures the inset content height. */
+void micro_esp_ui_set_app_chrome(int visible, const char *title);
+/* Must be called from the LVGL task with the port lock already held (the OS
+ * tick is an `lv_timer` callback). */
+void micro_esp_ui_set_app_wifi(const char *state, const char *ssid);
+/* 1 when the app bar close button was pressed since the last read. */
+int micro_esp_ui_take_appbar_back(void);
+/* System power state, called from the OS tick with the port lock held. Closing
+ * Home shows the "Powered off" surface; tapping it queues a power-on request. */
+void micro_esp_ui_power_off(void);
+int micro_esp_ui_power_off_active(void);
+int micro_esp_ui_take_power_on(void);
+void micro_esp_ui_wake(void);
 /* Returns 1 with a handler, 0 when empty, and a negative bridge error. */
 int micro_esp_ui_take_activation(uint32_t *handler_id);
 /* Returns 1 with a handler and its new text, 0 when empty, and a negative

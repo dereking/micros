@@ -7,6 +7,11 @@ idf_component_register(
        "${MICRO_UI_FONT_DIR}/micro_ui_sans_18.c"
        "${MICRO_UI_FONT_DIR}/micro_ui_sans_24.c"
        "${MICRO_UI_FONT_DIR}/micro_ui_sans_32.c"
+       "${MICRO_UI_FONT_DIR}/micro_ui_ipa_12.c"
+       "${MICRO_UI_FONT_DIR}/micro_ui_ipa_14.c"
+       "${MICRO_UI_FONT_DIR}/micro_ui_ipa_18.c"
+       "${MICRO_UI_FONT_DIR}/micro_ui_ipa_24.c"
+       "${MICRO_UI_FONT_DIR}/micro_ui_ipa_32.c"
   INCLUDE_DIRS "include"
   REQUIRES esp_lcd esp_driver_i2c esp_driver_gpio nvs_flash
            espressif__esp_lcd_touch espressif__esp_lcd_touch_gt911

@@ -171,22 +171,23 @@ int micro_esp_host_wifi_ap_name(uint32_t index, char *buf, size_t cap)
     return micro_wifi_ap_name(index, buf, cap);
 }
 
-int micro_esp_host_http_get(const uint8_t *url, size_t url_len)
-{
-    return micro_http_get((const char *)url, url_len);
-}
-
 int micro_esp_host_http_request(const uint8_t *method, size_t method_len,
                                 const uint8_t *url, size_t url_len,
-                                const uint8_t *body, size_t body_len)
+                                const uint8_t *headers, size_t headers_len,
+                                const uint8_t *body, size_t body_len,
+                                int *status, uint8_t **response,
+                                size_t *response_len)
 {
-    return micro_http_request((const char *)method, method_len, (const char *)url,
-                              url_len, (const char *)body, body_len);
+    return micro_http_request((const char *)method, method_len,
+                              (const char *)url, url_len,
+                              (const char *)headers, headers_len,
+                              (const char *)body, body_len,
+                              status, (char **)response, response_len);
 }
 
-int micro_esp_host_http_take_result(char *buf, size_t cap)
+void micro_esp_host_http_free(uint8_t *response)
 {
-    return micro_http_take_result(buf, cap);
+    micro_http_free((char *)response);
 }
 
 /* --- device.gpio* (real GPIO, no lock: the app runtime calls these from

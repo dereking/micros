@@ -3,6 +3,10 @@
 #include "esp_lvgl_port.h"
 #include "lvgl.h"
 
+#ifndef MICRO_UI_BRIDGE_HOST_TEST
+#include "micro_appbar.h"
+#endif
+
 #include "pinyin_table.h"
 #include "pinyin_phrase_table.h"
 
@@ -145,6 +149,7 @@ static uint8_t s_candidate_shown;
 static char s_pinyin[MICRO_IME_PINYIN_MAX];
 static uint8_t s_pinyin_len;
 
+extern const lv_font_t micro_ui_sans_14;
 extern const lv_font_t micro_ui_sans_24;
 
 static void micro_esp_ui_hide_keyboard(void);
@@ -550,7 +555,13 @@ static void roller_callback(lv_event_t *event)
 static lv_obj_t *parent_object(uint32_t parent)
 {
     if (parent == MICRO_UI_NO_PARENT) {
+#ifndef MICRO_UI_BRIDGE_HOST_TEST
+        /* Root nodes mount below the persistent OS app bar. */
+        micro_appbar_ensure();
+        return micro_appbar_content();
+#else
         return lv_screen_active();
+#endif
     }
     if (parent >= MICRO_UI_MAX_NODES) {
         return NULL;
@@ -597,6 +608,33 @@ static void apply_text_style(lv_obj_t *label, uintptr_t font_handle,
     lv_obj_set_style_text_line_space(label, line_space, LV_PART_MAIN);
 }
 
+/* Shared OS icons paint a dedicated 42-glyph Font Awesome subset; the App text
+ * faces (micro_ui_sans_*) do not carry the private-use codepoints and the full
+ * Montserrat symbol faces cost ~110 KiB of flash. */
+extern const lv_font_t micro_icons_12;
+extern const lv_font_t micro_icons_14;
+extern const lv_font_t micro_icons_18;
+extern const lv_font_t micro_icons_24;
+extern const lv_font_t micro_icons_32;
+
+static const lv_font_t *icon_font_for_size(uint32_t size_px)
+{
+    if (size_px >= 32U) return &micro_icons_32;
+    if (size_px >= 24U) return &micro_icons_24;
+    if (size_px >= 18U) return &micro_icons_18;
+    if (size_px >= 14U) return &micro_icons_14;
+    return &micro_icons_12;
+}
+
+static uint32_t icon_tone_color(const char *tone)
+{
+    if (tone == NULL) return 0x101820;
+    if (strcmp(tone, "muted") == 0) return 0x84937D;
+    if (strcmp(tone, "accent") == 0) return 0xC0683B;
+    if (strcmp(tone, "inverse") == 0) return 0xFFFDF7;
+    return 0x101820;
+}
+
 static int begin_create(uint32_t node, uint32_t parent, lv_obj_t **resolved_parent)
 {
     if (node >= MICRO_UI_MAX_NODES || objects[node] != NULL ||
@@ -628,11 +666,11 @@ int micro_esp_ui_create_column(uint32_t node, uint32_t parent)
             /* Focus must not auto-scroll the column; that makes the UI lurch
              * when the on-screen keyboard or an input grabs focus. */
             lv_obj_remove_flag(column, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
-            lv_obj_set_style_pad_left(column, 16, LV_PART_MAIN);
-            lv_obj_set_style_pad_right(column, 16, LV_PART_MAIN);
-            lv_obj_set_style_pad_top(column, 6, LV_PART_MAIN);
-            lv_obj_set_style_pad_bottom(column, 6, LV_PART_MAIN);
-            lv_obj_set_style_pad_row(column, 6, LV_PART_MAIN);
+            /* Match the Web/SDL layout model: ui.place coordinates and the
+             * explicit height describe the content box. The theme's default
+             * card padding would otherwise shift children and clip the bottom
+             * row when the height is fully used. */
+            lv_obj_set_style_pad_all(column, 0, LV_PART_MAIN);
             /* Blend into the parent so the layout container shows no visible
              * box or border, yet stays OPAQUE (matching the parent's color).
              * A fully transparent container changes LVGL's draw path and made
@@ -666,7 +704,9 @@ int micro_esp_ui_create_row(uint32_t node, uint32_t parent)
             /* Plain container: no flex layout — every child is positioned by
              * its Delphi ltwh/anchor via ui.place. */
             lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
-            lv_obj_set_style_pad_column(row, 16, LV_PART_MAIN);
+            /* ui.place positions row children absolutely, so no padding: the
+             * spec's explicit height is the full content box. */
+            lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
             lv_obj_set_style_radius(row, 0, LV_PART_MAIN);
             lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
             lv_obj_set_style_bg_color(row,
@@ -740,6 +780,10 @@ int micro_esp_ui_create_tabview(uint32_t node, uint32_t parent,
                  token = strtok_r(NULL, "\n", &save)) {
                 lv_tabview_add_tab(tabview, token);
             }
+            /* Pin the top bar to the shared 48 px design height instead of
+             * LVGL's DPI-derived value, so tall tab content still fits the
+             * 480 px panel (mirrors the SDL/Web hosts). */
+            lv_tabview_set_tab_bar_size(tabview, 48);
             /* One uniform light background for the whole app: screen, tab bar,
              * content panel and every page. Columns/rows blend into their
              * parent, so the whole tab body reads as a single consistent
@@ -766,6 +810,29 @@ int micro_esp_ui_create_tabview(uint32_t node, uint32_t parent,
             lv_obj_set_style_border_color(tab_bar, lv_color_hex(0xD5D9CE), LV_PART_MAIN);
             lv_obj_set_style_bg_color(tab_bar, app_bg, LV_PART_MAIN);
             lv_obj_set_style_bg_opa(tab_bar, LV_OPA_COVER, LV_PART_MAIN);
+            /* Flat journal tabs with a Chinese-capable UI font. The LVGL
+             * default font is Latin-only, so tab titles must opt into the
+             * generated face explicitly. */
+            uint32_t tab_count = lv_obj_get_child_count(tab_bar);
+            for (uint32_t ti = 0; ti < tab_count; ++ti) {
+                lv_obj_t *tab = lv_obj_get_child(tab_bar, ti);
+                if (tab == NULL) continue;
+                lv_obj_set_style_bg_opa(tab, LV_OPA_TRANSP, LV_PART_MAIN);
+                lv_obj_set_style_bg_opa(tab, LV_OPA_TRANSP, LV_PART_MAIN | LV_STATE_CHECKED);
+                lv_obj_set_style_border_width(tab, 0, LV_PART_MAIN);
+                lv_obj_set_style_border_width(tab, 0, LV_PART_MAIN | LV_STATE_CHECKED);
+                lv_obj_set_style_radius(tab, 0, LV_PART_MAIN);
+                lv_obj_set_style_text_color(tab, lv_color_hex(0x6F7F71), LV_PART_MAIN);
+                lv_obj_set_style_text_color(tab, lv_color_hex(0x1D5C46), LV_STATE_CHECKED);
+                lv_obj_set_style_text_font(tab, &micro_ui_sans_14, LV_PART_MAIN);
+                lv_obj_t *tab_label = lv_obj_get_child(tab, 0);
+                if (tab_label != NULL) {
+                    lv_obj_set_style_text_font(tab_label, &micro_ui_sans_14, LV_PART_MAIN);
+                }
+                lv_obj_set_style_bg_opa(tab, LV_OPA_TRANSP, LV_PART_INDICATOR);
+                lv_obj_set_style_bg_color(tab, lv_color_hex(0x1D5C46), LV_PART_INDICATOR);
+                lv_obj_set_style_bg_opa(tab, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_CHECKED);
+            }
 
             uint32_t page_count = tab_content == NULL ? 0 : lv_obj_get_child_count(tab_content);
             for (uint32_t pi = 0; pi < page_count; ++pi) {
@@ -927,10 +994,97 @@ int micro_esp_ui_create_label(uint32_t node, uint32_t parent,
     return result;
 }
 
+int micro_esp_ui_create_icon(uint32_t node, uint32_t parent,
+                             const uint8_t *glyph, size_t glyph_len,
+                             uint32_t size_px,
+                             const uint8_t *tone, size_t tone_len,
+                             const uint8_t *variant, size_t variant_len,
+                             uint32_t handler)
+{
+    char *copy = copy_text(glyph, glyph_len);
+    char *tone_copy = copy_text(tone, tone_len);
+    char *variant_copy = copy_text(variant, variant_len);
+    if (copy == NULL || tone_copy == NULL || variant_copy == NULL) {
+        free(copy);
+        free(tone_copy);
+        free(variant_copy);
+        return -5;
+    }
+    if (!lvgl_port_lock(0)) {
+        free(copy);
+        free(tone_copy);
+        free(variant_copy);
+        return -3;
+    }
+    lv_obj_t *parent_obj;
+    int result = begin_create(node, parent, &parent_obj);
+    if (result == 0) {
+        lv_obj_t *box = lv_obj_create(parent_obj);
+        lv_obj_t *label = box == NULL ? NULL : lv_label_create(box);
+        if (box == NULL || label == NULL) {
+            if (box != NULL) lv_obj_delete(box);
+            result = -4;
+        } else {
+            lv_obj_set_size(box, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+            lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_set_style_pad_all(box, 0, LV_PART_MAIN);
+            lv_obj_set_style_border_width(box, 0, LV_PART_MAIN);
+            lv_obj_set_style_shadow_width(box, 0, LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(box, LV_OPA_TRANSP, LV_PART_MAIN);
+            if (strcmp(variant_copy, "badge") == 0) {
+                lv_obj_set_style_bg_color(box, lv_color_hex(0xE7F0E5),
+                                          LV_PART_MAIN);
+                lv_obj_set_style_bg_opa(box, LV_OPA_COVER, LV_PART_MAIN);
+                lv_obj_set_style_radius(box, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+            }
+            lv_label_set_text(label, copy);
+            lv_obj_set_style_text_font(label, icon_font_for_size(size_px),
+                                       LV_PART_MAIN);
+            lv_obj_set_style_text_color(label, lv_color_hex(icon_tone_color(tone_copy)),
+                                        LV_PART_MAIN);
+            lv_obj_center(label);
+            click_contexts[node].handler = handler;
+            if (handler != MICRO_UI_NO_HANDLER) {
+                lv_obj_add_flag(box, LV_OBJ_FLAG_CLICKABLE);
+                lv_obj_add_event_cb(box, click_callback, LV_EVENT_CLICKED,
+                                    &click_contexts[node]);
+            } else {
+                /* Decorative icons must not swallow a surface tile's tap. */
+                lv_obj_remove_flag(box, LV_OBJ_FLAG_CLICKABLE);
+            }
+            objects[node] = box;
+            text_targets[node] = label;
+        }
+    }
+    lvgl_port_unlock();
+    free(copy);
+    free(tone_copy);
+    free(variant_copy);
+    return result;
+}
+
+int micro_esp_ui_set_icon(uint32_t node, const uint8_t *glyph, size_t len)
+{
+    char *copy = copy_text(glyph, len);
+    if (copy == NULL) return -5;
+    if (!lvgl_port_lock(0)) {
+        free(copy);
+        return -3;
+    }
+    int result = -1;
+    if (node < MICRO_UI_MAX_NODES && text_targets[node] != NULL) {
+        lv_label_set_text(text_targets[node], copy);
+        result = 0;
+    }
+    lvgl_port_unlock();
+    free(copy);
+    return result;
+}
+
 int micro_esp_ui_create_button(uint32_t node, uint32_t parent,
                                const uint8_t *text, size_t len,
                                uint32_t handler, uintptr_t font_handle,
-                               uint32_t line_height_px)
+                               uint32_t line_height_px, int selected)
 {
     (void)handler;
     char *copy = copy_text(text, len);
@@ -956,6 +1110,14 @@ int micro_esp_ui_create_button(uint32_t node, uint32_t parent,
         else {
             lv_label_set_text(label, copy);
             apply_text_style(label, font_handle, line_height_px);
+            if (selected) {
+                lv_obj_set_style_bg_color(button, lv_color_hex(0xC67A4F),
+                                          LV_PART_MAIN);
+                lv_obj_set_style_bg_color(button, lv_color_hex(0xA65C36),
+                                          LV_STATE_PRESSED);
+                lv_obj_set_style_text_color(label, lv_color_hex(0xFFFDF7),
+                                            LV_PART_MAIN);
+            }
             click_contexts[node].handler = handler;
             lv_obj_add_event_cb(button, click_callback, LV_EVENT_CLICKED,
                                 &click_contexts[node]);
@@ -1637,6 +1799,73 @@ int micro_esp_ui_destroy_app_root(void)
     roller_write = 0;
     lvgl_port_unlock();
     return 0;
+}
+
+void micro_esp_ui_set_app_chrome(int visible, const char *title)
+{
+#ifndef MICRO_UI_BRIDGE_HOST_TEST
+    if (!lvgl_port_lock(0)) return;
+    micro_appbar_ensure();
+    micro_appbar_set_title(title != NULL ? title : "");
+    micro_appbar_set_visible(visible);
+    lvgl_port_unlock();
+#else
+    (void)visible;
+    (void)title;
+#endif
+}
+
+void micro_esp_ui_set_app_wifi(const char *state, const char *ssid)
+{
+#ifndef MICRO_UI_BRIDGE_HOST_TEST
+    /* Called from `micro_os_tick_cb`, an LVGL timer, so the LVGL port lock is
+     * already held; update the bar directly instead of nesting the lock. */
+    micro_appbar_set_wifi(state, ssid);
+#else
+    (void)state;
+    (void)ssid;
+#endif
+}
+
+int micro_esp_ui_take_appbar_back(void)
+{
+#ifndef MICRO_UI_BRIDGE_HOST_TEST
+    return micro_appbar_take_back();
+#else
+    return 0;
+#endif
+}
+
+void micro_esp_ui_power_off(void)
+{
+#ifndef MICRO_UI_BRIDGE_HOST_TEST
+    micro_appbar_power_off();
+#endif
+}
+
+int micro_esp_ui_power_off_active(void)
+{
+#ifndef MICRO_UI_BRIDGE_HOST_TEST
+    return micro_appbar_power_off_active();
+#else
+    return 0;
+#endif
+}
+
+int micro_esp_ui_take_power_on(void)
+{
+#ifndef MICRO_UI_BRIDGE_HOST_TEST
+    return micro_appbar_take_power_on();
+#else
+    return 0;
+#endif
+}
+
+void micro_esp_ui_wake(void)
+{
+#ifndef MICRO_UI_BRIDGE_HOST_TEST
+    micro_appbar_wake();
+#endif
 }
 
 int micro_esp_ui_take_input_change(uint32_t *handler_id, uint8_t *text,

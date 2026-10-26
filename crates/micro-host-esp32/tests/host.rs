@@ -52,6 +52,7 @@ impl HostAccess for SimHost {
             }
             HostCallKind::OsAppName | HostCallKind::OsAppIcon => Some(Value::String(String::new())),
             HostCallKind::OsLaunchIndex | HostCallKind::OsGoBack | HostCallKind::OsDelay => None,
+            _ => None,
         })
     }
 
@@ -109,7 +110,8 @@ impl NativeUi for FakeNativeUi {
         handler: Option<FunctionId>,
     ) -> Result<(), String> {
         self.nodes.insert(node, String::new());
-        self.activations.push(handler.expect("switch has a handler"));
+        self.activations
+            .push(handler.expect("switch has a handler"));
         Ok(())
     }
 
@@ -133,6 +135,7 @@ impl NativeUi for FakeNativeUi {
         text: &str,
         handler: FunctionId,
         style: Option<&TextStyle>,
+        _variant: Option<&str>,
     ) -> Result<(), String> {
         self.nodes.insert(node, text.to_owned());
         self.styles
@@ -222,7 +225,12 @@ impl NativeUi for FakeNativeUi {
         Ok(())
     }
 
-    fn create_led(&mut self, _node: NodeId, _parent: Option<NodeId>, _on: bool) -> Result<(), String> {
+    fn create_led(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _on: bool,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -230,7 +238,12 @@ impl NativeUi for FakeNativeUi {
         Ok(())
     }
 
-    fn create_spinner(&mut self, _node: NodeId, _parent: Option<NodeId>, _active: bool) -> Result<(), String> {
+    fn create_spinner(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _active: bool,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -269,11 +282,19 @@ impl NativeUi for FakeNativeUi {
         Ok(())
     }
 
-    fn set_layout_spec(&mut self, _node: NodeId, _layout: micro_ir::LayoutSpec) -> Result<(), String> {
+    fn set_layout_spec(
+        &mut self,
+        _node: NodeId,
+        _layout: micro_ir::LayoutSpec,
+    ) -> Result<(), String> {
         Ok(())
     }
 
-    fn apply_delphi_layout(&mut self, _container: NodeId, _children: &[NodeId]) -> Result<(), String> {
+    fn apply_delphi_layout(
+        &mut self,
+        _container: NodeId,
+        _children: &[NodeId],
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -371,6 +392,7 @@ impl NativeUi for FailingNativeUi {
         _text: &str,
         _handler: FunctionId,
         _style: Option<&TextStyle>,
+        _variant: Option<&str>,
     ) -> Result<(), String> {
         unreachable!()
     }
@@ -455,7 +477,12 @@ impl NativeUi for FailingNativeUi {
         Ok(())
     }
 
-    fn create_led(&mut self, _node: NodeId, _parent: Option<NodeId>, _on: bool) -> Result<(), String> {
+    fn create_led(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _on: bool,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -463,7 +490,12 @@ impl NativeUi for FailingNativeUi {
         Ok(())
     }
 
-    fn create_spinner(&mut self, _node: NodeId, _parent: Option<NodeId>, _active: bool) -> Result<(), String> {
+    fn create_spinner(
+        &mut self,
+        _node: NodeId,
+        _parent: Option<NodeId>,
+        _active: bool,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -502,11 +534,19 @@ impl NativeUi for FailingNativeUi {
         Ok(())
     }
 
-    fn set_layout_spec(&mut self, _node: NodeId, _layout: micro_ir::LayoutSpec) -> Result<(), String> {
+    fn set_layout_spec(
+        &mut self,
+        _node: NodeId,
+        _layout: micro_ir::LayoutSpec,
+    ) -> Result<(), String> {
         Ok(())
     }
 
-    fn apply_delphi_layout(&mut self, _container: NodeId, _children: &[NodeId]) -> Result<(), String> {
+    fn apply_delphi_layout(
+        &mut self,
+        _container: NodeId,
+        _children: &[NodeId],
+    ) -> Result<(), String> {
         Ok(())
     }
 

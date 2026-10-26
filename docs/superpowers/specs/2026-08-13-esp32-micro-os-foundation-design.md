@@ -8,6 +8,8 @@ The release must boot to a resilient system shell, configure Wi-Fi, show an App 
 
 This phase establishes one reviewed reference-board preset. It does not yet claim support for arbitrary ESP32-S3 boards.
 
+> **Status update (2026-10-26).** This document records the original design and has not been rewritten. Several statements below were superseded by the implementation: the shell is now an MBC Micro App (`apps/shell/app.ts`), not trusted native UI; the top bar is host-owned chrome shared by all three hosts; first-run setup is skipped in the current slice; and an App failure returns to Home rather than a system error page. See the updated notes in §2 and §8.
+
 ## 2. Product boundary
 
 Micro OS has three layers:
@@ -16,7 +18,7 @@ Micro OS has three layers:
 Micro OS system shell
 ├── boot and recovery
 ├── first-run and Wi-Fi setup
-├── launcher, settings and system error pages
+├── Home shell App and settings
 └── App lifecycle
               │
               v
@@ -38,7 +40,7 @@ ESP32-S3 board support
 
 The compiler remains a development-host tool. The firmware embeds or installs MBC; it never compiles TypeScript on the device.
 
-The system shell is trusted native UI, not an MBC App. It must remain available when an App is corrupt, exceeds its instruction budget, or fails to render. System UI and App UI share one LVGL instance but use distinct root objects. Starting or stopping an App creates or destroys the App root and Rust Runtime without restarting the device or LVGL.
+The system shell is not privileged native UI and not a second VM: it is an ordinary MBC Micro App. `apps/shell/app.ts` compiles to `shell.mbc`; the firmware boots it as app index 0, and starting or stopping any App (the shell included) destroys the current root and Rust Runtime and creates a fresh one, without restarting the device or LVGL. The shell is special only in host policy: firmware ignores `os.launchIndex` outside the shell, and resolves `os.goBack`, the app-bar close button, the edge-swipe gesture, and the BOOT button back to it. All system chrome above the content (Wi-Fi state, screen name, clock, close) is host-owned, not shell code. Because the shell is an App, a corrupt or over-budget `shell.mbc` aborts at boot; this slice has no native fallback UI.
 
 The existing `micro-ir`, `micro-vm`, `micro-core`, and `micro-lvgl` semantics remain authoritative. ESP32-specific code must not enter those crates.
 
@@ -144,16 +146,16 @@ Credentials use ESP-IDF's protected storage facilities available under the selec
 
 ## 8. Launcher and system UI
 
-The launcher is a tablet-style Micro OS home screen:
+The Home screen is the `shell` Micro App, mounted under a host-owned 40 px app bar:
 
-- a status bar with device name, Wi-Fi state, time, and system health;
-- an App grid containing Counter and Settings in the first image;
-- persistent system navigation for Home and Back;
+- the app bar shows Wi-Fi state, the current screen name, the clock, and a close button; it is host chrome and every screen gets it, including Home;
+- the shell draws a vertical card list for Counter, Settings and momo;
+- return navigation is the app-bar close, an edge swipe, or the BOOT button; on Home the close control powers the device view off;
 - no background App multitasking in this phase.
 
 Opening Counter hides the launcher root, creates a fresh App root, decodes the embedded Counter MBC, creates the Rust Runtime, and renders its Micro UI Tree through `micro-lvgl`. Touch callbacks enqueue integer handler IDs; Rust processes those activations through the existing FIFO EventQueue and patches LVGL labels after StateStore binding updates.
 
-Back stops the Runtime, destroys only App-owned objects, and restores the launcher. Reopening Counter creates a deterministic fresh Runtime. App corruption, budget exhaustion, or renderer failure transitions to a trusted error page with Restart App and Home actions; it does not reboot the device.
+Back stops the Runtime, destroys only App-owned objects, and restores the launcher. Reopening Counter creates a deterministic fresh Runtime. App corruption, budget exhaustion, or renderer failure returns to Home by booting the shell MBC and logging a diagnostic; it does not reboot the device. The originally planned trusted error page with Restart App / Home actions was not implemented.
 
 Settings includes:
 

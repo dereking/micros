@@ -158,7 +158,7 @@ micro_os: 8 MB Flash / 8 MB PSRAM hardware class verified
 GT911: TouchPad_ID:0x39,0x31,0x31
 LVGL: Starting LVGL task
 micro_os: clearing smoke screen for MBC runtime bring-up
-micro_os: micro_app partition: offset=0x3a0000 size=4456448
+micro_os: micro_app partition: offset=0x3f0000 size=4128768
 micro_os: MBC header: magic OK, version=4, payload=1465, total=1479
 micro_os: loaded MBC: 1479 bytes from micro_app partition
 micro_os: micro runtime created; ticking every 30 ms
