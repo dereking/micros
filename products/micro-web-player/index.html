@@ -5,12 +5,80 @@
     <main class="simulator-shell">
       <header class="simulator-header"><p class="eyebrow">Micro platform / browser runtime</p><h1>ESP32-S3<br />field console</h1><p>One app binary. Shared Rust Runtime. Simulated board observability.</p></header>
       <section class="device-rig" aria-label="ESP32-S3 Touch-LCD-7 simulator">
-        <div class="device-rail"><span>MICRO OS</span><span>800 × 480</span></div>
+        <div class="host-bar">
+          <span class="host-state" data-host-status data-state="running" aria-live="polite"><i></i><span data-host-status-text>Booting…</span></span>
+          <button class="host-menu-button" data-host-menu type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="host-menu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" /></svg>
+            <span>Device</span>
+          </button>
+        </div>
+        <div class="device-rail"><span>MICRO OS</span><span data-device-size>800 × 480</span></div>
         <div class="device-frame"><div class="device-mark"><span></span>ESP32-S3 TOUCH LCD 7</div>
-          <div id="micro-device" data-device-screen class="device-screen"><div data-device-canvas class="device-canvas"><div id="system-screen" class="system-screen" aria-live="polite"></div><section id="app-shell" class="app-shell" hidden><button class="app-back" type="button" aria-label="Back">← Back</button><div id="app-screen" class="app-screen"></div></section></div></div>
+          <div id="micro-device" data-device-screen class="device-screen">
+            <div data-device-canvas class="device-canvas">
+              <header class="app-bar" aria-label="App bar">
+                <div class="app-bar-status">
+                  <button class="app-bar-wifi" data-appbar-wifi type="button" data-state="off" aria-label="Wi-Fi" aria-expanded="false" aria-controls="appbar-wifi-tooltip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2.5 8.5a14 14 0 0 1 19 0" /><path d="M6 12a9 9 0 0 1 12 0" /><path d="M9.5 15.5a4.5 4.5 0 0 1 5 0" /><circle cx="12" cy="19.5" r="1.2" fill="currentColor" stroke="none" /></svg></button>
+                  <span class="app-bar-tooltip" id="appbar-wifi-tooltip" data-appbar-wifi-tooltip role="tooltip">off</span>
+                </div>
+                <span class="app-bar-title" data-appbar-title></span>
+                <div class="app-bar-trailing">
+                  <time class="app-bar-clock" data-appbar-clock>--:--</time>
+                  <button class="app-back app-bar-close" type="button" aria-label="Close app" title="Close app"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button>
+                </div>
+              </header>
+              <div class="app-content">
+                <div id="system-screen" class="system-screen" aria-live="polite"></div>
+                <section id="app-shell" class="app-shell" hidden><div id="app-screen" class="app-screen"></div></section>
+              </div>
+              <button class="device-off" data-device-off type="button" aria-label="Power on" hidden>
+                <span class="device-off-title">Powered off</span>
+                <span class="device-off-hint">Tap to power on</span>
+              </button>
+            </div>
+          </div>
           <div class="device-controls"><i></i><span>GT911 / RGB565</span><i></i></div>
         </div>
       </section>
+      <dialog class="host-menu" id="host-menu" data-host-menu-panel aria-labelledby="host-menu-title">
+        <div class="host-menu-head">
+          <div><p class="eyebrow">Host controls</p><h2 id="host-menu-title">Device</h2></div>
+          <button class="host-menu-close" data-host-close type="button" aria-label="Close device menu">×</button>
+        </div>
+        <div class="host-menu-body">
+          <p class="host-menu-state" data-host-menu-status data-state="running"><i></i><span data-host-menu-status-text>Running · Home</span></p>
+          <section class="host-menu-section">
+            <h3>Power</h3>
+            <div class="host-menu-actions">
+              <button data-host-power-off type="button">Power Off</button>
+              <button data-host-power-on type="button">Power On</button>
+              <button class="danger" data-host-restart type="button">Force Restart</button>
+            </div>
+            <p class="host-menu-hint" data-host-restart-hint hidden>This closes the running App and cold boots Home. Installed Apps and storage are kept.</p>
+          </section>
+          <section class="host-menu-section">
+            <h3>Display</h3>
+            <label class="host-field">Orientation
+              <select data-host-orientation>
+                <option value="landscape">Landscape · 800 × 480</option>
+                <option value="portrait">Portrait · 480 × 800</option>
+              </select>
+            </label>
+            <p class="host-menu-hint">Changing orientation cold-boots Home in the Web runtime.</p>
+          </section>
+          <section class="host-menu-section">
+            <h3>Emulator</h3>
+            <dl class="host-menu-info">
+              <div><dt>Board</dt><dd>ESP32-S3 Touch LCD 7</dd></div>
+              <div><dt>Display</dt><dd data-host-display>RGB565 · 800 × 480 · 16 MHz</dd></div>
+              <div><dt>Memory</dt><dd>8 MiB Flash · 8 MiB PSRAM</dd></div>
+              <div><dt>Touch</dt><dd>GT911</dd></div>
+              <div><dt>Expander</dt><dd>CH422G</dd></div>
+              <div><dt>Runtime</dt><dd>10,000 instructions</dd></div>
+            </dl>
+          </section>
+        </div>
+      </dialog>
       <aside class="monitor" aria-label="Simulated board monitor"><div class="monitor-heading"><p class="eyebrow">Simulated board monitor</p><strong><span></span> Runtime connected</strong></div><dl class="monitor-grid"><div><dt>DISPLAY</dt><dd data-monitor="display"></dd></div><div><dt>MEMORY</dt><dd data-monitor="memory"></dd></div><div><dt>TOUCH</dt><dd data-monitor="touch"></dd></div><div><dt>BACKLIGHT</dt><dd data-monitor="backlight"></dd></div><div><dt>WI-FI</dt><dd data-monitor="wifi"></dd></div><div><dt>OS STATE</dt><dd data-monitor="state"></dd></div><div><dt>QUEUE / BUDGET</dt><dd data-monitor="runtime"></dd></div><div><dt>CH422G</dt><dd data-monitor="expander"></dd></div></dl><div class="action-log-panel"><div><span>REDUCER ACTION LOG</span><small data-monitor="last-action"></small></div><ol data-action-log></ol></div><p class="simulated-note">Visual system model only — no physical GPIO, I²C, radio, PSRAM, or RGB timing is emulated.</p></aside>
       <pre data-runtime-error hidden></pre>
     </main><script type="module" src="/src/main.js"></script>

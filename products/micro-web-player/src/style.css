@@ -1,4 +1,5 @@
 @font-face { font-family: "MicroUiSans"; src: url("/fonts/micro-ui-sans-common.woff2") format("woff2"); font-style: normal; font-weight: 400; font-display: block; }
+@font-face { font-family: "MicroUiIpa"; src: url("/fonts/micro-ui-ipa.woff2") format("woff2"); font-style: normal; font-weight: 400; font-display: block; }
 :root { color: #e9eadf; background: #111a19; font-family: "DM Mono", monospace; font-synthesis: none; }
 * { box-sizing: border-box; }
 body { min-width: 320px; min-height: 100vh; margin: 0; background: radial-gradient(circle at 7% 12%, #2d5045 0, transparent 30rem), radial-gradient(circle at 91% 87%, #a64e2f33 0, transparent 34rem), #111a19; }
@@ -9,17 +10,21 @@ button { font: inherit; }
 h1, h2 { font-family: Fraunces, Georgia, serif; letter-spacing: -.055em; }
 h1 { max-width: 7ch; margin: 0; font-size: clamp(2.3rem, 6vw, 5.2rem); line-height: .84; }
 .simulator-header > p { max-width: 32rem; margin: 0; color: #a9b2a9; line-height: 1.65; font-size: .77rem; }
-.device-rig { min-width: 0; display: grid; grid-template-columns: 1.4rem minmax(0, 1fr); align-items: center; }
+.device-rig { min-width: 0; display: grid; grid-template-columns: 1.4rem minmax(0, 1fr); grid-template-rows: auto 1fr; align-items: center; }
+.device-rail, .device-frame { grid-row: 2; }
 .device-rail { display: flex; height: 76%; flex-direction: column; justify-content: space-between; border-left: 1px solid #a7cf84; padding: .6rem 0 .6rem .45rem; color: #a7cf84; font-size: .54rem; letter-spacing: .13em; writing-mode: vertical-rl; }
 .device-frame { min-width: 0; padding: .9rem .9rem .6rem; border: 1px solid #84937d; border-radius: 1.1rem; background: linear-gradient(145deg, #526158, #1a2522 28%, #0c1110 76%); box-shadow: 1.4rem 1.4rem 0 #0a100e88, inset 0 1px #c8d6c766; }
 .device-mark, .device-controls { display: flex; align-items: center; justify-content: space-between; min-height: 1.65rem; color: #c5d2c6; font-size: .52rem; letter-spacing: .11em; }
 .device-mark span { width: .45rem; height: .45rem; border-radius: 99px; background: #c0683b; }
 .device-controls { color: #84937d; }
 .device-controls i { width: 1.7rem; height: 2px; background: #3c4a44; }
-.device-screen { position: relative; width: 100%; aspect-ratio: 5 / 3; overflow: hidden; border-radius: .36rem; background: #dce5da; color: #173128; box-shadow: inset 0 0 0 4px #080d0b, inset 0 0 0 5px #fff9; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; }
-.device-canvas { position: absolute; top: 0; left: 0; width: 800px; height: 480px; transform-origin: top left; }
-.device-canvas > [hidden] { display: none !important; }
-.system-screen, .app-shell { width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.device-screen { position: relative; width: min(100%, max(16rem, calc((100vh - 25rem) * 5 / 3))); width: min(100%, max(16rem, calc((100svh - 25rem) * 5 / 3))); aspect-ratio: 5 / 3; margin-inline: auto; overflow: hidden; border-radius: .36rem; background: #dce5da; color: #173128; box-shadow: inset 0 0 0 4px #080d0b, inset 0 0 0 5px #fff9; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; }
+.device-canvas { position: absolute; top: 0; left: 0; display: grid; grid-template-rows: 40px minmax(0, 1fr); width: 800px; height: 480px; transform-origin: top left; }
+.device-screen[data-orientation="portrait"] { width: min(calc(100% - .5rem), 30rem, max(14rem, calc((100vh - 13rem) * 0.6))); width: min(calc(100% - .5rem), 30rem, max(14rem, calc((100svh - 13rem) * 0.6))); aspect-ratio: 3 / 5; margin-inline: auto; }
+.device-canvas[data-orientation="portrait"] { width: 480px; height: 800px; }
+.device-canvas [hidden] { display: none !important; }
+.app-content { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.system-screen, .app-shell { position: absolute; inset: 0; min-width: 0; min-height: 0; }
 .system-screen { display: grid; grid-template-rows: 100%; align-content: space-between; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #63816e transparent; background: radial-gradient(circle at 85% 8%, #a7cf8470, transparent 30%), linear-gradient(145deg, #edf3e7, #c4d8ca); }
 .system-screen::-webkit-scrollbar { width: 6px; }
 .system-screen::-webkit-scrollbar-thumb { border-radius: 99px; background: #63816e; }
@@ -37,30 +42,88 @@ h1 { max-width: 7ch; margin: 0; font-size: clamp(2.3rem, 6vw, 5.2rem); line-heig
 .settings-actions .danger { background: #efd1bf; border-color: #c0683b; }
 .safe-screen { display: grid; align-content: center; justify-items: start; gap: 16px; padding: 24px; background: #edd0b7; color: #442219; }
 .safe-screen span { max-width: 352px; font-size: 10px; line-height: 15px; }
-.app-shell { position: relative; display: grid; }
-.app-shell, .app-screen { width: 100%; height: 100%; min-height: 0; }
-.app-screen { display: grid; place-items: center; }
-.app-back { position: absolute; z-index: 2; top: 12px; left: 12px; border: 1px solid #648472; border-radius: 99px; padding: 6px 9px; background: #f5f8efdd; color: #173128; cursor: pointer; font-size: 9px; }
+.app-shell { overflow: hidden; }
+.app-screen { position: relative; z-index: 1; display: grid; place-items: center; width: 100%; height: 100%; min-height: 0; }
+/* Default OS app bar: the Home shell and every launched App get this 40px
+   strip, and the screen content fills the remaining 440px row. */
+.app-bar { position: relative; z-index: 2; height: 40px; display: grid; grid-template-columns: 96px minmax(0, 1fr) 96px; align-items: center; gap: 0; min-width: 0; padding: 0 10px; border-bottom: 1px solid #d5d9ce; background: #e7eae4; color: #101820; }
+.app-bar-status { position: relative; display: flex; align-items: center; min-width: 0; }
+.app-bar-wifi { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #84937d; cursor: pointer; }
+.app-bar-wifi svg { width: 18px; height: 18px; }
+.app-bar-wifi[data-state="connected"] { color: #1e7256; }
+.app-bar-wifi[data-state="connecting"] { color: #c0683b; }
+.app-bar-wifi:hover, .app-bar-wifi[aria-expanded="true"] { background: #ffffffb3; }
+.app-bar-wifi:focus-visible { outline: 2px solid #1d5c46; outline-offset: 1px; }
+.app-bar-tooltip { position: absolute; top: calc(100% + 7px); left: 0; z-index: 5; max-width: 260px; padding: 6px 10px; visibility: hidden; opacity: 0; overflow: hidden; border: 1px solid #2f3a35; border-radius: 6px; background: #101820; box-shadow: 0 8px 18px #10182033; color: #f3f6f1; font: 400 12px/16px "MicroUiSans", "MicroUiIpa", sans-serif; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; transform: translateY(-2px); transition: opacity .14s ease, transform .14s ease, visibility .14s; }
+.app-bar-tooltip::before { content: ""; position: absolute; top: -5px; left: 12px; width: 8px; height: 8px; border-top: 1px solid #2f3a35; border-left: 1px solid #2f3a35; background: #101820; transform: rotate(45deg); }
+.app-bar-status[data-open="true"] .app-bar-tooltip { visibility: visible; opacity: 1; transform: translateY(0); }
+@media (hover: hover) {
+  .app-bar-status:hover .app-bar-tooltip { visibility: visible; opacity: 1; transform: translateY(0); }
+}
+.app-bar-title { min-width: 0; overflow: hidden; color: #101820; font: 400 18px/24px "MicroUiSans", "MicroUiIpa", sans-serif; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.app-bar-trailing { display: flex; align-items: center; justify-content: flex-end; gap: 16px; min-width: 0; }
+.app-bar-clock { color: #101820; font: 400 14px/18px "MicroUiSans", "MicroUiIpa", sans-serif; font-variant-numeric: tabular-nums; }
+.app-back { position: relative; display: grid; flex: none; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid #84937d; border-radius: 50%; background: transparent; color: #101820; cursor: pointer; }
+/* 28 px visual circle + 8 px halo = the 44 px minimum touch target. */
+.app-back::before { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
+.app-back svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+.app-back:hover { border-color: #101820; background: #ffffffb3; }
+.app-back:active { background: #fff; }
+.app-back:focus-visible { outline: 2px solid #1d5c46; outline-offset: 1px; }
+/* Device power state: covers the 40 px bar too, like a real panel that lost
+   power. The whole surface is the power button. */
+.device-off { position: absolute; inset: 0; z-index: 6; display: grid; align-content: center; justify-items: center; gap: 10px; border: 0; background: #101820; color: #f3f6f1; cursor: pointer; }
+.device-off[hidden] { display: none; }
+.device-off-title { font: 400 18px/24px "MicroUiSans", "MicroUiIpa", sans-serif; }
+.device-off-hint { color: #93a69a; font: 400 12px/16px "MicroUiSans", "MicroUiIpa", sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+.device-off:focus-visible { outline: 2px solid #93a69a; outline-offset: -6px; }
 .micro-column { display: flex; align-items: flex-start; flex-direction: column; gap: 6px; width: 100%; min-width: 0; }
-/* A mounted column (e.g. the OS shell's root) fills the screen so its placed
-   children (status bar + tabview) get the full canvas height. */
+/* A mounted column fills the content box below the app bar so its placed
+   children (launcher grid / tabview) get the full 440px height. */
 #system-screen > .micro-column, #app-screen > .micro-column { height: 100%; }
 .micro-row { display: flex; align-items: center; flex-direction: row; gap: 16px; width: 100%; min-width: 0; }
 .micro-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.micro-list-row { min-width: 0; padding: 9px 12px; border: 1px solid #63816e; border-radius: 4px; background: #eaf1e8; color: #173128; cursor: pointer; font: 400 14px/18px "MicroUiSans", sans-serif; text-align: left; white-space: pre-wrap; }
-.micro-text { font: 400 24px/32px "MicroUiSans", sans-serif; white-space: pre-wrap; }
-.micro-button { padding: 13px 22px; border: 0; border-radius: 5px; background: #1e7256; box-shadow: 0 8px 16px #1e725644; color: #fff; cursor: pointer; font: 400 14px/18px "MicroUiSans", sans-serif; white-space: pre-wrap; }
-.micro-progress { width: 100%; height: 12px; accent-color: #1e7256; }
+.micro-list-row { min-width: 0; padding: 9px 12px; border: 1px solid #63816e; border-radius: 4px; background: #eaf1e8; color: #173128; cursor: pointer; font: 400 14px/18px "MicroUiSans", "MicroUiIpa", sans-serif; text-align: left; white-space: pre-wrap; }
+.micro-text { font: 400 24px/32px "MicroUiSans", "MicroUiIpa", sans-serif; white-space: pre-wrap; pointer-events: none; }
+/* Shared OS icons (`ui.icon`): an inline stroke SVG centred in the box the
+   Delphi layout sizes. `textStyle.size` becomes the SVG's intrinsic size so
+   the Web matches the LVGL glyph size; a badge paints a circular sage field. */
+.micro-icon { display: grid; place-items: center; width: 100%; height: 100%; overflow: hidden; color: #101820; line-height: 1; pointer-events: none; }
+.micro-icon[data-tap] { pointer-events: auto; cursor: pointer; }
+.micro-icon[data-tap]:focus-visible { outline: 2px solid #c67a4f; outline-offset: 2px; }
+.micro-icon > svg { display: block; flex: none; }
+.micro-icon[data-tone="muted"] { color: #84937d; }
+.micro-icon[data-tone="accent"] { color: #c0683b; }
+.micro-icon[data-tone="inverse"] { color: #fffdf7; }
+.micro-icon[data-variant="badge"] { border-radius: 50%; background: #e7f0e5; }
+.micro-icon[data-glyph] { font: 400 24px/24px "MicroUiSans", "MicroUiIpa", sans-serif; }
+.micro-button { padding: 13px 22px; border: 1px solid #1b5b48; border-radius: 12px; background: #1f6b4f; box-shadow: 0 8px 18px #1e4d3b2e, inset 0 1px 0 #ffffff20; color: #fff; cursor: pointer; font: 400 14px/18px "MicroUiSans", "MicroUiIpa", sans-serif; white-space: pre-wrap; transition: background .16s ease, box-shadow .16s ease, transform .08s ease; }
+.micro-button:hover { background: #26785a; box-shadow: 0 10px 22px #1e4d3b38, inset 0 1px 0 #ffffff24; }
+.micro-button:active { background: #195942; box-shadow: 0 4px 10px #1e4d3b2e; transform: translateY(1px); }
+.micro-button-selected { border-color: #a95f37; background: #c67a4f; box-shadow: 0 8px 18px #8c4a2b33, inset 0 1px 0 #ffffff2e; }
+.micro-button-selected:hover { background: #b56b43; box-shadow: 0 10px 22px #8c4a2b40, inset 0 1px 0 #ffffff30; }
+.micro-button-selected:active { background: #a65c36; box-shadow: 0 4px 10px #8c4a2b33; transform: translateY(1px); }
+.micro-button:focus-visible, .micro-tab-title:focus-visible { outline: 2px solid #c67a4f; outline-offset: 2px; }
+.micro-progress { width: 100%; height: 8px; accent-color: #2e6b52; }
+.micro-surface { pointer-events: none; position: absolute; box-sizing: border-box; border: 1px solid #e4dac6; border-radius: 18px; background: #fffdf7; }
+.micro-surface[data-tap] { pointer-events: auto; cursor: pointer; }
+.micro-surface[data-tap]:focus-visible { outline: 2px solid #c67a4f; outline-offset: 2px; }
+.micro-surface[data-tone="canvas"] { border: 0; border-radius: 0; background: #f4efe4; }
+.micro-surface[data-tone="paper"] { border-color: #e4dac6; background: #fffdf7; box-shadow: 0 12px 28px #20342b14; }
+.micro-surface[data-tone="sage"] { border-color: #d0dfcd; background: #e7f0e5; box-shadow: 0 8px 20px #20342b10; }
+.micro-surface[data-tone="terracotta"] { border-color: #ebc9b6; background: #f7e4d8; box-shadow: 0 8px 20px #20342b10; }
+.micro-surface[data-tone="line"] { border: 0; border-radius: 0; background: #ded5c2; }
 .micro-row > .micro-progress { flex: 0 0 auto; width: 120px; }
 .micro-switch { position: relative; width: 52px; height: 30px; padding: 0; border: 0; border-radius: 99px; background: #84937d; cursor: pointer; appearance: none; }
 .micro-switch::after { position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; content: ""; transition: transform .15s ease; }
 .micro-switch[aria-checked="true"] { background: #1e7256; }
 .micro-switch[aria-checked="true"]::after { transform: translateX(22px); }
-.micro-input { width: 100%; padding: 8px; border: 2px solid #888; border-radius: 4px; background: #fff; color: #101820; }
+.micro-input { width: 100%; box-sizing: border-box; padding: 10px 14px; border: 1px solid #d8cdb8; border-radius: 10px; background: #fbf7ed; color: #332e27; font: 400 14px/18px "MicroUiSans", "MicroUiIpa", sans-serif; transition: border-color .16s ease, box-shadow .16s ease, background .16s ease; }
+.micro-input:focus { outline: none; border-color: #1d5c46; background: #fffdf7; box-shadow: 0 0 0 3px #1d5c4622; }
 .micro-slider { width: 100%; height: 22px; accent-color: #1e7256; }
-.micro-checkbox { display: flex; align-items: center; gap: 8px; color: #101820; font: 400 24px/32px "MicroUiSans", sans-serif; cursor: pointer; }
+.micro-checkbox { display: flex; align-items: center; gap: 8px; color: #101820; font: 400 24px/32px "MicroUiSans", "MicroUiIpa", sans-serif; cursor: pointer; }
 .micro-checkbox input { width: 20px; height: 20px; accent-color: #1e7256; }
-.micro-dropdown, .micro-roller { width: 100%; padding: 8px; border: 2px solid #888; border-radius: 4px; background: #fff; color: #101820; font: 400 24px/32px "MicroUiSans", sans-serif; }
+.micro-dropdown, .micro-roller { width: 100%; padding: 8px; border: 2px solid #888; border-radius: 4px; background: #fff; color: #101820; font: 400 24px/32px "MicroUiSans", "MicroUiIpa", sans-serif; }
 .micro-led { display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: #84937d; box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .18); }
 .micro-led[data-on="1"] { background: #2fce5f; box-shadow: 0 0 8px #2fce5f99, inset 0 0 0 2px rgba(0, 0, 0, .12); }
 .micro-spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid #d6ddc7; border-top-color: #1e7256; border-radius: 50%; box-sizing: border-box; }
@@ -70,15 +133,25 @@ h1 { max-width: 7ch; margin: 0; font-size: clamp(2.3rem, 6vw, 5.2rem); line-heig
 .micro-scale { --micro-scale: 0.5; position: relative; width: 120px; height: 120px; border-radius: 50%; background: radial-gradient(circle at center, #eaf1e8 0 56%, #fff 58% 60%, #d6ddc7 62% 64%, #eaf1e8 66% 100%); box-shadow: inset 0 0 0 1px #b8bfb4; }
 .micro-scale::before { content: ""; position: absolute; left: calc(50% - 1.5px); bottom: 50%; width: 3px; height: 42px; background: #1e7256; transform-origin: 50% 100%; transform: rotate(calc(135deg + var(--micro-scale) * 270deg)); }
 .micro-scale::after { content: ""; position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; border-radius: 50%; background: #1e7256; transform: translate(-50%, -50%); }
-.micro-tabview { display: grid; grid-template-rows: auto minmax(0, 1fr); width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; background: #f2f4f0; border: 1px solid #d6ddc7; border-radius: 8px; }
-.micro-tab-bar { grid-row: 1; display: flex; gap: 2px; padding: 6px 6px 0; background: #f2f4f0; border-bottom: 1px solid #d6ddc7; }
-.micro-tab-title { flex: 1 1 0; min-width: 0; padding: 9px 0; border: 0; border-bottom: 2px solid transparent; background: none; color: #49705e; font: 400 13px/18px "MicroUiSans", sans-serif; cursor: pointer; }
-.micro-tab-title.micro-tab-active { color: #1e7256; border-bottom-color: #1e7256; font-weight: 700; }
+.micro-tabview { display: grid; grid-template-rows: auto minmax(0, 1fr); width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; background: #f4efe4; border: 1px solid #ded5c2; border-radius: 8px; }
+.micro-tab-bar { grid-row: 1; display: flex; gap: 2px; padding: 6px 6px 0; background: #f4efe4; border-bottom: 1px solid #ded5c2; }
+.micro-tab-title { flex: 1 1 0; min-width: 0; padding: 9px 0; border: 0; border-bottom: 2px solid transparent; background: none; color: #6f7f71; font: 400 14px/18px "MicroUiSans", "MicroUiIpa", sans-serif; text-align: center; cursor: pointer; }
+.micro-tab-title:hover { color: #2e6b52; }
+.micro-tab-title.micro-tab-active { color: #1d5c46; border-bottom-color: #1d5c46; font-weight: 700; }
 /* Pages stack in one grid cell; inactive pages hide via visibility (not
  * display:none) so they keep their layout. The delphi engine measures child
  * heights at mount time, and display:none pages measure 0 — visibility keeps
  * them measurable, mirroring LVGL's layout-independent measurement. */
-.micro-tab-page { grid-row: 2; grid-column: 1; min-width: 0; min-height: 0; overflow-y: auto; visibility: hidden; }
+/* The tab page is the scroll container. Wheel and trackpad gestures are the
+ * browser's native overflow scrolling, so they drive the same scrollbar a
+ * finger drag does. Style it explicitly instead of relying on macOS overlay
+ * scrollbars: the slim #B8BFB4 thumb matches the LVGL page scrollbar, and the
+ * stable gutter keeps the delphi layout width from shifting when content grows
+ * past one page. */
+.micro-tab-page { grid-row: 2; grid-column: 1; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #b8bfb4 transparent; scrollbar-gutter: stable; visibility: hidden; }
+.micro-tab-page::-webkit-scrollbar { width: 6px; }
+.micro-tab-page::-webkit-scrollbar-thumb { border-radius: 99px; background: #b8bfb4; }
+.micro-tab-page::-webkit-scrollbar-track { background: transparent; }
 .micro-tab-page.micro-tab-page-active { visibility: visible; }
 .monitor { align-self: stretch; display: flex; min-width: 0; flex-direction: column; border: 1px solid #d6ddc744; border-radius: .6rem; background: #17221fca; padding: 1.2rem; }
 .monitor-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
@@ -95,3 +168,164 @@ h1 { max-width: 7ch; margin: 0; font-size: clamp(2.3rem, 6vw, 5.2rem); line-heig
 .simulated-note { margin: 1rem 0 0; color: #84937d; font-size: .49rem; line-height: 1.55; }
 [data-runtime-error] { grid-column: 1 / -1; margin: 0; padding: 1rem; overflow: auto; border: 1px solid #c0683b; border-radius: .4rem; background: #301b17; color: #ffc2a8; white-space: pre-wrap; }
 @media (max-width: 800px) { .simulator-shell { grid-template-columns: 1fr; padding: 1.2rem; } .simulator-header { display: block; } .simulator-header > p { margin-top: 1rem; } .device-rig { grid-row: 2; } .monitor { grid-row: 3; } .monitor-grid { grid-template-columns: repeat(4, 1fr); } .monitor-grid dd { font-size: .5rem; } }
+
+
+/* -------------------------------------------------------------------------
+ * Host controls (outside the device canvas)
+ *
+ * The Web player mirrors the native host's Device menu: a status strip above
+ * the panel, a responsive dialog for power/restart/display, and read-only
+ * emulator facts. The menu is deliberately host chrome; none of these nodes
+ * live inside the 800x480 (or 480x800) DOM renderer.
+ * ---------------------------------------------------------------------- */
+.host-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .8rem;
+  margin: 0 0 .55rem;
+  padding: .35rem .45rem .35rem .62rem;
+  border: 1px solid #d6ddc733;
+  border-radius: .45rem;
+  background: #0f1815cc;
+  box-shadow: inset 0 1px #ffffff0a;
+}
+.host-state, .host-menu-state {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  min-width: 0;
+  overflow: hidden;
+  color: #a7cf84;
+  font-size: .56rem;
+  letter-spacing: .08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.host-state i, .host-menu-state i {
+  flex: none;
+  width: .42rem;
+  height: .42rem;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 .55rem #a7cf8499;
+}
+.host-menu-state { letter-spacing: .04em; text-transform: none; }
+.host-state[data-state="off"], .host-menu-state[data-state="off"] { color: #84937d; }
+.host-state[data-state="busy"], .host-menu-state[data-state="busy"] { color: #e0b36a; }
+.host-state[data-state="error"], .host-menu-state[data-state="error"] { color: #e0896a; }
+.host-menu-button {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: .4rem;
+  min-height: 2.1rem;
+  padding: .38rem .6rem;
+  border: 1px solid #d6ddc744;
+  border-radius: .35rem;
+  background: #1b2823;
+  color: #e9eadf;
+  cursor: pointer;
+  font-size: .62rem;
+}
+.host-menu-button svg { width: 1rem; height: 1rem; }
+.host-menu-button:hover { border-color: #a7cf8477; background: #22322b; }
+.host-menu-button:focus-visible, .host-menu button:focus-visible, .host-menu select:focus-visible { outline: 2px solid #a7cf84; outline-offset: 2px; }
+
+dialog.host-menu {
+  width: min(25rem, calc(100vw - 2rem));
+  max-height: min(44rem, calc(100vh - 2rem));
+  margin: 4.6rem 1.2rem auto auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #d6ddc755;
+  border-radius: .8rem;
+  background: #17221f;
+  color: #e9eadf;
+  box-shadow: 0 1.8rem 4rem #00000066;
+}
+dialog.host-menu[open] { display: flex; flex-direction: column; }
+dialog.host-menu::backdrop { background: #050a08b8; backdrop-filter: blur(3px); }
+.host-menu-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem .9rem;
+  border-bottom: 1px solid #d6ddc722;
+}
+.host-menu-head .eyebrow { margin: 0 0 .25rem; font-size: .52rem; }
+.host-menu-head h2 { margin: 0; color: #f3f6f1; font-size: 1.55rem; line-height: 1; }
+.host-menu-close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid #d6ddc733;
+  border-radius: 50%;
+  background: transparent;
+  color: #e9eadf;
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+.host-menu-close:hover { background: #ffffff12; }
+.host-menu-body { min-height: 0; padding: .9rem 1.1rem 1.1rem; overflow: auto; }
+.host-menu-state { margin: 0 0 .9rem; color: #a7cf84; }
+.host-menu-section + .host-menu-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #d6ddc722; }
+.host-menu-section h3 {
+  margin: 0 0 .6rem;
+  color: #84937d;
+  font-size: .54rem;
+  font-weight: 400;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.host-menu-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.host-menu-actions button {
+  min-height: 2.4rem;
+  padding: .55rem .65rem;
+  border: 1px solid #d6ddc744;
+  border-radius: .35rem;
+  background: #1f2e28;
+  color: #e9eadf;
+  cursor: pointer;
+  font-size: .68rem;
+}
+.host-menu-actions button:hover:not(:disabled) { border-color: #a7cf8477; background: #273a32; }
+.host-menu-actions button:disabled { opacity: .38; cursor: not-allowed; }
+.host-menu-actions .danger { grid-column: 1 / -1; border-color: #c0683b88; background: #3a241d; color: #ffc2a8; }
+.host-menu-actions .danger:hover:not(:disabled) { border-color: #e0896a; background: #4a2a20; }
+.host-menu-actions .danger[data-armed="true"] { border-color: #e0896a; background: #5a2e20; }
+.host-menu-hint { margin: .55rem 0 0; color: #93a69a; font-size: .56rem; line-height: 1.55; }
+.host-menu-hint[hidden] { display: none; }
+.host-field { display: grid; gap: .4rem; color: #c8d3c5; font-size: .64rem; }
+.host-field select {
+  width: 100%;
+  min-height: 2.4rem;
+  padding: .45rem .55rem;
+  border: 1px solid #d6ddc744;
+  border-radius: .35rem;
+  background: #101820;
+  color: #e9eadf;
+  font: inherit;
+  font-size: .68rem;
+}
+.host-menu-info { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem .8rem; margin: .1rem 0 0; }
+.host-menu-info div { min-width: 0; border-top: 1px solid #d6ddc722; padding-top: .35rem; }
+.host-menu-info dt { color: #84937d; font-size: .5rem; letter-spacing: .08em; text-transform: uppercase; }
+.host-menu-info dd { margin: .25rem 0 0; overflow-wrap: anywhere; color: #ecede4; font-size: .6rem; line-height: 1.45; }
+@media (max-width: 640px) {
+  dialog.host-menu {
+    width: 100%;
+    max-height: 86svh;
+    margin: auto 0 0;
+    border-radius: 1rem 1rem 0 0;
+  }
+  .host-bar { margin-bottom: .45rem; }
+  .host-menu-body { padding-bottom: max(1.1rem, env(safe-area-inset-bottom)); }
+}
