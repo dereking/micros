@@ -65,6 +65,7 @@ const USAGE: &str = "\
 usage:
   micro-host-sdl [--smoke] [--orientation landscape|portrait] [--zoom 25..400|fit] <app.mbc>
   micro-host-sdl [--smoke] [--orientation landscape|portrait] [--zoom ...] --os <shell.mbc> <app.mbc>...
+  micro-host-sdl                     no args inside Micro OS.app: boot Resources/apps
 
 host window:
   toolbar             top icon bar: Landscape / Portrait / Rotate
@@ -78,7 +79,8 @@ host window:
 
 Orientation switches the LVGL device resolution (800x480 in OS mode) and
 reflows the OS app bar and App layout in place; App state is preserved.
---rotate 90/270 remains as a compatibility alias for --orientation portrait.";
+--rotate 90/270 remains as a compatibility alias for --orientation portrait.
+Outside a bundle, a missing launch target prints this usage instead.";
 
 #[cfg(feature = "native")]
 fn run() -> Result<(), String> {
@@ -189,7 +191,7 @@ fn parse_arguments(
                 apps: apps.iter().map(PathBuf::from).collect(),
             }
         }
-        [] => return Err(USAGE.to_owned()),
+        [] => bundled_launch().ok_or_else(|| USAGE.to_owned())?,
         [flag, ..] if flag.to_str().is_some_and(|flag| flag.starts_with("--")) => {
             return Err(format!(
                 "unknown or incomplete option {}\n\n{USAGE}",
@@ -199,6 +201,53 @@ fn parse_arguments(
         _ => return Err(format!("only one launch target may be given\n\n{USAGE}")),
     };
     Ok((smoke, launch, presentation))
+}
+
+/// No command line (Finder launch): boot the apps shipped inside the
+/// `Micro OS.app` bundle. The bundle layout is
+/// `Contents/MacOS/micro-os` + `Contents/Resources/apps/{shell,*.mbc}`;
+/// `registry.txt` keeps the launcher order the shell was compiled against.
+#[cfg(feature = "native")]
+fn bundled_launch() -> Option<Launch> {
+    let executable = std::env::current_exe().ok()?;
+    let contents = executable.parent()?.parent()?;
+    let apps_directory = contents.join("Resources").join("apps");
+    let shell = apps_directory.join("shell.mbc");
+    if !shell.is_file() {
+        return None;
+    }
+
+    let mut installed = Vec::new();
+    match std::fs::read_to_string(apps_directory.join("registry.txt")) {
+        Ok(registry) => {
+            for name in registry
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+            {
+                let path = apps_directory.join(name);
+                if path != shell && path.is_file() {
+                    installed.push(path);
+                }
+            }
+        }
+        Err(_) => {
+            let mut entries = std::fs::read_dir(&apps_directory)
+                .ok()?
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| path.extension().is_some_and(|extension| extension == "mbc"))
+                .filter(|path| path != &shell)
+                .collect::<Vec<_>>();
+            entries.sort();
+            installed = entries;
+        }
+    }
+
+    (!installed.is_empty()).then_some(Launch::Os {
+        shell,
+        apps: installed,
+    })
 }
 
 #[cfg(feature = "native")]

@@ -472,6 +472,11 @@ impl NativeBridge {
             let bytes: Vec<u8> = error[..length].iter().map(|byte| *byte as u8).collect();
             String::from_utf8_lossy(&bytes).into_owned()
         })?;
+        if !hidden {
+            /* A visible window means SDL brought AppKit up; replace the
+             * generic executable icon with the Micro OS artwork. */
+            crate::app_icon::install();
+        }
         Ok(Self {
             inner: Rc::new(NativeInner { raw }),
         })

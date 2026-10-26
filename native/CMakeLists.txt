@@ -6,14 +6,18 @@ project(micro_native C)
 # surface without the bridges; the Rust host compiles audio to a no-op there.
 set(MICRO_OBJC_SOURCES)
 set(MICRO_MENU_SOURCES src/micro_host_menu_stub.c)
+set(MICRO_ICON_SOURCES src/micro_host_icon_stub.c)
 if(APPLE)
   enable_language(OBJC)
-  list(APPEND MICRO_OBJC_SOURCES src/micro_speech.m src/micro_audio.m)
+  list(APPEND MICRO_OBJC_SOURCES src/micro_speech.m src/micro_audio.m
+       src/micro_host_icon.m)
   set_source_files_properties(
     src/micro_speech.m src/micro_audio.m src/micro_host_menu.m
+    src/micro_host_icon.m
     PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
   )
   set(MICRO_MENU_SOURCES src/micro_host_menu.m)
+  set(MICRO_ICON_SOURCES "")
 endif()
 
 include(FetchContent)
@@ -65,6 +69,7 @@ add_library(micro_native SHARED
   src/micro_native.c
   src/micro_appbar.c
   ${MICRO_MENU_SOURCES}
+  ${MICRO_ICON_SOURCES}
   ${MICRO_OBJC_SOURCES}
   ${MICRO_UI_FONT_SOURCES}
 )

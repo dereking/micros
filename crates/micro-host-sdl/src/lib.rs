@@ -1,4 +1,6 @@
 #[cfg(feature = "native")]
+mod app_icon;
+#[cfg(feature = "native")]
 mod native;
 mod speech;
 mod url_audio;

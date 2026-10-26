@@ -302,3 +302,90 @@ cargo run -p micro-host-sdl --features native -- \
 - 不支持双指捏合缩放；缩放走菜单/快捷键/滚轮/命令行。
 - 分数缩放会让 LVGL 纹理变软（LVGL 按逻辑分辨率光栅化），整数倍缩放用
   最近邻保持清晰。
+
+## 9. macOS 应用图标与 .app 包
+
+宿主以前从终端裸跑，Dock 里显示的是通用可执行文件（控制台）图标。现在图标由
+同一条流水线覆盖三种启动方式：
+
+| 场景 | 图标来源 |
+| --- | --- |
+| 双击 `Micro OS.app` | `Contents/Info.plist` 的 `CFBundleIconFile` → `Resources/AppIcon.icns` |
+| `npm run demo` / `cargo run` | 运行时 `NSApplication.applicationIconImage`（嵌入的 512 px PNG） |
+| Finder / Cmd-Tab / Dock | 同上，进程级生效 |
+
+### 图标源
+
+`scripts/generate-app-icon.swift` 用 CoreGraphics/AppKit 直接绘制，无第三方依赖：
+
+- macOS 超椭圆（superellipse n=5）squircle，深墨绿渐变 + 鼠尾草高光；
+- 里面的 800×480 设备：深色 bezel（摄像头 + 陶土橙电源灯）、米白 paper 屏、
+  40 px OS app bar（Wi-Fi / Home / 9:41）、2×2 启动器卡片（第一张 terracotta，
+  另外三张 paper + 圆角 badge）；
+- 16/32 px 改用简化构图（只有 squircle + 四张卡片），避免缩小后糊成一团。
+
+```bash
+npm run icon:generate        # swift scripts/generate-app-icon.swift
+```
+
+输出 `assets/app-icon/`：`AppIcon.icns`（直接写 ICNS 容器，不依赖 iconutil）、
+`icon-1024.png`（母版预览）、`icon-512.png`（运行时嵌入）、`icon-128.png`
+（文档预览）、`icon-32.png` / `icon-16.png`（小尺寸简化构图预览）。改完图标后重新构建宿主即可；`crates/micro-host-sdl/build.rs`
+已把 `icon-512.png` 列入 `rerun-if-changed`。
+
+### 运行时 Dock 图标
+
+`crates/micro-host-sdl/src/app_icon.rs` 用 `include_bytes!` 把 512 px PNG 编进
+宿主。`NativeBridge::create` 在**可见窗口**创建成功后调用
+`micro_host_icon_set_png`（`native/src/micro_host_icon.m`）：
+
+```objc
+NSImage *image = [[NSImage alloc] initWithData:pngData];
+[NSApplication sharedApplication].applicationIconImage = image;
+```
+
+无头 `--smoke` / `--os-smoke` 用 SDL dummy 驱动，不初始化 AppKit，因此不会走
+这条路径。其他平台由 `micro_host_icon_stub.c` 提供返回 0 的同名函数。
+
+### 打包成 .app
+
+```bash
+npm run bundle:macos                 # release → dist/Micro OS.app
+npm run bundle:macos -- --debug      # debug 包（最快，图标/行为一致）
+npm run start:macos                  # 打包后直接打开
+```
+
+Bundle 结构：
+
+```text
+dist/Micro OS.app/Contents/
+├── Info.plist                  CFBundleIdentifier dev.micros.micro-os
+├── MacOS/micro-os              宿主二进制（cargo build -p micro-host-sdl --features native）
+├── Frameworks/
+│   └── libmicro_native.dylib   C/ObjC 桥；install name 改为 @executable_path/../Frameworks
+└── Resources/
+    ├── AppIcon.icns
+    └── apps/
+        ├── shell.mbc           OS 首页
+        ├── registry.txt        启动器顺序：counter, settings, momo
+        ├── counter.mbc
+        ├── settings.mbc
+        └── momo.mbc
+```
+
+`Info.plist` 使用 `CFBundleName=Micro OS`、`CFBundleIconFile=AppIcon.icns`、
+`LSMinimumSystemVersion=12.0`、`NSHighResolutionCapable=true`。宿主链接的
+`libmicro_native.dylib` 会复制进 `Contents/Frameworks`，并用 `install_name_tool`
+把 `@rpath` 改成 `@executable_path/../Frameworks`，因此 `cargo clean` 之后双击
+仍然能启动。脚本最后 ad-hoc 签名 dylib 与 bundle（失败只告警，不影响本机运行），
+并调用 `lsregister -f` 刷新 LaunchServices 的图标缓存。
+
+### 双击启动（无命令行）
+
+Finder 启动不带参数，因此 `crates/micro-host-sdl/src/main.rs` 的
+`bundled_launch()` 会从当前可执行文件推出
+`../Resources/apps`：读 `shell.mbc` 和 `registry.txt` 里的 App 顺序，按 OS
+模式启动首页。开发时仍可显式传 `--os`，两者走同一套 `Launch::Os`。
+
+如果 Finder 仍显示旧图标，`touch "dist/Micro OS.app"` 或重新登录一次；这是
+LaunchServices 的缓存，不是图标生成失败。

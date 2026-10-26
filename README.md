@@ -108,6 +108,23 @@ launcher to enter Counter, Settings, or momo.
 
 The first demo build downloads and compiles SDL 3.4.10 and LVGL 9.5.0. Later builds reuse the cache.
 
+### macOS app bundle
+
+Running from the terminal still shows the Micro OS Dock icon (the host embeds the
+artwork and sets `NSApplication.applicationIconImage`). For a normal
+double-clickable app, package the same binary with its icon and compiled Apps:
+
+```bash
+npm run bundle:macos          # → dist/Micro OS.app
+npm run start:macos           # package and open it
+```
+
+The bundle's `Resources/apps` carries the shell and the installed Apps, so a
+Finder launch boots the home screen with no arguments. Regenerate the artwork
+with `npm run icon:generate` (source: `scripts/generate-app-icon.swift`); see
+[docs/native-display.md](docs/native-display.md#9-macos-应用图标与-app-包) for the
+icon pipeline and bundle layout.
+
 ### Default OS app bar
 
 Every screen — the Home shell and every launched App — gets an OS-owned 40 px

@@ -31,6 +31,9 @@ LVGL+SDL3（macOS）或 DOM（浏览器 Wasm）。更详细的架构与命令见
 | `npm run dev:web` | 编译 MBC + Wasm，并启动 Vite 开发服务器（热更新） |
 | `npm run preview:web` | 预览已打包产物（端口 4173） |
 | `npm run demo` | 编译全部 App 并打开原生 800×480 桌面（Counter / Settings / momo） |
+| `npm run bundle:macos` | 打包可双击的 `dist/Micro OS.app`（图标 + Info.plist + 宿主 + MBC） |
+| `npm run start:macos` | 打包后立即 `open` 该 .app |
+| `npm run icon:generate` | 重新生成 `assets/app-icon/`（Swift/CoreGraphics，无第三方依赖） |
 | `npm run test:native` | 一键原生测试：自检 → 编译 App → 构建宿主 → Counter 冒烟 → momo 四段流程/输入测试 → OS shell 冒烟 → 打开窗口；`-- --smoke` 只跑无头部分 |
 | `npm test` | 运行全部平台无关 Rust 测试（`cargo test --workspace`） |
 | `npm run test:web` | Web 端：Node 单测 + 构建 + Playwright 浏览器验收 |
