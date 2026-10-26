@@ -5,6 +5,68 @@ use std::rc::Rc;
 use micro_ir::{FontFamily, FontWeight, FunctionId, NodeId, TextStyle};
 use micro_lvgl::NativeUi;
 
+/// Host-level actions raised by the platform device menu. They are handled by
+/// the native host loop, never by the LVGL App tree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostAction {
+    PowerOff,
+    PowerOn,
+    ForceRestart,
+    SetOrientation { portrait: bool },
+    ZoomFit,
+    Zoom(u16),
+}
+
+impl HostAction {
+    fn from_raw(raw: c_int) -> Option<Self> {
+        Some(match raw {
+            0 => Self::PowerOff,
+            1 => Self::PowerOn,
+            2 => Self::ForceRestart,
+            3 => Self::SetOrientation { portrait: false },
+            4 => Self::SetOrientation { portrait: true },
+            5 => Self::ZoomFit,
+            6 => Self::Zoom(75),
+            7 => Self::Zoom(100),
+            8 => Self::Zoom(125),
+            9 => Self::Zoom(150),
+            _ => return None,
+        })
+    }
+
+    fn raw(self) -> c_int {
+        match self {
+            Self::PowerOff => 0,
+            Self::PowerOn => 1,
+            Self::ForceRestart => 2,
+            Self::SetOrientation { portrait: false } => 3,
+            Self::SetOrientation { portrait: true } => 4,
+            Self::ZoomFit => 5,
+            Self::Zoom(75) => 6,
+            Self::Zoom(100) => 7,
+            Self::Zoom(125) => 8,
+            Self::Zoom(150) => 9,
+            Self::Zoom(_) => 7,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HostState {
+    pub powered_off: bool,
+    pub portrait: bool,
+    pub zoom_fit: bool,
+    pub zoom_percent: u16,
+}
+
+#[repr(C)]
+struct RawHostState {
+    powered_off: c_int,
+    portrait: c_int,
+    zoom_fit: c_int,
+    zoom_percent: c_int,
+}
+
 unsafe extern "C" {
     fn micro_native_create(
         width: c_int,
@@ -16,14 +78,111 @@ unsafe extern "C" {
     fn micro_native_destroy(native: *mut c_void);
     fn micro_native_poll(native: *mut c_void) -> c_int;
     fn micro_native_take_back_gesture(native: *mut c_void) -> c_int;
+    fn micro_native_take_appbar_close(native: *mut c_void) -> c_int;
+    fn micro_native_take_swipe_back(native: *mut c_void) -> c_int;
+    fn micro_native_set_app_chrome(
+        native: *mut c_void,
+        visible: c_int,
+        title: *const c_char,
+        wifi_state: *const c_char,
+        wifi_ssid: *const c_char,
+    );
+    fn micro_native_appbar_visible(native: *mut c_void) -> c_int;
+    fn micro_native_power_off(native: *mut c_void);
+    fn micro_native_power_off_active(native: *mut c_void) -> c_int;
+    fn micro_native_take_power_on(native: *mut c_void) -> c_int;
+    fn micro_native_wake(native: *mut c_void);
+    fn micro_native_press_power_on(native: *mut c_void);
     fn micro_native_timer(native: *mut c_void) -> c_uint;
+    fn micro_native_set_orientation(native: *mut c_void, portrait: c_int) -> c_int;
+    fn micro_native_get_orientation(native: *mut c_void) -> c_int;
+    fn micro_native_set_rotation(native: *mut c_void, degrees: c_int) -> c_int;
+    fn micro_native_get_rotation(native: *mut c_void) -> c_int;
+    fn micro_native_set_zoom(native: *mut c_void, percent: c_int) -> c_int;
+    fn micro_native_set_zoom_fit(native: *mut c_void) -> c_int;
+    fn micro_native_get_zoom(native: *mut c_void) -> c_int;
+    fn micro_native_request_host_action(action: c_int);
+    fn micro_native_take_host_action(native: *mut c_void, action: *mut c_int) -> c_int;
+    fn micro_native_host_state(state: *mut RawHostState) -> c_int;
+    fn micro_native_open_host_menu(native: *mut c_void) -> c_int;
+    fn micro_native_window_to_logical(
+        native: *mut c_void,
+        window_x: f64,
+        window_y: f64,
+        logical_x: *mut f64,
+        logical_y: *mut f64,
+    ) -> c_int;
+    fn micro_native_logical_to_window(
+        native: *mut c_void,
+        logical_x: f64,
+        logical_y: f64,
+        window_x: *mut f64,
+        window_y: *mut f64,
+    ) -> c_int;
+    fn micro_native_object_rect(
+        native: *mut c_void,
+        node_id: u32,
+        x: *mut c_int,
+        y: *mut c_int,
+        width: *mut c_int,
+        height: *mut c_int,
+    ) -> c_int;
     fn micro_native_take_activation(native: *mut c_void, handler_id: *mut c_uint) -> c_int;
     fn micro_native_inject_activation(native: *mut c_void, handler_id: c_uint);
     fn micro_native_queue_click(native: *mut c_void, node: c_uint) -> c_int;
+    fn micro_native_queue_wheel(
+        native: *mut c_void,
+        logical_x: f64,
+        logical_y: f64,
+        wheel_x: f32,
+        wheel_y: f32,
+    ) -> c_int;
+    fn micro_native_focus_textarea(native: *mut c_void, node: c_uint) -> c_int;
+    fn micro_native_queue_text_input(native: *mut c_void, text: *const c_char) -> c_int;
+    fn micro_native_take_input_change(
+        native: *mut c_void,
+        handler_id: *mut c_uint,
+        text: *mut c_char,
+        text_capacity: usize,
+        text_len: *mut usize,
+    ) -> c_int;
+    fn micro_native_take_slider_change(
+        native: *mut c_void,
+        handler_id: *mut c_uint,
+        value: *mut f64,
+    ) -> c_int;
+    fn micro_native_take_checkbox_change(
+        native: *mut c_void,
+        handler_id: *mut c_uint,
+        checked: *mut c_int,
+    ) -> c_int;
+    fn micro_native_take_dropdown_change(
+        native: *mut c_void,
+        handler_id: *mut c_uint,
+        index: *mut f64,
+    ) -> c_int;
+    fn micro_native_take_roller_change(
+        native: *mut c_void,
+        handler_id: *mut c_uint,
+        index: *mut f64,
+    ) -> c_int;
     fn micro_native_create_column(native: *mut c_void, node: c_uint, parent: c_uint) -> c_int;
     fn micro_native_create_row(native: *mut c_void, node: c_uint, parent: c_uint) -> c_int;
+    fn micro_native_create_surface(
+        native: *mut c_void,
+        node: c_uint,
+        parent: c_uint,
+        tone: *const c_char,
+        handler: c_uint,
+    ) -> c_int;
+    fn micro_native_set_visible(native: *mut c_void, node: c_uint, visible: c_int) -> c_int;
     fn micro_native_create_list(native: *mut c_void, node: c_uint, parent: c_uint) -> c_int;
-    fn micro_native_create_tabview(native: *mut c_void, node: c_uint, parent: c_uint, titles: *const c_char) -> c_int;
+    fn micro_native_create_tabview(
+        native: *mut c_void,
+        node: c_uint,
+        parent: c_uint,
+        titles: *const c_char,
+    ) -> c_int;
     fn micro_native_create_tab_content(native: *mut c_void, index: c_uint) -> c_int;
     fn micro_native_create_progress(
         native: *mut c_void,
@@ -46,6 +205,17 @@ unsafe extern "C" {
         font_handle: usize,
         line_height_px: c_uint,
     ) -> c_int;
+    fn micro_native_create_icon(
+        native: *mut c_void,
+        node: c_uint,
+        parent: c_uint,
+        glyph: *const c_char,
+        size_px: c_uint,
+        tone: *const c_char,
+        variant: *const c_char,
+        handler: c_uint,
+    ) -> c_int;
+    fn micro_native_set_icon(native: *mut c_void, node: c_uint, glyph: *const c_char) -> c_int;
     fn micro_native_create_button(
         native: *mut c_void,
         node: c_uint,
@@ -54,16 +224,12 @@ unsafe extern "C" {
         handler: c_uint,
         font_handle: usize,
         line_height_px: c_uint,
+        selected: c_int,
     ) -> c_int;
     fn micro_native_set_label_text(native: *mut c_void, node: c_uint, text: *const c_char)
     -> c_int;
-    fn micro_native_set_progress_value(
-        native: *mut c_void,
-        node: c_uint,
-        fraction: f64,
-    ) -> c_int;
-    fn micro_native_set_switch_checked(native: *mut c_void, node: c_uint, checked: c_int)
-        -> c_int;
+    fn micro_native_set_progress_value(native: *mut c_void, node: c_uint, fraction: f64) -> c_int;
+    fn micro_native_set_switch_checked(native: *mut c_void, node: c_uint, checked: c_int) -> c_int;
     fn micro_native_create_input(
         native: *mut c_void,
         node: c_uint,
@@ -75,7 +241,7 @@ unsafe extern "C" {
         line_height_px: c_uint,
     ) -> c_int;
     fn micro_native_set_input_text(native: *mut c_void, node: c_uint, text: *const c_char)
-        -> c_int;
+    -> c_int;
     fn micro_native_create_slider(
         native: *mut c_void,
         node: c_uint,
@@ -102,13 +268,47 @@ unsafe extern "C" {
         index: f64,
         handler: c_uint,
     ) -> c_int;
-    fn micro_native_set_layout_spec(native: *mut c_void, node: c_uint, mask: c_uint, left: f64, top: f64, width: f64, height: f64, anchor_left: f64, anchor_top: f64, anchor_right: f64, anchor_bottom: f64) -> c_int;
-    fn micro_native_apply_delphi_layout(native: *mut c_void, container: c_uint, child_ids: *const c_uint, child_count: c_uint) -> c_int;
-    fn micro_native_create_led(native: *mut c_void, node: c_uint, parent: c_uint, on: c_int) -> c_int;
+    fn micro_native_set_layout_spec(
+        native: *mut c_void,
+        node: c_uint,
+        mask: c_uint,
+        left: f64,
+        top: f64,
+        width: f64,
+        height: f64,
+        anchor_left: f64,
+        anchor_top: f64,
+        anchor_right: f64,
+        anchor_bottom: f64,
+    ) -> c_int;
+    fn micro_native_apply_delphi_layout(
+        native: *mut c_void,
+        container: c_uint,
+        child_ids: *const c_uint,
+        child_count: c_uint,
+    ) -> c_int;
+    fn micro_native_create_led(
+        native: *mut c_void,
+        node: c_uint,
+        parent: c_uint,
+        on: c_int,
+    ) -> c_int;
     fn micro_native_set_led(native: *mut c_void, node: c_uint, on: c_int) -> c_int;
-    fn micro_native_create_spinner(native: *mut c_void, node: c_uint, parent: c_uint, active: c_int) -> c_int;
+    fn micro_native_create_spinner(
+        native: *mut c_void,
+        node: c_uint,
+        parent: c_uint,
+        active: c_int,
+    ) -> c_int;
     fn micro_native_set_spinner(native: *mut c_void, node: c_uint, active: c_int) -> c_int;
-    fn micro_native_create_scale(native: *mut c_void, node: c_uint, parent: c_uint, value: f64, min: f64, max: f64) -> c_int;
+    fn micro_native_create_scale(
+        native: *mut c_void,
+        node: c_uint,
+        parent: c_uint,
+        value: f64,
+        min: f64,
+        max: f64,
+    ) -> c_int;
     fn micro_native_set_scale_value(native: *mut c_void, node: c_uint, value: f64) -> c_int;
     fn micro_native_create_roller(
         native: *mut c_void,
@@ -289,8 +489,207 @@ impl NativeBridge {
         unsafe { micro_native_take_back_gesture(self.inner.raw.as_ptr()) != 0 }
     }
 
+    /// The app bar close control alone (Home uses it to power off).
+    pub fn take_appbar_close(&mut self) -> bool {
+        unsafe { micro_native_take_appbar_close(self.inner.raw.as_ptr()) != 0 }
+    }
+
+    /// The edge-swipe-back gesture alone (inert on Home).
+    pub fn take_swipe_back(&mut self) -> bool {
+        unsafe { micro_native_take_swipe_back(self.inner.raw.as_ptr()) != 0 }
+    }
+
+    /// Show/hide the default OS app bar before booting a Runtime. The shell and
+    /// every installed App pass their display name and Wi-Fi state; only the
+    /// single-App debug viewport hides the bar (`visible = false`).
+    pub fn set_app_chrome(&self, visible: bool, title: &str, wifi_state: &str, wifi_ssid: &str) {
+        let title = CString::new(title).unwrap_or_default();
+        let wifi_state = CString::new(wifi_state).unwrap_or_default();
+        let wifi_ssid = CString::new(wifi_ssid).unwrap_or_default();
+        unsafe {
+            micro_native_set_app_chrome(
+                self.inner.raw.as_ptr(),
+                c_int::from(visible),
+                title.as_ptr(),
+                wifi_state.as_ptr(),
+                wifi_ssid.as_ptr(),
+            );
+        }
+    }
+
+    /// Whether the OS app bar is currently shown (used by the headless smoke).
+    pub fn appbar_visible(&self) -> bool {
+        unsafe { micro_native_appbar_visible(self.inner.raw.as_ptr()) != 0 }
+    }
+
+    /// Show the full-screen "Powered off" surface (Home's close button).
+    pub fn power_off(&self) {
+        unsafe { micro_native_power_off(self.inner.raw.as_ptr()) }
+    }
+
+    /// Whether the device is on the power-off surface.
+    pub fn power_off_active(&self) -> bool {
+        unsafe { micro_native_power_off_active(self.inner.raw.as_ptr()) != 0 }
+    }
+
+    /// Returns true (and clears) when the off screen was tapped.
+    pub fn take_power_on(&mut self) -> bool {
+        unsafe { micro_native_take_power_on(self.inner.raw.as_ptr()) != 0 }
+    }
+
+    /// Hide the power-off surface and restore the bar/content.
+    pub fn wake(&self) {
+        unsafe { micro_native_wake(self.inner.raw.as_ptr()) }
+    }
+
+    /// Drain one action queued by the platform device menu.
+    pub fn take_host_action(&mut self) -> Option<HostAction> {
+        let mut action = 0;
+        let available =
+            unsafe { micro_native_take_host_action(self.inner.raw.as_ptr(), &mut action) };
+        (available != 0)
+            .then(|| HostAction::from_raw(action))
+            .flatten()
+    }
+
+    /// Test hook: inject a menu action through the same SDL-event path.
+    pub fn request_host_action(action: HostAction) {
+        unsafe { micro_native_request_host_action(action.raw()) }
+    }
+
+    /// Pop the platform device menu (macOS NSMenu today).
+    pub fn open_host_menu(&self) -> bool {
+        unsafe { micro_native_open_host_menu(self.inner.raw.as_ptr()) != 0 }
+    }
+
+    /// Current power/orientation/zoom snapshot used by the native menu.
+    pub fn host_state(&self) -> Option<HostState> {
+        let mut state = RawHostState {
+            powered_off: 0,
+            portrait: 0,
+            zoom_fit: 0,
+            zoom_percent: 0,
+        };
+        let available = unsafe { micro_native_host_state(&mut state) };
+        (available != 0).then_some(HostState {
+            powered_off: state.powered_off != 0,
+            portrait: state.portrait != 0,
+            zoom_fit: state.zoom_fit != 0,
+            zoom_percent: state.zoom_percent.clamp(0, u16::MAX as c_int) as u16,
+        })
+    }
+
+    /// Queue the off-screen tap for the headless smoke (no pointer events).
+    pub fn press_power_on(&self) {
+        unsafe { micro_native_press_power_on(self.inner.raw.as_ptr()) }
+    }
+
     pub fn timer(&mut self) -> u32 {
         unsafe { micro_native_timer(self.inner.raw.as_ptr()) }
+    }
+
+    /// Switch the logical device between landscape and portrait. The LVGL
+    /// resolution, OS app bar, and App root are resized in place; existing
+    /// `ui.place` anchors reflow and the running App state is preserved.
+    pub fn set_orientation(&self, portrait: bool) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_set_orientation(self.inner.raw.as_ptr(), c_int::from(portrait)) },
+            "set orientation",
+        )
+    }
+
+    pub fn portrait(&self) -> bool {
+        unsafe { micro_native_get_orientation(self.inner.raw.as_ptr()) != 0 }
+    }
+
+    /// Compatibility shim: 90/270 switch to portrait, 0/180 to landscape. New
+    /// callers should use [`Self::set_orientation`].
+    pub fn set_rotation(&self, degrees: u16) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_set_rotation(self.inner.raw.as_ptr(), c_int::from(degrees)) },
+            "set rotation",
+        )
+    }
+
+    pub fn rotation(&self) -> u16 {
+        let degrees = unsafe { micro_native_get_rotation(self.inner.raw.as_ptr()) };
+        u16::try_from(degrees).unwrap_or(0)
+    }
+
+    /// Scale the device view to `percent` (25..400; 100 = one design pixel per
+    /// window point; 0 fits the current display). The host resizes the window
+    /// so the rotated canvas stays fully visible, clamping to the current
+    /// display's usable bounds.
+    pub fn set_zoom(&self, percent: u16) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_set_zoom(self.inner.raw.as_ptr(), c_int::from(percent)) },
+            "set zoom",
+        )
+    }
+
+    /// Fit the largest whole device view inside the current display.
+    pub fn set_zoom_fit(&self) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_set_zoom_fit(self.inner.raw.as_ptr()) },
+            "fit zoom",
+        )
+    }
+
+    pub fn zoom_percent(&self) -> u16 {
+        let percent = unsafe { micro_native_get_zoom(self.inner.raw.as_ptr()) };
+        u16::try_from(percent).unwrap_or(0)
+    }
+
+    /// Convert a window point (SDL top-left coordinates) into design-canvas
+    /// coordinates. Returns `None` for points in the letterbox bars.
+    pub fn window_to_logical(&self, x: f32, y: f32) -> Option<(f32, f32)> {
+        let mut logical_x = 0.0;
+        let mut logical_y = 0.0;
+        let inside = unsafe {
+            micro_native_window_to_logical(
+                self.inner.raw.as_ptr(),
+                f64::from(x),
+                f64::from(y),
+                &mut logical_x,
+                &mut logical_y,
+            )
+        };
+        (inside != 0).then_some((logical_x as f32, logical_y as f32))
+    }
+
+    /// Convert a design-canvas point into SDL window coordinates.
+    pub fn logical_to_window(&self, x: f32, y: f32) -> (f32, f32) {
+        let mut window_x = 0.0;
+        let mut window_y = 0.0;
+        unsafe {
+            micro_native_logical_to_window(
+                self.inner.raw.as_ptr(),
+                f64::from(x),
+                f64::from(y),
+                &mut window_x,
+                &mut window_y,
+            );
+        }
+        (window_x as f32, window_y as f32)
+    }
+
+    /// Absolute LVGL rectangle `(x, y, width, height)` for a mounted node.
+    pub fn object_rect(&self, node: NodeId) -> Option<(i32, i32, i32, i32)> {
+        let mut x = 0;
+        let mut y = 0;
+        let mut width = 0;
+        let mut height = 0;
+        let ok = unsafe {
+            micro_native_object_rect(
+                self.inner.raw.as_ptr(),
+                node.0,
+                &mut x,
+                &mut y,
+                &mut width,
+                &mut height,
+            )
+        };
+        (ok != 0).then_some((x, y, width, height))
     }
 
     pub fn take_activation(&mut self) -> Option<FunctionId> {
@@ -303,10 +702,109 @@ impl NativeBridge {
         unsafe { micro_native_inject_activation(self.inner.raw.as_ptr(), id.0) };
     }
 
+    /// Drain a text-field edit made by the native keyboard / clipboard path.
+    pub fn take_input_change(&mut self) -> Option<(FunctionId, String)> {
+        let mut handler = 0;
+        let mut len = 0usize;
+        let mut bytes = [0u8; 256];
+        let found = unsafe {
+            micro_native_take_input_change(
+                self.inner.raw.as_ptr(),
+                &mut handler,
+                bytes.as_mut_ptr().cast(),
+                bytes.len(),
+                &mut len,
+            )
+        };
+        if found == 0 {
+            return None;
+        }
+        Some((
+            FunctionId(handler),
+            String::from_utf8_lossy(&bytes[..len.min(bytes.len())]).into_owned(),
+        ))
+    }
+
+    pub fn take_slider_change(&mut self) -> Option<(FunctionId, f64)> {
+        let mut handler = 0;
+        let mut value = 0.0;
+        (unsafe {
+            micro_native_take_slider_change(self.inner.raw.as_ptr(), &mut handler, &mut value)
+        } != 0)
+            .then_some((FunctionId(handler), value))
+    }
+
+    pub fn take_checkbox_change(&mut self) -> Option<(FunctionId, bool)> {
+        let mut handler = 0;
+        let mut checked = 0;
+        (unsafe {
+            micro_native_take_checkbox_change(self.inner.raw.as_ptr(), &mut handler, &mut checked)
+        } != 0)
+            .then_some((FunctionId(handler), checked != 0))
+    }
+
+    pub fn take_dropdown_change(&mut self) -> Option<(FunctionId, f64)> {
+        let mut handler = 0;
+        let mut index = 0.0;
+        (unsafe {
+            micro_native_take_dropdown_change(self.inner.raw.as_ptr(), &mut handler, &mut index)
+        } != 0)
+            .then_some((FunctionId(handler), index))
+    }
+
+    pub fn take_roller_change(&mut self) -> Option<(FunctionId, f64)> {
+        let mut handler = 0;
+        let mut index = 0.0;
+        (unsafe {
+            micro_native_take_roller_change(self.inner.raw.as_ptr(), &mut handler, &mut index)
+        } != 0)
+            .then_some((FunctionId(handler), index))
+    }
+
     pub fn queue_click(&mut self, node: NodeId) -> Result<(), String> {
         native_result(
             unsafe { micro_native_queue_click(self.inner.raw.as_ptr(), node.0) },
             "queue click",
+        )
+    }
+
+    /// Test hook: push a real SDL mouse-wheel event at a design-canvas point.
+    /// Positive `wheel_y` is SDL's wheel-up / two-finger swipe toward the user.
+    pub fn queue_wheel(
+        &mut self,
+        logical_x: f32,
+        logical_y: f32,
+        wheel_x: f32,
+        wheel_y: f32,
+    ) -> Result<(), String> {
+        native_result(
+            unsafe {
+                micro_native_queue_wheel(
+                    self.inner.raw.as_ptr(),
+                    f64::from(logical_x),
+                    f64::from(logical_y),
+                    wheel_x,
+                    wheel_y,
+                )
+            },
+            "queue wheel",
+        )
+    }
+
+    /// Test hook: focus a textarea without synthesizing a visible pointer click.
+    pub fn focus_textarea(&mut self, node: NodeId) -> Result<(), String> {
+        native_result(
+            unsafe { micro_native_focus_textarea(self.inner.raw.as_ptr(), node.0) },
+            "focus textarea",
+        )
+    }
+
+    /// Test hook: push an SDL text-input event through the real poll path.
+    pub fn queue_text_input(&mut self, text: &str) -> Result<(), String> {
+        let text = CString::new(text).map_err(|_| "text input contains NUL".to_owned())?;
+        native_result(
+            unsafe { micro_native_queue_text_input(self.inner.raw.as_ptr(), text.as_ptr()) },
+            "queue text input",
         )
     }
 }
@@ -326,7 +824,9 @@ impl NativeUi for NativeBridge {
 
     fn create_column(&mut self, node: NodeId, parent: Option<NodeId>) -> Result<(), String> {
         native_result(
-            unsafe { micro_native_create_column(self.inner.raw.as_ptr(), node.0, parent_id(parent)) },
+            unsafe {
+                micro_native_create_column(self.inner.raw.as_ptr(), node.0, parent_id(parent))
+            },
             "create column",
         )
     }
@@ -335,6 +835,37 @@ impl NativeUi for NativeBridge {
         native_result(
             unsafe { micro_native_create_row(self.inner.raw.as_ptr(), node.0, parent_id(parent)) },
             "create row",
+        )
+    }
+
+    fn create_surface(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        tone: &str,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        let tone = c_string(tone)?;
+        native_result(
+            unsafe {
+                micro_native_create_surface(
+                    self.inner.raw.as_ptr(),
+                    node.0,
+                    parent_id(parent),
+                    tone.as_ptr(),
+                    handler.map_or(u32::MAX, |handler| handler.0),
+                )
+            },
+            "create surface",
+        )
+    }
+
+    fn set_visible(&mut self, node: NodeId, visible: bool) -> Result<(), String> {
+        native_result(
+            unsafe {
+                micro_native_set_visible(self.inner.raw.as_ptr(), node.0, c_int::from(visible))
+            },
+            "set visible",
         )
     }
 
@@ -380,7 +911,12 @@ impl NativeUi for NativeBridge {
     ) -> Result<(), String> {
         native_result(
             unsafe {
-                micro_native_create_progress(self.inner.raw.as_ptr(), node.0, parent_id(parent), fraction)
+                micro_native_create_progress(
+                    self.inner.raw.as_ptr(),
+                    node.0,
+                    parent_id(parent),
+                    fraction,
+                )
             },
             "create progress",
         )
@@ -417,7 +953,11 @@ impl NativeUi for NativeBridge {
     fn set_switch_checked(&mut self, node: NodeId, checked: bool) -> Result<(), String> {
         native_result(
             unsafe {
-                micro_native_set_switch_checked(self.inner.raw.as_ptr(), node.0, c_int::from(checked))
+                micro_native_set_switch_checked(
+                    self.inner.raw.as_ptr(),
+                    node.0,
+                    c_int::from(checked),
+                )
             },
             "set switch checked",
         )
@@ -448,6 +988,44 @@ impl NativeUi for NativeBridge {
         )
     }
 
+    fn create_icon(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        glyph: &str,
+        size_px: u8,
+        tone: &str,
+        variant: &str,
+        handler: Option<FunctionId>,
+    ) -> Result<(), String> {
+        let glyph = c_string(glyph)?;
+        let tone = c_string(tone)?;
+        let variant = c_string(variant)?;
+        native_result(
+            unsafe {
+                micro_native_create_icon(
+                    self.inner.raw.as_ptr(),
+                    node.0,
+                    parent_id(parent),
+                    glyph.as_ptr(),
+                    c_uint::from(size_px),
+                    tone.as_ptr(),
+                    variant.as_ptr(),
+                    handler.map_or(u32::MAX, |handler| handler.0),
+                )
+            },
+            "create icon",
+        )
+    }
+
+    fn set_icon(&mut self, node: NodeId, glyph: &str) -> Result<(), String> {
+        let glyph = c_string(glyph)?;
+        native_result(
+            unsafe { micro_native_set_icon(self.inner.raw.as_ptr(), node.0, glyph.as_ptr()) },
+            "set icon",
+        )
+    }
+
     fn create_button(
         &mut self,
         node: NodeId,
@@ -455,21 +1033,24 @@ impl NativeUi for NativeBridge {
         text: &str,
         handler: FunctionId,
         style: Option<&TextStyle>,
+        variant: Option<&str>,
     ) -> Result<(), String> {
         let text = c_string(text)?;
+        let selected = i32::from(variant == Some("selected"));
         call_with_native_text_style(
             style,
             AVAILABLE_NATIVE_FONTS,
             "create button",
-            |selected| unsafe {
+            |selected_style| unsafe {
                 micro_native_create_button(
                     self.inner.raw.as_ptr(),
                     node.0,
                     parent_id(parent),
                     text.as_ptr(),
                     handler.0,
-                    selected.font_handle.0 as usize,
-                    selected.line_height_px,
+                    selected_style.font_handle.0 as usize,
+                    selected_style.line_height_px,
+                    selected,
                 )
             },
         )
@@ -601,7 +1182,11 @@ impl NativeUi for NativeBridge {
         )
     }
 
-    fn set_layout_spec(&mut self, node: NodeId, layout: micro_ir::LayoutSpec) -> Result<(), String> {
+    fn set_layout_spec(
+        &mut self,
+        node: NodeId,
+        layout: micro_ir::LayoutSpec,
+    ) -> Result<(), String> {
         let mask = layout.left.map_or(0, |_| 1)
             | layout.top.map_or(0, |_| 2)
             | layout.width.map_or(0, |_| 4)
@@ -630,7 +1215,11 @@ impl NativeUi for NativeBridge {
         )
     }
 
-    fn apply_delphi_layout(&mut self, container: NodeId, children: &[NodeId]) -> Result<(), String> {
+    fn apply_delphi_layout(
+        &mut self,
+        container: NodeId,
+        children: &[NodeId],
+    ) -> Result<(), String> {
         let ids: Vec<c_uint> = children.iter().map(|c| c.0).collect();
         native_result(
             unsafe {
@@ -647,24 +1236,51 @@ impl NativeUi for NativeBridge {
 
     fn create_led(&mut self, node: NodeId, parent: Option<NodeId>, on: bool) -> Result<(), String> {
         native_result(
-            unsafe { micro_native_create_led(self.inner.raw.as_ptr(), node.0, parent_id(parent), c_int::from(on)) },
+            unsafe {
+                micro_native_create_led(
+                    self.inner.raw.as_ptr(),
+                    node.0,
+                    parent_id(parent),
+                    c_int::from(on),
+                )
+            },
             "create led",
         )
     }
 
     fn set_led(&mut self, node: NodeId, on: bool) -> Result<(), String> {
-        native_result(unsafe { micro_native_set_led(self.inner.raw.as_ptr(), node.0, c_int::from(on)) }, "set led")
+        native_result(
+            unsafe { micro_native_set_led(self.inner.raw.as_ptr(), node.0, c_int::from(on)) },
+            "set led",
+        )
     }
 
-    fn create_spinner(&mut self, node: NodeId, parent: Option<NodeId>, active: bool) -> Result<(), String> {
+    fn create_spinner(
+        &mut self,
+        node: NodeId,
+        parent: Option<NodeId>,
+        active: bool,
+    ) -> Result<(), String> {
         native_result(
-            unsafe { micro_native_create_spinner(self.inner.raw.as_ptr(), node.0, parent_id(parent), c_int::from(active)) },
+            unsafe {
+                micro_native_create_spinner(
+                    self.inner.raw.as_ptr(),
+                    node.0,
+                    parent_id(parent),
+                    c_int::from(active),
+                )
+            },
             "create spinner",
         )
     }
 
     fn set_spinner(&mut self, node: NodeId, active: bool) -> Result<(), String> {
-        native_result(unsafe { micro_native_set_spinner(self.inner.raw.as_ptr(), node.0, c_int::from(active)) }, "set spinner")
+        native_result(
+            unsafe {
+                micro_native_set_spinner(self.inner.raw.as_ptr(), node.0, c_int::from(active))
+            },
+            "set spinner",
+        )
     }
 
     fn create_scale(
@@ -676,13 +1292,25 @@ impl NativeUi for NativeBridge {
     ) -> Result<(), String> {
         let (min, max) = range.unwrap_or((0.0, 100.0));
         native_result(
-            unsafe { micro_native_create_scale(self.inner.raw.as_ptr(), node.0, parent_id(parent), value, min, max) },
+            unsafe {
+                micro_native_create_scale(
+                    self.inner.raw.as_ptr(),
+                    node.0,
+                    parent_id(parent),
+                    value,
+                    min,
+                    max,
+                )
+            },
             "create scale",
         )
     }
 
     fn set_scale_value(&mut self, node: NodeId, value: f64) -> Result<(), String> {
-        native_result(unsafe { micro_native_set_scale_value(self.inner.raw.as_ptr(), node.0, value) }, "set scale value")
+        native_result(
+            unsafe { micro_native_set_scale_value(self.inner.raw.as_ptr(), node.0, value) },
+            "set scale value",
+        )
     }
 
     fn create_roller(

@@ -1,6 +1,21 @@
 cmake_minimum_required(VERSION 3.24)
 project(micro_native C)
 
+# macOS uses AVSpeechSynthesizer for speech and AVPlayer for URL audio (see
+# src/micro_speech.m / src/micro_audio.m). Other platforms build the same C
+# surface without the bridges; the Rust host compiles audio to a no-op there.
+set(MICRO_OBJC_SOURCES)
+set(MICRO_MENU_SOURCES src/micro_host_menu_stub.c)
+if(APPLE)
+  enable_language(OBJC)
+  list(APPEND MICRO_OBJC_SOURCES src/micro_speech.m src/micro_audio.m)
+  set_source_files_properties(
+    src/micro_speech.m src/micro_audio.m src/micro_host_menu.m
+    PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
+  )
+  set(MICRO_MENU_SOURCES src/micro_host_menu.m)
+endif()
+
 include(FetchContent)
 
 set(SDL_SHARED OFF CACHE BOOL "" FORCE)
@@ -34,11 +49,33 @@ set(MICRO_UI_FONT_SOURCES
   "${MICRO_UI_FONT_DIR}/micro_ui_sans_18.c"
   "${MICRO_UI_FONT_DIR}/micro_ui_sans_24.c"
   "${MICRO_UI_FONT_DIR}/micro_ui_sans_32.c"
+  "${MICRO_UI_FONT_DIR}/micro_ui_ipa_12.c"
+  "${MICRO_UI_FONT_DIR}/micro_ui_ipa_14.c"
+  "${MICRO_UI_FONT_DIR}/micro_ui_ipa_18.c"
+  "${MICRO_UI_FONT_DIR}/micro_ui_ipa_24.c"
+  "${MICRO_UI_FONT_DIR}/micro_ui_ipa_32.c"
+  "${MICRO_UI_FONT_DIR}/micro_icons_12.c"
+  "${MICRO_UI_FONT_DIR}/micro_icons_14.c"
+  "${MICRO_UI_FONT_DIR}/micro_icons_18.c"
+  "${MICRO_UI_FONT_DIR}/micro_icons_24.c"
+  "${MICRO_UI_FONT_DIR}/micro_icons_32.c"
 )
 
-add_library(micro_native SHARED src/micro_native.c ${MICRO_UI_FONT_SOURCES})
+add_library(micro_native SHARED
+  src/micro_native.c
+  src/micro_appbar.c
+  ${MICRO_MENU_SOURCES}
+  ${MICRO_OBJC_SOURCES}
+  ${MICRO_UI_FONT_SOURCES}
+)
 target_include_directories(micro_native PUBLIC include)
 target_link_libraries(micro_native PRIVATE SDL3::SDL3-static lvgl)
+if(APPLE)
+  target_link_libraries(micro_native PRIVATE "-framework AVFoundation" "-framework Foundation" "-framework AppKit")
+elseif(UNIX)
+  # lrintf/roundf/fabsf in the presentation transform.
+  target_link_libraries(micro_native PRIVATE m)
+endif()
 set_target_properties(micro_native PROPERTIES
   C_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN YES

@@ -12,6 +12,9 @@ native = []
 micro-core.workspace = true
 micro-ir.workspace = true
 micro-vm.workspace = true
+micro-store.workspace = true
+micro-json.workspace = true
+micro-net = { workspace = true, features = ["native"] }
 micro-lvgl = { path = "../micro-lvgl" }
 
 [build-dependencies]
